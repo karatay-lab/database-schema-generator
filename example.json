@@ -1,0 +1,279 @@
+{
+  "schemaVersion": 1,
+  "projectName": "Test-Project-1",
+  "projectVersion": "1.0111",
+  "provider": "postgresql",
+  "enums": [],
+  "models": [
+    {
+      "key": "433b907a-7f2b-4fe3-8eaa-78148e063da3",
+      "name": "users",
+      "fields": [
+        {
+          "key": "f458227b-e1d1-4f23-bcd1-e13a2cf396bc",
+          "name": "uuid",
+          "type": "integer",
+          "nullable": false,
+          "default": "autoincrement()",
+          "comment": "",
+          "constraints": [
+            {
+              "type": "PK"
+            }
+          ],
+          "array": false
+        },
+        {
+          "key": "177d5f8a-0667-4cb5-80c7-b3513ccec3f3",
+          "name": "ref_id",
+          "type": "string",
+          "nullable": true,
+          "default": "",
+          "comment": "",
+          "constraints": [
+            {
+              "type": "NATIVE",
+              "name": "VarChar",
+              "args": [
+                "100"
+              ]
+            }
+          ],
+          "array": false
+        },
+        {
+          "key": "73eab34d-be84-49c4-9941-1dac8e06e1f5",
+          "name": "ref_int",
+          "type": "integer",
+          "nullable": true,
+          "default": "",
+          "comment": "",
+          "constraints": [],
+          "array": false
+        },
+        {
+          "key": "6b72915d-473d-45b3-bf23-85238018a7fb",
+          "name": "replication_id",
+          "type": "integer",
+          "nullable": false,
+          "default": "0",
+          "comment": "",
+          "constraints": [
+            {
+              "type": "NATIVE",
+              "name": "SmallInt"
+            }
+          ],
+          "array": false
+        },
+        {
+          "key": "a5bad669-95a9-4aae-92e0-8359d0d40776",
+          "name": "is_confirmed",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false",
+          "comment": "",
+          "constraints": [],
+          "array": false
+        },
+        {
+          "key": "d2029531-8f73-414f-89f4-e12bcfa172e6",
+          "name": "is_deleted",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false",
+          "comment": "",
+          "constraints": [],
+          "array": false
+        },
+        {
+          "key": "390d2c63-4346-4719-8910-15c983ba134f",
+          "name": "is_active",
+          "type": "boolean",
+          "nullable": false,
+          "default": "true",
+          "comment": "",
+          "constraints": [],
+          "array": false
+        },
+        {
+          "key": "a851b9bd-c6fa-44fc-9a2c-239333e98b17",
+          "name": "tag",
+          "type": "string",
+          "nullable": true,
+          "default": "",
+          "comment": "user can use tag which will later used lilke tag#uuid[4]",
+          "constraints": [],
+          "array": false
+        },
+        {
+          "key": "ea97481a-9410-4253-b3c6-805fd7788f4e",
+          "name": "email",
+          "type": "string",
+          "nullable": false,
+          "default": "",
+          "comment": "",
+          "constraints": [],
+          "array": false
+        },
+        {
+          "key": "aa99e2cd-c84f-461d-b13c-21c3ae3233f8",
+          "name": "people_one_id",
+          "type": "integer",
+          "nullable": true,
+          "default": "",
+          "comment": "",
+          "constraints": [],
+          "array": false
+        },
+        {
+          "key": "25ff491e-5291-443d-9226-57d5fe01d3bd",
+          "name": "people",
+          "type": "people",
+          "nullable": true,
+          "default": "",
+          "comment": "",
+          "constraints": [],
+          "array": false,
+          "relation": {
+            "name": "users_people_rl",
+            "fields": [
+              "people_one_id"
+            ],
+            "references": [
+              "uuid"
+            ],
+            "onDelete": "Cascade",
+            "onUpdate": ""
+          }
+        }
+      ],
+      "restrictions": [
+        {
+          "key": "8a916507-934d-4e58-84c7-c007e5a44910",
+          "type": "UNIQUE",
+          "fields": [
+            "email"
+          ],
+          "dbName": ""
+        },
+        {
+          "key": "fd27629f-15de-4dce-8291-be504eeb9c46",
+          "type": "UNIQUE",
+          "fields": [
+            "people_one_id"
+          ],
+          "dbName": ""
+        }
+      ]
+    },
+    {
+      "key": "6921d7ad-678f-412c-a30d-5e4db56c3a33",
+      "name": "people",
+      "fields": [
+        {
+          "key": "aff1ac2e-8ac6-49c1-adcb-63f64a7e56d7",
+          "name": "uuid",
+          "type": "integer",
+          "nullable": false,
+          "default": "autoincrement()",
+          "comment": "",
+          "constraints": [
+            {
+              "type": "PK"
+            }
+          ],
+          "array": false
+        },
+        {
+          "key": "3063b8b7-e28d-4fa8-8ecc-31c08025a94f",
+          "name": "is_confirmed",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false",
+          "comment": "",
+          "constraints": [],
+          "array": false
+        },
+        {
+          "key": "bea8d435-7467-4798-97c2-5d1ae862513b",
+          "name": "is_deleted",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false",
+          "comment": "",
+          "constraints": [],
+          "array": false
+        },
+        {
+          "key": "f4acb093-bfff-4315-b7ce-bf4073f5ab83",
+          "name": "is_active",
+          "type": "boolean",
+          "nullable": false,
+          "default": "true",
+          "comment": "",
+          "constraints": [],
+          "array": false
+        },
+        {
+          "key": "cbf13f39-521d-4961-988a-69eb6185cf66",
+          "name": "is_notification_sent",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false",
+          "comment": "",
+          "constraints": [],
+          "array": false
+        },
+        {
+          "key": "0fc73273-bec0-4b0a-9b37-59596ada4eef",
+          "name": "is_email_sent",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false",
+          "comment": "",
+          "constraints": [],
+          "array": false
+        },
+        {
+          "key": "448a06b2-2569-4fc7-9b51-7241f8b95682",
+          "name": "first_name",
+          "type": "string",
+          "nullable": false,
+          "default": "",
+          "comment": "",
+          "constraints": [],
+          "array": false
+        },
+        {
+          "key": "aabf0dae-191b-4f6c-b49c-116da9e09695",
+          "name": "last_name",
+          "type": "string",
+          "nullable": false,
+          "default": "",
+          "comment": "",
+          "constraints": [],
+          "array": false
+        },
+        {
+          "key": "9bf2d218-16ea-45d4-845b-b762d4d88d02",
+          "name": "users",
+          "type": "users",
+          "nullable": true,
+          "default": "",
+          "comment": "",
+          "constraints": [],
+          "array": false,
+          "relation": {
+            "name": "users_people_rl",
+            "fields": [],
+            "references": [],
+            "onDelete": "",
+            "onUpdate": ""
+          }
+        }
+      ],
+      "restrictions": []
+    }
+  ]
+}
