@@ -1,0 +1,236 @@
+// Analytics Engine 1.0112 Prisma schema
+// Generated from app-mech database.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model User {
+  /// Tracked identity — may be anonymous or authenticated
+  /// Primary key — Prisma client-generated UUID
+  id String @default(uuid()) @db.Char(36)
+  /// Client-side generated ID for pre-auth tracking
+  trackingId String? @db.VarChar(36) @map("anonymous_id")
+  /// Authenticated user email (null for anonymous)
+  email String? @unique @db.VarChar(255)
+  /// Display name set after authentication
+  name String? @db.VarChar(255)
+  /// ISO 3166-1 alpha-2 country code from IP geolocation
+  country String? @db.VarChar(2)
+  /// Whether the user has been linked to a known identity
+  isIdentified Boolean @default(false) @db.TinyInt @map("is_identified")
+  /// Record creation timestamp
+  createdAt DateTime @default(now()) @db.DateTime(0) @map("created_at")
+  /// Record last-modified timestamp
+  updatedAt DateTime @updatedAt @db.DateTime(0) @map("updated_at")
+  dashboards Dashboard[] @relation("DashboardToUser")
+  reports Report[] @relation("ReportToUser")
+  sessions Session[] @relation("SessionToUser")
+  @@map("users")
+}
+
+model Session {
+  /// Bounded visit window grouping events for a single user interaction
+  /// Primary key — Prisma client-generated UUID
+  id String @default(uuid()) @db.Char(36)
+  /// User this session belongs to
+  userId String @db.Char(36) @map("user_id")
+  /// Device class: desktop | mobile | tablet
+  device String? @db.VarChar(20)
+  /// Browser name and major version
+  browser String? @db.VarChar(50)
+  /// Operating system name and version
+  os String? @db.VarChar(50)
+  /// Client IP address (IPv4 or IPv6)
+  clientIp String? @db.VarChar(45) @map("ip_address")
+  /// Total events recorded in this session
+  eventCount Int @default(0) @map("event_count")
+  /// Session start timestamp
+  startedAt DateTime @db.DateTime(0) @map("started_at")
+  /// Session end timestamp (null while active)
+  endedAt DateTime? @db.DateTime(0) @map("ended_at")
+  /// Record creation timestamp
+  createdAt DateTime @default(now()) @db.DateTime(0) @map("created_at")
+  events Event[] @relation("EventToSession")
+  user User @relation(name: "SessionToUser", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  @@index([userId])
+  @@map("sessions")
+}
+
+model Event {
+  /// Single captured user interaction or system action
+  /// Primary key — Prisma client-generated UUID
+  id String @default(uuid()) @db.Char(36)
+  /// Session this event was captured in
+  sessionId String @db.Char(36) @map("session_id")
+  /// User who triggered the event
+  userId String @db.Char(36) @map("user_id")
+  /// Event name slug, e.g. page_view or button_click
+  name String @db.VarChar(100)
+  /// Broad event category for grouping in reports
+  category String? @db.VarChar(50)
+  /// Arbitrary key-value data attached to the event at capture time
+  payload String?
+  /// Exact client-side timestamp when the event fired
+  occurredAt DateTime @db.DateTime(0) @map("occurred_at")
+  /// Record creation timestamp
+  createdAt DateTime @default(now()) @db.DateTime(0) @map("created_at")
+  session Session @relation(name: "EventToSession", fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  @@index([sessionId])
+  @@map("events")
+}
+
+model EventAttribute {
+  /// Normalised key-value attribute attached to an event for flexible querying
+  /// Primary key — Prisma client-generated UUID
+  id String @default(uuid()) @db.Char(36)
+  /// Parent event UUID
+  eventId String @db.Char(36) @map("event_id")
+  /// Attribute name, e.g. page_url or product_id
+  key String @db.VarChar(100)
+  /// String-serialised attribute value
+  value String @db.VarChar(500)
+  /// Value data type hint: string | number | boolean | json
+  valueType String @db.VarChar(20) @map("value_type")
+  /// Record creation timestamp
+  createdAt DateTime @default(now()) @db.DateTime(0) @map("created_at")
+  @@map("event_attributes")
+}
+
+model Funnel {
+  /// Named multi-step conversion path measuring user drop-off
+  /// Primary key — Prisma client-generated UUID
+  id String @default(uuid()) @db.Char(36)
+  /// Human-readable funnel name
+  name String @db.VarChar(150)
+  /// What this funnel measures and why it matters
+  description String? @db.Text
+  /// Whether this funnel is currently being tracked
+  isActive Boolean @default(true) @db.TinyInt @map("is_active")
+  /// Maximum days allowed between consecutive steps
+  windowDays Int @default(30) @map("window_days")
+  /// Record creation timestamp
+  createdAt DateTime @default(now()) @db.DateTime(0) @map("created_at")
+  /// Record last-modified timestamp
+  updatedAt DateTime @updatedAt @db.DateTime(0) @map("updated_at")
+  steps ConversionStep[] @relation("FunnelStepToFunnel")
+  @@map("funnels")
+}
+
+model ConversionStep {
+  /// Ordered step within a funnel definition, matched by event name
+  /// Primary key — Prisma client-generated UUID
+  id String @default(uuid()) @db.Char(36)
+  /// Owning funnel UUID
+  funnelId String @db.Char(36) @map("funnel_id")
+  /// Step label shown in reports
+  name String @db.VarChar(150)
+  /// Event name that satisfies this step
+  eventName String @db.VarChar(100) @map("event_name")
+  /// Zero-based position within the funnel
+  stepOrder Int @default(0) @map("step_order")
+  /// Percentage of users reaching this step from the previous one
+  conversionRate Decimal? @map("conversion_rate")
+  /// Record creation timestamp
+  createdAt DateTime @default(now()) @db.DateTime(0) @map("created_at")
+  /// Record last-modified timestamp
+  updatedAt DateTime @updatedAt @db.DateTime(0) @map("updated_at")
+  funnel Funnel @relation(name: "FunnelStepToFunnel", fields: [funnelId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  @@unique([funnelId, stepOrder])
+  @@map("conversion_steps")
+}
+
+model DataSource {
+  /// External data feed or integration connection used to ingest events
+  /// Primary key — Prisma client-generated UUID
+  id String @default(uuid()) @db.Char(36)
+  /// Display name for the data source
+  name String @db.VarChar(150)
+  /// Integration type: sdk | webhook | csv | api
+  type String @db.VarChar(50)
+  /// Encrypted connection configuration (API keys, endpoints, options)
+  settings Json? @db.Json
+  /// Whether ingestion from this source is currently enabled
+  isActive Boolean @default(true) @db.TinyInt @map("is_active")
+  /// Timestamp of the most recent successful data pull
+  lastSyncedAt DateTime? @db.DateTime(0) @map("last_synced_at")
+  /// Record creation timestamp
+  createdAt DateTime @default(now()) @db.DateTime(0) @map("created_at")
+  /// Record last-modified timestamp
+  updatedAt DateTime @updatedAt @db.DateTime(0) @map("updated_at")
+  @@map("data_sources")
+}
+
+model Dashboard {
+  /// Named collection of widgets owned by a user for monitoring KPIs
+  /// Primary key — Prisma client-generated UUID
+  id String @default(uuid()) @db.Char(36)
+  /// User who owns this dashboard
+  userId String @db.Char(36) @map("user_id")
+  /// Dashboard display name
+  name String @db.VarChar(150)
+  /// Short description of what this dashboard tracks
+  description String? @db.VarChar(500)
+  /// Grid layout preset: grid | single | wide
+  layout String @db.VarChar(20)
+  /// Whether the dashboard is accessible via a public share link
+  isPublic Boolean @default(false) @db.TinyInt @map("is_public")
+  /// Record creation timestamp
+  createdAt DateTime @default(now()) @db.DateTime(0) @map("created_at")
+  /// Record last-modified timestamp
+  updatedAt DateTime @updatedAt @db.DateTime(0) @map("updated_at")
+  user User @relation(name: "DashboardToUser", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  widgets Widget[] @relation("WidgetToDashboard")
+  @@map("dashboards")
+}
+
+model Widget {
+  /// Single chart or metric card placed on a dashboard
+  /// Primary key — Prisma client-generated UUID
+  id String @default(uuid()) @db.Char(36)
+  /// Parent dashboard UUID
+  dashboardId String @db.Char(36) @map("dashboard_id")
+  /// Visualisation type: line_chart | bar_chart | funnel | number | table
+  type String @db.VarChar(50)
+  /// Widget heading shown to viewers
+  title String @db.VarChar(150)
+  /// Query definition, axis settings, filters, and colour overrides
+  config Json? @db.Json
+  /// Position within the dashboard grid (row-major order)
+  sortOrder Int @default(0) @map("sort_order")
+  /// Record creation timestamp
+  createdAt DateTime @default(now()) @db.DateTime(0) @map("created_at")
+  /// Record last-modified timestamp
+  updatedAt DateTime @updatedAt @db.DateTime(0) @map("updated_at")
+  dashboard Dashboard @relation(name: "WidgetToDashboard", fields: [dashboardId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  @@index([dashboardId])
+  @@map("widgets")
+}
+
+model Report {
+  /// Scheduled or on-demand aggregation output delivered to users
+  /// Primary key — Prisma client-generated UUID
+  id String @default(uuid()) @db.Char(36)
+  /// User who created or owns the report
+  userId String @db.Char(36) @map("user_id")
+  /// Report display name
+  name String @db.VarChar(150)
+  /// Raw SQL or DSL query used to produce the report
+  query String @db.Text
+  /// Output format, grouping, date range, and filter settings
+  config Json? @db.Json
+  /// Execution status: pending | running | completed | failed
+  status String @db.VarChar(20)
+  /// Next scheduled run time (null for on-demand reports)
+  scheduledAt DateTime? @db.DateTime(0) @map("scheduled_at")
+  /// Record creation timestamp
+  createdAt DateTime @default(now()) @db.DateTime(0) @map("created_at")
+  /// Record last-modified timestamp
+  updatedAt DateTime @updatedAt @db.DateTime(0) @map("updated_at")
+  user User @relation(name: "ReportToUser", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  @@map("reports")
+}

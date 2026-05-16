@@ -1,0 +1,113 @@
+{
+  "table": "authors",
+  "schemaTable": "authors",
+  "resolvedTable": "authors",
+  "matched": true,
+  "tableId": "ee9f2e23-eafc-43f0-9366-b0c8a4499fc8",
+  "targetTable": "authors",
+  "targetModelKey": "ee9f2e23-eafc-43f0-9366-b0c8a4499fc8",
+  "count": 10,
+  "collectedAt": "2026-05-15T23:42:35.455Z",
+  "records": [
+    {
+      "id": "b0000000-0000-0000-0000-000000000001",
+      "name": "Sophie Leclerc",
+      "email": "sophie.leclerc@contenthub.io",
+      "bio": "Tech journalist and open-source advocate with 10 years in the industry.",
+      "avatarUrl": "https://cdn.contenthub.io/avatars/sophie.jpg",
+      "isActive": true,
+      "createdAt": "2023-06-01T09:00:00.000Z",
+      "updatedAt": "2024-01-10T11:00:00.000Z"
+    },
+    {
+      "id": "b0000000-0000-0000-0000-000000000002",
+      "name": "Marcus Webb",
+      "email": "marcus.webb@contenthub.io",
+      "bio": null,
+      "avatarUrl": "https://cdn.contenthub.io/avatars/marcus.jpg",
+      "isActive": true,
+      "createdAt": "2023-07-15T10:00:00.000Z",
+      "updatedAt": "2023-07-15T10:00:00.000Z"
+    },
+    {
+      "id": "b0000000-0000-0000-0000-000000000003",
+      "name": "Anika Patel",
+      "email": "anika.patel@contenthub.io",
+      "bio": "UX researcher and product thinker. Writes about design systems.",
+      "avatarUrl": null,
+      "isActive": true,
+      "createdAt": "2023-08-01T08:00:00.000Z",
+      "updatedAt": "2024-02-05T09:00:00.000Z"
+    },
+    {
+      "id": "b0000000-0000-0000-0000-000000000004",
+      "name": "Tom Erikson",
+      "email": "tom.erikson@contenthub.io",
+      "bio": "Backend engineer turned technical writer. Loves Rust and databases.",
+      "avatarUrl": "https://cdn.contenthub.io/avatars/tom.jpg",
+      "isActive": true,
+      "createdAt": "2023-09-10T09:00:00.000Z",
+      "updatedAt": "2024-03-01T10:00:00.000Z"
+    },
+    {
+      "id": "b0000000-0000-0000-0000-000000000005",
+      "name": "Lena Vogel",
+      "email": "lena.vogel@contenthub.io",
+      "bio": null,
+      "avatarUrl": null,
+      "isActive": false,
+      "createdAt": "2023-10-01T08:00:00.000Z",
+      "updatedAt": "2024-01-01T08:00:00.000Z"
+    },
+    {
+      "id": "b0000000-0000-0000-0000-000000000006",
+      "name": "Rashid Omar",
+      "email": "rashid.omar@contenthub.io",
+      "bio": "Data science practitioner. Writes about ML ops and pipelines.",
+      "avatarUrl": "https://cdn.contenthub.io/avatars/rashid.jpg",
+      "isActive": true,
+      "createdAt": "2023-11-01T09:00:00.000Z",
+      "updatedAt": "2024-04-10T10:00:00.000Z"
+    },
+    {
+      "id": "b0000000-0000-0000-0000-000000000007",
+      "name": "Clara Nguyen",
+      "email": "clara.nguyen@contenthub.io",
+      "bio": "Frontend developer specialising in accessibility and performance.",
+      "avatarUrl": "https://cdn.contenthub.io/avatars/clara.jpg",
+      "isActive": true,
+      "createdAt": "2023-12-01T09:00:00.000Z",
+      "updatedAt": "2024-02-20T11:00:00.000Z"
+    },
+    {
+      "id": "b0000000-0000-0000-0000-000000000008",
+      "name": "James Kowalski",
+      "email": "james.kowalski@contenthub.io",
+      "bio": null,
+      "avatarUrl": null,
+      "isActive": true,
+      "createdAt": "2024-01-05T08:00:00.000Z",
+      "updatedAt": "2024-01-05T08:00:00.000Z"
+    },
+    {
+      "id": "b0000000-0000-0000-0000-000000000009",
+      "name": "Priya Sharma",
+      "email": "priya.sharma@contenthub.io",
+      "bio": "DevOps engineer writing about CI/CD, containers, and cloud-native.",
+      "avatarUrl": "https://cdn.contenthub.io/avatars/priya.jpg",
+      "isActive": true,
+      "createdAt": "2024-02-01T09:00:00.000Z",
+      "updatedAt": "2024-04-15T10:00:00.000Z"
+    },
+    {
+      "id": "b0000000-0000-0000-0000-00000000000a",
+      "name": "Ethan Brooks",
+      "email": "ethan.brooks@contenthub.io",
+      "bio": "Security researcher and CTF enthusiast. Writes about offensive and defensive security.",
+      "avatarUrl": "https://cdn.contenthub.io/avatars/ethan.jpg",
+      "isActive": true,
+      "createdAt": "2024-03-01T09:00:00.000Z",
+      "updatedAt": "2024-03-01T09:00:00.000Z"
+    }
+  ]
+}

@@ -4,7 +4,9 @@ import { simulateMockTables } from "./workflows/tables/simulate";
 import { simulateMockFields } from "./workflows/fields/simulate";
 import { simulateMockRelations } from "./workflows/relations/simulate";
 import { simulateMockRestrictions } from "./workflows/restrictions/simulate";
+import { simulateV2Update, simulateV2Exports } from "./workflows/version-update/simulate";
 import { simulateExports } from "./workflows/exports/simulate";
+import { simulateMockData } from "./workflows/migrations/simulate";
 
 async function createAllMockRecords() {
   console.log("\n── Projects ─────────────────────────────────────────────────────\n");
@@ -33,8 +35,17 @@ async function createAllMockRecords() {
 async function main() {
   const { projects, tables, fields, relations, restrictions } = await createAllMockRecords();
 
-  console.log("\n── Exports ──────────────────────────────────────────────────────\n");
+  console.log("\n── Version Update (v2) ──────────────────────────────────────────\n");
+  const { projects: updatedProjects } = await simulateV2Update(projects);
+
+  console.log("\n── Exports (v1) ─────────────────────────────────────────────────\n");
   await simulateExports(projects, tables, fields, relations, restrictions);
+
+  console.log("\n── Exports (v2) ─────────────────────────────────────────────────\n");
+  await simulateV2Exports(updatedProjects);
+
+  console.log("\n── Mock Data (v1 snapshots) ─────────────────────────────────────\n");
+  await simulateMockData(updatedProjects);
 }
 
 main()

@@ -1,0 +1,12 @@
+export const tags = [
+  { id: "f0000000-0000-0000-0000-000000000001", name: "open-source", slug: "open-source", createdAt: "2023-06-01T00:00:00.000Z" },
+  { id: "f0000000-0000-0000-0000-000000000002", name: "postgres", slug: "postgres", createdAt: "2023-06-01T00:00:00.000Z" },
+  { id: "f0000000-0000-0000-0000-000000000003", name: "design-systems", slug: "design-systems", createdAt: "2023-06-01T00:00:00.000Z" },
+  { id: "f0000000-0000-0000-0000-000000000004", name: "machine-learning", slug: "machine-learning", createdAt: "2023-06-01T00:00:00.000Z" },
+  { id: "f0000000-0000-0000-0000-000000000005", name: "accessibility", slug: "accessibility", createdAt: "2023-06-01T00:00:00.000Z" },
+  { id: "f0000000-0000-0000-0000-000000000006", name: "kubernetes", slug: "kubernetes", createdAt: "2023-06-01T00:00:00.000Z" },
+  { id: "f0000000-0000-0000-0000-000000000007", name: "security", slug: "security", createdAt: "2023-06-01T00:00:00.000Z" },
+  { id: "f0000000-0000-0000-0000-000000000008", name: "typescript", slug: "typescript", createdAt: "2023-06-01T00:00:00.000Z" },
+  { id: "f0000000-0000-0000-0000-000000000009", name: "monorepo", slug: "monorepo", createdAt: "2023-06-01T00:00:00.000Z" },
+  { id: "f0000000-0000-0000-0000-00000000000a", name: "devops", slug: "devops", createdAt: "2023-06-01T00:00:00.000Z" },
+] as const;

@@ -1,0 +1,113 @@
+{
+  "table": "comments",
+  "schemaTable": "comments",
+  "resolvedTable": "comments",
+  "matched": true,
+  "tableId": "d68f3c93-6158-45bc-b6d6-4b7e61de6163",
+  "targetTable": "comments",
+  "targetModelKey": "d68f3c93-6158-45bc-b6d6-4b7e61de6163",
+  "count": 10,
+  "collectedAt": "2026-05-15T23:42:35.463Z",
+  "records": [
+    {
+      "id": "12000000-0000-0000-0000-000000000001",
+      "postId": "c0000000-0000-0000-0000-000000000001",
+      "authorId": "b0000000-0000-0000-0000-000000000004",
+      "guestName": null,
+      "body": "Great overview! I'd add that the rise of VC-backed open source is worth its own article.",
+      "isApproved": true,
+      "createdAt": "2024-01-16T10:00:00.000Z",
+      "updatedAt": "2024-01-16T12:00:00.000Z"
+    },
+    {
+      "id": "12000000-0000-0000-0000-000000000002",
+      "postId": "c0000000-0000-0000-0000-000000000001",
+      "authorId": null,
+      "guestName": "Nathan R.",
+      "body": "Interesting perspective. Do you think copyleft licenses will stage a comeback?",
+      "isApproved": true,
+      "createdAt": "2024-01-17T08:00:00.000Z",
+      "updatedAt": "2024-01-17T09:00:00.000Z"
+    },
+    {
+      "id": "12000000-0000-0000-0000-000000000003",
+      "postId": "c0000000-0000-0000-0000-000000000002",
+      "authorId": "b0000000-0000-0000-0000-000000000001",
+      "guestName": null,
+      "body": "Solid write-up. The partial index section is underrated.",
+      "isApproved": true,
+      "createdAt": "2024-02-02T09:00:00.000Z",
+      "updatedAt": "2024-02-02T09:30:00.000Z"
+    },
+    {
+      "id": "12000000-0000-0000-0000-000000000004",
+      "postId": "c0000000-0000-0000-0000-000000000003",
+      "authorId": null,
+      "guestName": "Yuki M.",
+      "body": "How do you handle token versioning across platforms?",
+      "isApproved": false,
+      "createdAt": "2024-02-16T11:00:00.000Z",
+      "updatedAt": "2024-02-16T11:00:00.000Z"
+    },
+    {
+      "id": "12000000-0000-0000-0000-000000000005",
+      "postId": "c0000000-0000-0000-0000-000000000004",
+      "authorId": "b0000000-0000-0000-0000-000000000009",
+      "guestName": null,
+      "body": "Feature stores complement this nicely. Worth mentioning Feast or Hopsworks.",
+      "isApproved": true,
+      "createdAt": "2024-03-02T10:00:00.000Z",
+      "updatedAt": "2024-03-02T10:30:00.000Z"
+    },
+    {
+      "id": "12000000-0000-0000-0000-000000000006",
+      "postId": "c0000000-0000-0000-0000-000000000006",
+      "authorId": null,
+      "guestName": "DevOps Dave",
+      "body": "Blue-green is great but the cost of running two full environments is often ignored.",
+      "isApproved": true,
+      "createdAt": "2024-03-21T08:00:00.000Z",
+      "updatedAt": "2024-03-21T09:00:00.000Z"
+    },
+    {
+      "id": "12000000-0000-0000-0000-000000000007",
+      "postId": "c0000000-0000-0000-0000-000000000007",
+      "authorId": "b0000000-0000-0000-0000-000000000003",
+      "guestName": null,
+      "body": "Prepared statements fix this at the library level — worth emphasising.",
+      "isApproved": true,
+      "createdAt": "2024-04-06T09:00:00.000Z",
+      "updatedAt": "2024-04-06T09:30:00.000Z"
+    },
+    {
+      "id": "12000000-0000-0000-0000-000000000008",
+      "postId": "c0000000-0000-0000-0000-000000000007",
+      "authorId": null,
+      "guestName": "Anonymous",
+      "body": "SPAM: Buy cheap meds online",
+      "isApproved": false,
+      "createdAt": "2024-04-06T10:00:00.000Z",
+      "updatedAt": "2024-04-06T10:00:00.000Z"
+    },
+    {
+      "id": "12000000-0000-0000-0000-000000000009",
+      "postId": "c0000000-0000-0000-0000-000000000009",
+      "authorId": "b0000000-0000-0000-0000-00000000000a",
+      "guestName": null,
+      "body": "The LGPL vs GPL distinction trips people up constantly. Good clarification here.",
+      "isApproved": true,
+      "createdAt": "2024-04-21T10:00:00.000Z",
+      "updatedAt": "2024-04-21T10:30:00.000Z"
+    },
+    {
+      "id": "12000000-0000-0000-0000-00000000000a",
+      "postId": "c0000000-0000-0000-0000-00000000000a",
+      "authorId": null,
+      "guestName": "Mike T.",
+      "body": "Turborepo has improved a lot since this was written. Worth an update.",
+      "isApproved": true,
+      "createdAt": "2024-02-10T08:00:00.000Z",
+      "updatedAt": "2024-02-10T08:30:00.000Z"
+    }
+  ]
+}

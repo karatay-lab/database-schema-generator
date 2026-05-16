@@ -24,7 +24,7 @@ run_push() {
   log "   time   : $(date +%H:%M:%S)"
   log ""
 
-  if DATABASE_URL="$url" pnpm prisma db push --force-reset --schema="$schema" 2>&1 | tee -a "$LOG_FILE"; then
+  if pnpm prisma db push --force-reset --schema="$schema" --url="$url" 2>&1 | tee -a "$LOG_FILE"; then
     log ""
     log "   ✓ $label pushed successfully"
   else
@@ -39,12 +39,12 @@ log "log file  $LOG_FILE"
 
 run_push \
   "Shopfront Manager" \
-  "postgresql://dev:dev@localhost:54321/dev" \
+  "postgresql://dev:dev@localhost:54321/dev?schema=shopfront" \
   "$SCRIPT_DIR/exports/shopfront-manager-1.0111.prisma"
 
 run_push \
   "Content Hub Pro" \
-  "postgresql://dev:dev@localhost:54321/dev" \
+  "postgresql://dev:dev@localhost:54321/dev?schema=content_hub" \
   "$SCRIPT_DIR/exports/content-hub-pro-1.0111.prisma"
 
 run_push \

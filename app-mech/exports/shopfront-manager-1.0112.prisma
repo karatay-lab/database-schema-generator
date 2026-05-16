@@ -1,0 +1,255 @@
+// Shopfront Manager 1.0112 Prisma schema
+// Generated from app-mech database.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Product {
+  /// Sellable item with pricing, inventory, and storefront metadata
+  /// Primary key — database-generated UUID
+  id String @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Display name shown in the storefront
+  name String @db.VarChar(255)
+  /// URL-safe unique identifier for the product page
+  slug String @unique @db.VarChar(255)
+  /// Long-form product description (supports markdown)
+  description String? @db.Text
+  /// Selling price in the store base currency
+  price Float
+  /// Units currently available in inventory
+  stockQuantity Int @default(0) @map("stock_quantity")
+  /// Whether the product is visible and purchasable
+  isActive Boolean @default(true) @map("is_active")
+  /// Arbitrary additional attributes (dimensions, colour, tags)
+  metadata Json? @db.JsonB
+  /// Record creation timestamp
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  /// Record last-modified timestamp
+  updatedAt DateTime @updatedAt @db.Timestamptz(6) @map("updated_at")
+  orderItems OrderItem[] @relation("OrderItemToProduct")
+  reviews Review[] @relation("ReviewToProduct")
+  @@map("products")
+}
+
+model Category {
+  /// Hierarchical product grouping — supports self-referential nesting
+  /// Primary key — database-generated UUID
+  id String @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Category label shown to shoppers
+  name String @db.VarChar(100)
+  /// URL-safe unique identifier
+  slug String @unique @db.VarChar(100)
+  /// Optional editorial description of the category
+  description String? @db.Text
+  /// Parent category UUID for nested hierarchies (null = root)
+  parentId String? @db.Uuid @map("parent_id")
+  /// Display order among sibling categories
+  sortOrder Int @default(0) @map("sort_order")
+  /// Record creation timestamp
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  /// Record last-modified timestamp
+  updatedAt DateTime @updatedAt @db.Timestamptz(6) @map("updated_at")
+  @@map("categories")
+}
+
+model Customer {
+  /// Registered buyer — holds identity, contact details, and account flags
+  /// Primary key — database-generated UUID
+  id String @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Unique login email address
+  email String @unique @db.VarChar(255)
+  /// Given name
+  firstName String @db.VarChar(100) @map("first_name")
+  /// Family name
+  lastName String @db.VarChar(100) @map("last_name")
+  /// Contact phone number in E.164 format
+  phone String? @db.VarChar(20)
+  /// Whether the email address has been confirmed
+  emailVerified Boolean @default(false) @map("is_verified")
+  /// Arbitrary extra attributes (referral source, preferences)
+  metadata Json? @db.JsonB
+  /// Record creation timestamp
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  /// Record last-modified timestamp
+  updatedAt DateTime @updatedAt @db.Timestamptz(6) @map("updated_at")
+  addresses Address[] @relation("AddressToCustomer")
+  carts Basket[] @relation("CartToCustomer")
+  orders Order[] @relation("OrderToCustomer")
+  @@map("customers")
+}
+
+model Address {
+  /// Shipping or billing address linked to a customer
+  /// Primary key — database-generated UUID
+  id String @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Owning customer UUID
+  customerId String @db.Uuid @map("customer_id")
+  /// Address purpose: shipping or billing
+  type String @db.VarChar(20)
+  /// Street line including house number
+  street String @db.VarChar(255)
+  /// City or locality name
+  city String @db.VarChar(100)
+  /// State, province, or region (optional)
+  state String? @db.VarChar(100)
+  /// ZIP or postal code
+  postalCode String @db.VarChar(20) @map("postal_code")
+  /// ISO 3166-1 alpha-2 country code
+  country String @db.Char(2)
+  /// Whether this is the customer's default shipping address
+  isDefault Boolean @default(false) @map("is_default")
+  /// Record creation timestamp
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  customer Customer @relation(name: "AddressToCustomer", fields: [customerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  orders Order[] @relation("OrderToShippingAddress")
+  @@map("addresses")
+}
+
+model Basket {
+  /// Active shopping session — holds items before checkout
+  /// Primary key — database-generated UUID
+  id String @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Owning customer UUID (null for guest carts)
+  customerId String? @db.Uuid @map("customer_id")
+  /// Cart lifecycle state: active | abandoned | converted
+  status String @db.VarChar(20)
+  /// Running sum of all cart item prices
+  total Float @db.DoublePrecision @map("total_amount")
+  /// Timestamp after which the cart is considered abandoned
+  expiresAt DateTime? @db.Timestamptz(6) @map("expires_at")
+  /// Record creation timestamp
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  /// Record last-modified timestamp
+  updatedAt DateTime @updatedAt @db.Timestamptz(6) @map("updated_at")
+  items BasketItem[] @relation("CartItemToCart")
+  customer Customer? @relation(name: "CartToCustomer", fields: [customerId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  @@map("baskets")
+}
+
+model BasketItem {
+  /// Single product line inside a shopping cart
+  /// Primary key — database-generated UUID
+  id String @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Owning cart UUID
+  cartId String @db.Uuid @map("cart_id")
+  /// Referenced product UUID
+  productId String @db.Uuid @map("product_id")
+  /// Number of units added to the cart
+  quantity Int @default(1)
+  /// Product price captured at the time of adding to cart
+  price Decimal @db.Decimal(10, 2) @map("unit_price")
+  /// Record creation timestamp
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  /// Record last-modified timestamp
+  updatedAt DateTime @updatedAt @db.Timestamptz(6) @map("updated_at")
+  cart Basket @relation(name: "CartItemToCart", fields: [cartId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  @@map("basket_items")
+}
+
+model Order {
+  /// Placed purchase — tracks status, totals, and shipping destination
+  /// Primary key — database-generated UUID
+  id String @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Customer who placed the order
+  customerId String @db.Uuid @map("customer_id")
+  /// Delivery address UUID
+  shippingAddressId String @db.Uuid @map("shipping_address_id")
+  /// Order lifecycle status: pending | confirmed | shipped | delivered | cancelled
+  status String @db.VarChar(30)
+  /// Sum of order items before tax and shipping
+  subtotal Decimal @db.Decimal(10, 2)
+  /// Shipping fee applied at checkout
+  shippingCost Decimal @db.Decimal(10, 2) @map("shipping_cost")
+  /// Final charged amount including all fees
+  totalAmount Decimal @db.Decimal(10, 2) @map("total_amount")
+  /// Carrier tracking info, discount codes, and other contextual data
+  metadata Json? @db.JsonB
+  /// Record creation timestamp
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  /// Record last-modified timestamp
+  updatedAt DateTime @updatedAt @db.Timestamptz(6) @map("updated_at")
+  items OrderItem[] @relation("OrderItemToOrder")
+  customer Customer @relation(name: "OrderToCustomer", fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  shippingAddress Address @relation(name: "OrderToShippingAddress", fields: [shippingAddressId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  payments Payment[] @relation("PaymentToOrder")
+  @@index([customerId])
+  @@map("orders")
+}
+
+model OrderItem {
+  /// Immutable product line snapshot inside a placed order
+  /// Primary key — database-generated UUID
+  id String @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Owning order UUID
+  orderId String @db.Uuid @map("order_id")
+  /// Referenced product UUID at time of purchase
+  productId String @db.Uuid @map("product_id")
+  /// Product name captured at purchase time (immutable snapshot)
+  productName String @db.VarChar(255) @map("product_name")
+  /// Units purchased
+  quantity Int @default(1)
+  /// Price per unit at time of purchase
+  unitPrice Decimal @db.Decimal(10, 2) @map("unit_price")
+  /// quantity × unitPrice
+  totalPrice Decimal @db.Decimal(10, 2) @map("total_price")
+  /// Record creation timestamp
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  order Order @relation(name: "OrderItemToOrder", fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  product Product @relation(name: "OrderItemToProduct", fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([orderId])
+  @@map("order_items")
+}
+
+model Payment {
+  /// Payment attempt against an order — tracks provider, amount, and outcome
+  /// Primary key — database-generated UUID
+  id String @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Order this payment applies to
+  orderId String @db.Uuid @map("order_id")
+  /// Payment gateway identifier: stripe | paypal | braintree
+  provider String @db.VarChar(50)
+  /// Amount charged in the order currency
+  amount Decimal @db.Decimal(10, 2)
+  /// ISO 4217 three-letter currency code
+  currency String @db.VarChar(3)
+  /// Outcome: pending | succeeded | failed | refunded
+  status String @db.VarChar(30)
+  /// External transaction ID returned by the payment provider
+  providerRef String? @db.VarChar(100) @map("provider_ref")
+  /// Raw provider response payload for auditing
+  metadata Json? @db.JsonB
+  /// Record creation timestamp
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  /// Record last-modified timestamp
+  updatedAt DateTime @updatedAt @db.Timestamptz(6) @map("updated_at")
+  order Order @relation(name: "PaymentToOrder", fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  @@index([orderId])
+  @@map("payments")
+}
+
+model Review {
+  /// Customer rating and text review submitted for a purchased product
+  /// Primary key — database-generated UUID
+  id String @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Reviewed product UUID
+  productId String @db.Uuid @map("product_id")
+  /// Reviewing customer UUID
+  customerId String @db.Uuid @map("customer_id")
+  /// Star rating from 1 (worst) to 5 (best)
+  rating Float
+  /// Free-text review content
+  body String? @db.Text
+  /// Whether the review has passed moderation
+  isApproved Boolean @default(false) @map("is_approved")
+  /// Record creation timestamp
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  /// Record last-modified timestamp
+  updatedAt DateTime @updatedAt @db.Timestamptz(6) @map("updated_at")
+  product Product @relation(name: "ReviewToProduct", fields: [productId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  @@map("reviews")
+}

@@ -1,0 +1,13 @@
+// First 3 are root categories (null parentId); the rest are children.
+export const categories = [
+  { id: "e0000000-0000-0000-0000-000000000001", parentId: null, name: "Engineering", slug: "engineering", description: "Software engineering, architecture, and best practices.", sortOrder: 0, createdAt: "2023-06-01T00:00:00.000Z", updatedAt: "2023-06-01T00:00:00.000Z" },
+  { id: "e0000000-0000-0000-0000-000000000002", parentId: null, name: "Design", slug: "design", description: "UX, product design, and design systems.", sortOrder: 1, createdAt: "2023-06-01T00:00:00.000Z", updatedAt: "2023-06-01T00:00:00.000Z" },
+  { id: "e0000000-0000-0000-0000-000000000003", parentId: null, name: "Data & AI", slug: "data-ai", description: null, sortOrder: 2, createdAt: "2023-06-01T00:00:00.000Z", updatedAt: "2023-06-01T00:00:00.000Z" },
+  { id: "e0000000-0000-0000-0000-000000000004", parentId: "e0000000-0000-0000-0000-000000000001", name: "Databases", slug: "databases", description: null, sortOrder: 0, createdAt: "2023-06-02T00:00:00.000Z", updatedAt: "2023-06-02T00:00:00.000Z" },
+  { id: "e0000000-0000-0000-0000-000000000005", parentId: "e0000000-0000-0000-0000-000000000001", name: "DevOps", slug: "devops", description: "CI/CD, containers, and infrastructure as code.", sortOrder: 1, createdAt: "2023-06-02T00:00:00.000Z", updatedAt: "2023-06-02T00:00:00.000Z" },
+  { id: "e0000000-0000-0000-0000-000000000006", parentId: "e0000000-0000-0000-0000-000000000001", name: "Security", slug: "security", description: null, sortOrder: 2, createdAt: "2023-06-02T00:00:00.000Z", updatedAt: "2023-06-02T00:00:00.000Z" },
+  { id: "e0000000-0000-0000-0000-000000000007", parentId: "e0000000-0000-0000-0000-000000000001", name: "TypeScript", slug: "typescript", description: null, sortOrder: 3, createdAt: "2023-06-02T00:00:00.000Z", updatedAt: "2023-06-02T00:00:00.000Z" },
+  { id: "e0000000-0000-0000-0000-000000000008", parentId: "e0000000-0000-0000-0000-000000000002", name: "Design Systems", slug: "design-systems", description: "Tokens, components, and governance.", sortOrder: 0, createdAt: "2023-06-02T00:00:00.000Z", updatedAt: "2023-06-02T00:00:00.000Z" },
+  { id: "e0000000-0000-0000-0000-000000000009", parentId: "e0000000-0000-0000-0000-000000000002", name: "Accessibility", slug: "accessibility", description: null, sortOrder: 1, createdAt: "2023-06-02T00:00:00.000Z", updatedAt: "2023-06-02T00:00:00.000Z" },
+  { id: "e0000000-0000-0000-0000-00000000000a", parentId: "e0000000-0000-0000-0000-000000000003", name: "Machine Learning", slug: "machine-learning", description: null, sortOrder: 0, createdAt: "2023-06-02T00:00:00.000Z", updatedAt: "2023-06-02T00:00:00.000Z" },
+] as const;

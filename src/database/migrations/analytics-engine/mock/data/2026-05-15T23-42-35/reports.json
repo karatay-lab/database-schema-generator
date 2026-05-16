@@ -1,0 +1,134 @@
+{
+  "table": "reports",
+  "schemaTable": "reports",
+  "resolvedTable": "reports",
+  "matched": true,
+  "tableId": "d0462e68-f107-495c-bac2-dd2d6fe4b0f7",
+  "targetTable": "reports",
+  "targetModelKey": "d0462e68-f107-495c-bac2-dd2d6fe4b0f7",
+  "count": 10,
+  "collectedAt": "2026-05-15T23:42:35.440Z",
+  "records": [
+    {
+      "id": "2a000000-0000-0000-0000-000000000001",
+      "userId": "21000000-0000-0000-0000-000000000001",
+      "name": "Weekly Active Users",
+      "query": "SELECT DATE_TRUNC('week', occurred_at) AS week, COUNT(DISTINCT user_id) AS wau FROM events GROUP BY 1 ORDER BY 1",
+      "config": {
+        "groupBy": "week",
+        "dateRange": "90d"
+      },
+      "status": "completed",
+      "scheduledAt": "2024-05-20T06:00:00.000Z",
+      "createdAt": "2024-01-20T09:00:00.000Z",
+      "updatedAt": "2024-05-15T06:05:00.000Z"
+    },
+    {
+      "id": "2a000000-0000-0000-0000-000000000002",
+      "userId": "21000000-0000-0000-0000-000000000001",
+      "name": "Revenue by Country",
+      "query": "SELECT country, SUM(amount) AS revenue FROM payments JOIN users ON payments.user_id = users.id GROUP BY country",
+      "config": null,
+      "status": "completed",
+      "scheduledAt": null,
+      "createdAt": "2024-02-01T09:00:00.000Z",
+      "updatedAt": "2024-02-01T09:10:00.000Z"
+    },
+    {
+      "id": "2a000000-0000-0000-0000-000000000003",
+      "userId": "21000000-0000-0000-0000-000000000004",
+      "name": "Feature Drift Daily",
+      "query": "SELECT feature_name, drift_score FROM feature_stats WHERE computed_at >= NOW() - INTERVAL 1 DAY",
+      "config": {
+        "threshold": 0.1
+      },
+      "status": "running",
+      "scheduledAt": "2024-05-16T05:00:00.000Z",
+      "createdAt": "2024-03-01T09:00:00.000Z",
+      "updatedAt": "2024-05-16T05:00:00.000Z"
+    },
+    {
+      "id": "2a000000-0000-0000-0000-000000000004",
+      "userId": "21000000-0000-0000-0000-000000000006",
+      "name": "Conversion by Funnel Step",
+      "query": "SELECT fs.name, fs.conversion_rate FROM funnel_steps fs JOIN funnels f ON fs.funnel_id = f.id WHERE f.is_active = 1",
+      "config": null,
+      "status": "completed",
+      "scheduledAt": null,
+      "createdAt": "2024-03-10T09:00:00.000Z",
+      "updatedAt": "2024-03-10T09:08:00.000Z"
+    },
+    {
+      "id": "2a000000-0000-0000-0000-000000000005",
+      "userId": "21000000-0000-0000-0000-000000000007",
+      "name": "UTM Attribution Report",
+      "query": "SELECT properties.value AS utm_source, COUNT(*) AS sessions FROM events JOIN properties ON events.id = properties.event_id WHERE properties.key = 'utm_source' GROUP BY 1",
+      "config": {
+        "dateRange": "30d"
+      },
+      "status": "completed",
+      "scheduledAt": "2024-05-15T07:00:00.000Z",
+      "createdAt": "2024-03-15T09:00:00.000Z",
+      "updatedAt": "2024-05-15T07:05:00.000Z"
+    },
+    {
+      "id": "2a000000-0000-0000-0000-000000000006",
+      "userId": "21000000-0000-0000-0000-000000000002",
+      "name": "Support CSAT Trend",
+      "query": "SELECT DATE_TRUNC('month', created_at) AS month, AVG(csat_score) FROM support_tickets GROUP BY 1",
+      "config": null,
+      "status": "pending",
+      "scheduledAt": "2024-05-16T08:00:00.000Z",
+      "createdAt": "2024-04-01T09:00:00.000Z",
+      "updatedAt": "2024-04-01T09:00:00.000Z"
+    },
+    {
+      "id": "2a000000-0000-0000-0000-000000000007",
+      "userId": "21000000-0000-0000-0000-000000000009",
+      "name": "API Error Rate by Endpoint",
+      "query": "SELECT path, COUNT(*) FILTER (WHERE status >= 500) / COUNT(*)::float AS error_rate FROM api_logs GROUP BY path ORDER BY error_rate DESC LIMIT 20",
+      "config": {
+        "period": "24h"
+      },
+      "status": "completed",
+      "scheduledAt": null,
+      "createdAt": "2024-04-10T09:00:00.000Z",
+      "updatedAt": "2024-04-10T09:06:00.000Z"
+    },
+    {
+      "id": "2a000000-0000-0000-0000-000000000008",
+      "userId": "21000000-0000-0000-0000-000000000004",
+      "name": "Experiment Lift Summary",
+      "query": "SELECT experiment_name, variant, AVG(conversion) AS cvr FROM experiment_results GROUP BY 1, 2",
+      "config": null,
+      "status": "failed",
+      "scheduledAt": null,
+      "createdAt": "2024-04-15T09:00:00.000Z",
+      "updatedAt": "2024-04-15T09:02:00.000Z"
+    },
+    {
+      "id": "2a000000-0000-0000-0000-000000000009",
+      "userId": "21000000-0000-0000-0000-000000000001",
+      "name": "Monthly Executive KPIs",
+      "query": "SELECT 'MRR' AS metric, SUM(amount) AS value FROM subscriptions WHERE active = 1 UNION ALL SELECT 'WAU', COUNT(DISTINCT user_id) FROM events WHERE occurred_at >= NOW() - INTERVAL 7 DAY",
+      "config": {
+        "format": "table"
+      },
+      "status": "completed",
+      "scheduledAt": "2024-05-01T05:00:00.000Z",
+      "createdAt": "2024-05-01T05:00:00.000Z",
+      "updatedAt": "2024-05-01T05:08:00.000Z"
+    },
+    {
+      "id": "2a000000-0000-0000-0000-00000000000a",
+      "userId": "21000000-0000-0000-0000-00000000000a",
+      "name": "Anonymous Session Paths",
+      "query": "SELECT s.id, GROUP_CONCAT(e.name ORDER BY e.occurred_at) AS event_path FROM sessions s JOIN events e ON s.id = e.session_id WHERE s.user_id IN (SELECT id FROM users WHERE is_identified = 0) GROUP BY s.id",
+      "config": null,
+      "status": "pending",
+      "scheduledAt": null,
+      "createdAt": "2024-05-10T09:00:00.000Z",
+      "updatedAt": "2024-05-10T09:00:00.000Z"
+    }
+  ]
+}
