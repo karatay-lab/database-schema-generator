@@ -317,6 +317,7 @@ export async function forkProjectVersion(projectId: string): Promise<ForkResult>
             nativeType: srcField.nativeType,
             nullable: srcField.nullable,
             isArray: srcField.isArray,
+            isId: srcField.isId,
             defaultKind: srcField.defaultKind,
             defaultValue: srcField.defaultValue,
             defaultPostgres: srcField.defaultPostgres,

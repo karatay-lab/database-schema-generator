@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: dev
       POSTGRES_DB: dev
     ports:
-      - "54321:5432"
+      - '54321:5432'
 
   mysql:
     image: mysql:9
@@ -16,4 +16,4 @@ services:
       MYSQL_USER: dev
       MYSQL_PASSWORD: dev
     ports:
-      - "54322:3306"
+      - '54322:3306'

@@ -28,6 +28,8 @@ model Project {
   schemaImports          SchemaImport[]          @relation("ProjectImports")
   migrationSnapshots     MigrationSnapshot[]     @relation("ProjectSnapshots")
   migrationSessions      MigrationSession[]      @relation("ProjectMigrationSessions")
+  pipelineSnapshots      PipelineSnapshot[]      @relation("ProjectPipelineSnapshots")
+  pipelineRuns           PipelineRun[]           @relation("ProjectPipelineRuns")
 
   @@map("projects")
 }
@@ -387,4 +389,66 @@ model MigrationSession {
 
   @@unique([projectId, fromVersion, toVersion, connectionId])
   @@map("migration_sessions")
+}
+
+model PipelineSnapshot {
+  id          String @id @default(uuid())
+  projectId   String @map("project_id")
+  projectName String @map("project_name")
+  versionId   String @map("version_id")
+  versionName String @map("version_name")
+  syncVersion String @map("sync_version")
+  folderPath  String @unique @map("folder_path")
+  folderHash  String @map("folder_hash")
+  tableCount  Int    @default(0) @map("table_count")
+  rowCount    Int    @default(0) @map("row_count")
+  tablesJson  String @default("[]") @map("tables_json")
+  collectedAt String @map("collected_at")
+  createdAt   String @map("created_at")
+
+  project     Project              @relation("ProjectPipelineSnapshots", fields: [projectId], references: [id], onDelete: Cascade)
+  validations PipelineValidation[] @relation("SnapshotValidations")
+  runs        PipelineRun[]        @relation("SnapshotRuns")
+
+  @@map("pipeline_snapshots")
+}
+
+model PipelineValidation {
+  id             String  @id @default(uuid())
+  snapshotId     String  @map("snapshot_id")
+  projectId      String  @map("project_id")
+  projectName    String  @map("project_name")
+  syncVersion    String  @map("sync_version")
+  targetVersion  String  @map("target_version")
+  stage1Json     String  @map("stage1_json")
+  stage2Json     String  @map("stage2_json")
+  blockingErrors Int     @map("blocking_errors")
+  passed         Boolean
+  validatedAt    String  @map("validated_at")
+
+  snapshot PipelineSnapshot @relation("SnapshotValidations", fields: [snapshotId], references: [id], onDelete: Cascade)
+  run      PipelineRun?     @relation("ValidationRun")
+
+  @@map("pipeline_validations")
+}
+
+model PipelineRun {
+  id            String  @id @default(uuid())
+  snapshotId    String  @map("snapshot_id")
+  validationId  String  @unique @map("validation_id")
+  projectId     String  @map("project_id")
+  projectName   String  @map("project_name")
+  syncVersion   String  @map("sync_version")
+  targetVersion String  @map("target_version")
+  tableCount    Int     @default(0) @map("table_count")
+  rowCount      Int     @default(0) @map("row_count")
+  tablesJson    String  @default("[]") @map("tables_json")
+  passed        Boolean
+  ranAt         String  @map("ran_at")
+
+  project    Project            @relation("ProjectPipelineRuns",  fields: [projectId],    references: [id], onDelete: Cascade)
+  snapshot   PipelineSnapshot   @relation("SnapshotRuns",         fields: [snapshotId],   references: [id], onDelete: Cascade)
+  validation PipelineValidation @relation("ValidationRun",        fields: [validationId], references: [id], onDelete: Cascade)
+
+  @@map("pipeline_runs")
 }

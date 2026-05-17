@@ -77,7 +77,10 @@ function defaultAttribute(field: SchemaGraphField, provider: string) {
     return value?.startsWith("dbgenerated(") ? `@default(${value})` : "@default(uuid())";
 
   if (!value) return "";
-  if (field.defaultKind === "literal") return `@default(${value})`;
+  if (field.defaultKind === "literal") {
+    const needsQuote = field.logicalType === "string" || field.logicalType === "text";
+    return needsQuote ? `@default(${JSON.stringify(value)})` : `@default(${value})`;
+  }
   // both "dbgenerated" and "function" kinds emit a DB-evaluated expression
   if (field.defaultKind === "dbgenerated" || field.defaultKind === "function")
     return `@default(dbgenerated(${JSON.stringify(value)}))`;

@@ -5,40 +5,12 @@ import mysql from "mysql2/promise";
 import { allMockTables } from "../../mocks/tables";
 import * as allMockData from "../../mocks/data";
 import type { Project } from "../projects/types";
+import { PROJECT_DB, toSlug } from "./config";
 
 const ROOT_DIR = join(__dirname, "../../../../");
 const EXPORTS_DIR = join(__dirname, "../../..", "exports");
 
-// ─── DB config per project ────────────────────────────────────────────────────
-
-type DbConfig = {
-  provider: "postgresql" | "mysql";
-  prismaUrl: string; // URL for prisma db push (includes ?schema= for PG)
-  insertUrl: string; // URL for the native client (no ?schema=)
-  schema?: string;   // PostgreSQL schema to SET search_path on
-};
-
-const PROJECT_DB: Record<string, DbConfig> = {
-  "Analytics Engine": {
-    provider: "mysql",
-    prismaUrl: process.env.MYSQL_URL ?? "mysql://dev:dev@localhost:54322/dev",
-    insertUrl: process.env.MYSQL_URL ?? "mysql://dev:dev@localhost:54322/dev",
-  },
-  "Content Hub Pro": {
-    provider: "postgresql",
-    prismaUrl: process.env.CONTENT_HUB_URL ?? "postgresql://dev:dev@localhost:54321/dev?schema=content_hub",
-    insertUrl: process.env.POSTGRES_URL ?? "postgresql://dev:dev@localhost:54321/dev",
-    schema: "content_hub",
-  },
-  "Shopfront Manager": {
-    provider: "postgresql",
-    prismaUrl: process.env.SHOPFRONT_URL ?? "postgresql://dev:dev@localhost:54321/dev?schema=shopfront",
-    insertUrl: process.env.POSTGRES_URL ?? "postgresql://dev:dev@localhost:54321/dev",
-    schema: "shopfront",
-  },
-};
-
-// ─── mock data registry: project name → { dbName → rows[] } ──────────────────
+// ─── mock data registry ───────────────────────────────────────────────────────
 
 const MOCK_DATA_BY_PROJECT: Record<string, Record<string, readonly unknown[]>> = {
   "Analytics Engine": {
@@ -80,10 +52,6 @@ const MOCK_DATA_BY_PROJECT: Record<string, Record<string, readonly unknown[]>> =
 };
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
-
-function toSlug(name: string): string {
-  return name.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
-}
 
 function camelToSnake(str: string): string {
   return str.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
