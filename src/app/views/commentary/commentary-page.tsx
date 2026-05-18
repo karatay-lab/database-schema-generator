@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useTRPC } from "@/trpc/client";
 import { classNames } from "../shared/dashboard-data";
 import { fieldTypeBadgeClass } from "@/lib/badge-utils";
 import { useProjectInfo } from "../shared/project-info-context";
@@ -17,22 +19,17 @@ function displayType(field: PrismaField, enumTypes: string[]) {
 
 export function CommentaryPageContent() {
   const { projectName, version, hasProject } = useProjectInfo();
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
 
-  const [models, setModels] = useState<PrismaModel[]>([]);
-  const [loadingTables, setLoadingTables] = useState(true);
   const [selectedModelName, setSelectedModelName] = useState("");
   const [tableSearch, setTableSearch] = useState("");
   const [isTableSelectorOpen, setIsTableSelectorOpen] = useState(false);
   const [tablePage, setTablePage] = useState(1);
   const TABLE_PAGE_SIZE = 9;
 
-  const [fields, setFields] = useState<PrismaField[]>([]);
-  const [enumTypes, setEnumTypes] = useState<string[]>([]);
-  const [loadingFields, setLoadingFields] = useState(false);
-
   const [comments, setComments] = useState<Record<string, string>>({});
   const [dirtyKeys, setDirtyKeys] = useState<Set<string>>(new Set());
-  const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
 
@@ -40,11 +37,51 @@ export function CommentaryPageContent() {
   const [fieldPage, setFieldPage] = useState(1);
   const FIELD_PAGE_SIZE = 10;
 
+  const tablesQuery = useQuery(
+    trpc.tables.list.queryOptions(
+      { projectName, version },
+      { enabled: !!projectName && !!version },
+    ),
+  );
+  const models: PrismaModel[] = (tablesQuery.data ?? []) as PrismaModel[];
+
   const selectedModel = useMemo(
     () => models.find((m) => m.name === selectedModelName) ?? null,
     [models, selectedModelName],
   );
   const selectedModelKey = selectedModel?.key ?? "";
+
+  const fieldsQuery = useQuery(
+    trpc.commentary.listFields.queryOptions(
+      { projectName, version, modelName: selectedModelName, modelKey: selectedModelKey },
+      { enabled: !!selectedModelName },
+    ),
+  );
+  const fields: PrismaField[] = fieldsQuery.data?.fields ?? [];
+  const enumTypes: string[] = fieldsQuery.data?.enumTypes ?? [];
+
+  // Sync comments when fields data changes
+  useEffect(() => {
+    const initial: Record<string, string> = {};
+    for (const f of fields) initial[f.key] = f.comment ?? "";
+    setComments(initial);
+    setDirtyKeys(new Set());
+    setSavedKeys(new Set());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fieldsQuery.data]);
+
+  const updateCommentsMutation = useMutation({
+    ...trpc.commentary.updateComments.mutationOptions(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: trpc.commentary.listFields.queryOptions({ projectName, version, modelName: selectedModelName, modelKey: selectedModelKey }).queryKey,
+      });
+      setSavedKeys(new Set(dirtyKeys));
+      setDirtyKeys(new Set());
+      setSaveError("");
+    },
+    onError: (err) => setSaveError(err.message),
+  });
 
   const filteredModels = useMemo(
     () => models.filter((m) => m.name.toLowerCase().includes(tableSearch.toLowerCase())),
@@ -83,76 +120,13 @@ export function CommentaryPageContent() {
 
   const totalFieldPages = Math.ceil(visibleFields.length / FIELD_PAGE_SIZE);
 
-  const loadTables = useCallback(async () => {
-    if (!projectName || !version) return [];
-    try {
-      const params = new URLSearchParams({ projectName, version });
-      const response = await fetch(`/api/tables?${params}`);
-      const data = (await response.json()) as { models?: PrismaModel[] };
-      return data.models ?? [];
-    } catch {
-      return [];
+  useEffect(() => {
+    if (selectedModelName && models.length > 0 && !models.some((m) => m.name === selectedModelName)) {
+      setSelectedModelName("");
     }
-  }, [projectName, version]);
+  }, [models, selectedModelName]);
 
-  const loadFields = useCallback(
-    async (modelName: string, modelKey = "") => {
-      if (!projectName || !version || !modelName) {
-        setFields([]);
-        setEnumTypes([]);
-        return;
-      }
-
-      setLoadingFields(true);
-      setComments({});
-      setDirtyKeys(new Set());
-      setSavedKeys(new Set());
-      setSaveError("");
-      setFieldPage(1);
-
-      try {
-        const params = new URLSearchParams({ projectName, version, modelName });
-        if (modelKey) params.set("modelKey", modelKey);
-
-        const response = await fetch(`/api/schema-fields?${params}`);
-        const data = (await response.json()) as {
-          fields?: PrismaField[];
-          enumTypes?: string[];
-        };
-
-        const loaded = data.fields ?? [];
-        setFields(loaded);
-        setEnumTypes(data.enumTypes ?? []);
-
-        const initial: Record<string, string> = {};
-        for (const f of loaded) {
-          initial[f.key] = f.comment ?? "";
-        }
-        setComments(initial);
-      } catch {
-        setFields([]);
-        setEnumTypes([]);
-      } finally {
-        setLoadingFields(false);
-      }
-    },
-    [projectName, version],
-  );
-
-  useEffect(() => {
-    setLoadingTables(true);
-    void loadTables().then((data) => {
-      setModels(data);
-      setLoadingTables(false);
-      if (selectedModelName && !data.some((m) => m.name === selectedModelName)) {
-        setSelectedModelName("");
-      }
-    });
-  }, [loadTables, selectedModelName]);
-
-  useEffect(() => {
-    void loadFields(selectedModelName, selectedModelKey);
-  }, [loadFields, selectedModelKey, selectedModelName]);
+  useEffect(() => { setFieldPage(1); setSaveError(""); }, [selectedModelName]);
 
   const selectModel = (modelName: string) => {
     setSelectedModelName(modelName);
@@ -173,55 +147,10 @@ export function CommentaryPageContent() {
     });
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (dirtyKeys.size === 0) return;
-
-    setSaving(true);
-    setSaveError("");
-
-    const updates: FieldCommentUpdate[] = Array.from(dirtyKeys).map((key) => ({
-      fieldKey: key,
-      comment: comments[key] ?? "",
-    }));
-
-    try {
-      const response = await fetch("/api/commentary", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectName,
-          version,
-          modelName: selectedModelName,
-          modelKey: selectedModelKey,
-          updates,
-        }),
-      });
-
-      const data = (await response.json()) as {
-        fields?: PrismaField[];
-        error?: string;
-      };
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "Save failed.");
-      }
-
-      const freshFields = data.fields ?? [];
-      setFields(freshFields);
-
-      const refreshed: Record<string, string> = {};
-      for (const f of freshFields) {
-        refreshed[f.key] = f.comment ?? "";
-      }
-      setComments(refreshed);
-
-      setSavedKeys(new Set(dirtyKeys));
-      setDirtyKeys(new Set());
-    } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Save failed.");
-    } finally {
-      setSaving(false);
-    }
+    const updates = Array.from(dirtyKeys).map((key) => ({ fieldKey: key, comment: comments[key] ?? "" }));
+    updateCommentsMutation.mutate({ projectName, version, modelName: selectedModelName, modelKey: selectedModelKey, updates });
   };
 
   if (!hasProject) {
@@ -280,7 +209,7 @@ export function CommentaryPageContent() {
                 Select Table
               </button>
             </div>
-          ) : loadingFields ? (
+          ) : fieldsQuery.isLoading ? (
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-8 text-center text-sm font-medium text-slate-500">
               Loading fields...
             </div>
@@ -430,11 +359,11 @@ export function CommentaryPageContent() {
                 )}
                 <button
                   type="button"
-                  onClick={() => void handleSave()}
-                  disabled={saving || dirtyKeys.size === 0}
+                  onClick={() => handleSave()}
+                  disabled={updateCommentsMutation.isPending || dirtyKeys.size === 0}
                   className="ml-auto h-10 min-w-36 shrink-0 rounded-md bg-fuchsia-600 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-fuchsia-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
-                  {saving ? "Saving…" : "Save"}
+                  {updateCommentsMutation.isPending ? "Saving…" : "Save"}
                 </button>
               </div>
             </div>
@@ -482,7 +411,7 @@ export function CommentaryPageContent() {
               </div>
 
               <div className="max-h-[70vh] overflow-y-auto pr-1">
-                {loadingTables ? (
+                {tablesQuery.isLoading ? (
                   <div className="py-8 text-center text-sm font-medium text-slate-500">
                     Loading...
                   </div>

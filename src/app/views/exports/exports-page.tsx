@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { useTRPC } from "@/trpc/client";
 import { classNames } from "../shared/dashboard-data";
 import { useProjectInfo } from "../shared/project-info-context";
 
@@ -163,39 +165,34 @@ const EXPORT_OPTIONS: Array<{
 
 export function ExportsPageContent() {
   const { projectName, version, hasProject } = useProjectInfo();
+  const trpc = useTRPC();
 
-  const [exporting, setExporting] = useState<ExportType | null>(null);
   const [exportError, setExportError] = useState("");
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [copied, setCopied] = useState(false);
+  const [activeExportType, setActiveExportType] = useState<ExportType | null>(null);
 
-  const handleExport = async (type: ExportType) => {
-    if (!projectName || !version) return;
-
-    setExporting(type);
-    setExportError("");
-
-    try {
-      const params = new URLSearchParams({ projectName, version, type });
-      const response = await fetch(`/api/exports?${params}`);
-      const data: ExportResponse = await response.json();
-
-      if (!response.ok || data.error) {
-        throw new Error(data.error ?? "Export failed.");
-      }
-
+  const exportMutation = useMutation({
+    ...trpc.exports.generate.mutationOptions(),
+    onSuccess: (data, vars) => {
+      const type = vars.type;
       setDialog({
-        code: data.code ?? "",
-        fileName: data.fileName ?? (type === "prisma" ? `${version}.prisma` : "schema.ts"),
+        code: (data as { code?: string } | undefined)?.code ?? "",
+        fileName: (data as { fileName?: string } | undefined)?.fileName ?? (type === "prisma" ? `${version}.prisma` : "schema.ts"),
         lang: type === "prisma" ? "prisma" : "ts",
-        tableCount: data.tableCount ?? 0,
-        enumCount: data.enumCount ?? 0,
+        tableCount: (data as { tableCount?: number } | undefined)?.tableCount ?? 0,
+        enumCount: (data as { enumCount?: number } | undefined)?.enumCount ?? 0,
       });
-    } catch (err) {
-      setExportError(err instanceof Error ? err.message : "Export failed.");
-    } finally {
-      setExporting(null);
-    }
+      setActiveExportType(null);
+    },
+    onError: (err) => { setExportError(err.message); setActiveExportType(null); },
+  });
+
+  const handleExport = (type: ExportType) => {
+    if (!projectName || !version) return;
+    setActiveExportType(type);
+    setExportError("");
+    exportMutation.mutate({ projectName, version, type });
   };
 
   const handleCopy = async () => {
@@ -252,8 +249,8 @@ export function ExportsPageContent() {
         <div className="p-5">
           <div className="grid gap-4 sm:grid-cols-2">
             {EXPORT_OPTIONS.map((opt) => {
-              const isLoading = exporting === opt.type;
-              const isDisabled = exporting !== null;
+              const isLoading = activeExportType === opt.type;
+              const isDisabled = activeExportType !== null;
 
               return (
                 <div
@@ -285,7 +282,7 @@ export function ExportsPageContent() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => void handleExport(opt.type)}
+                    onClick={() => handleExport(opt.type)}
                     disabled={isDisabled}
                     className={classNames(
                       "mt-4 h-10 min-w-32 rounded-md px-5 text-sm font-semibold text-white shadow-sm transition",

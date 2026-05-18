@@ -1,8 +1,9 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
 import type { PrismaModel } from "@/lib/schema-store";
 
@@ -111,20 +112,29 @@ function CloseIcon() {
 
 export function TablesPageContent() {
   const { projectName, version, provider, hasProject } = useProjectInfo();
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
 
-  const [models, setModels] = useState<PrismaModel[]>([]);
-  const [loading, setLoading] = useState(true);
+  const listQuery = useQuery(
+    trpc.tables.list.queryOptions(
+      { projectName, version },
+      { enabled: !!projectName && !!version },
+    ),
+  );
+  const models: PrismaModel[] = (listQuery.data ?? []) as PrismaModel[];
+
+  const invalidateTables = () =>
+    queryClient.invalidateQueries({ queryKey: trpc.tables.list.queryOptions({ projectName, version }).queryKey });
+
   const [modelName, setModelName] = useState("");
   const [pkName, setPkName] = useState("id");
   const [pkType, setPkType] = useState(defaultPkType);
-  const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState("");
   const [selectedModel, setSelectedModel] = useState<PrismaModel | null>(null);
   const [editModelName, setEditModelName] = useState("");
   const [editPkName, setEditPkName] = useState("");
   const [editPkType, setEditPkType] = useState("");
   const [isEditing, setIsEditing] = useState(false);
-  const [isUpdating, setIsUpdating] = useState(false);
   const [updateError, setUpdateError] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 32;
@@ -137,29 +147,27 @@ export function TablesPageContent() {
   const selectedPkSummary = pkTypeDetails[pkType as PkTypeValue]?.summary ?? "Primary key field.";
   const selectedEditPkSummary = pkTypeDetails[editPkType as PkTypeValue]?.summary ?? "Primary key field.";
 
-  const loadModels = useCallback(async () => {
-    if (!projectName || !version) {
-      return [];
-    }
-
-    try {
-      const params = new URLSearchParams({ projectName, version });
-      const response = await fetch(`/api/tables?${params}`);
-      const data = (await response.json()) as { models?: PrismaModel[] };
-      return data.models ?? [];
-    } catch {
-      return [];
-    }
-  }, [projectName, version]);
-
-  useEffect(() => {
-    setLoading(true);
-    void loadModels().then((data) => {
-      setModels(data);
-      setLoading(false);
+  const createMutation = useMutation({
+    ...trpc.tables.create.mutationOptions(),
+    onSuccess: () => {
+      void invalidateTables();
+      setModelName("");
+      setPkName("id");
+      setPkType(defaultPkType);
       setCurrentPage(1);
-    });
-  }, [loadModels]);
+      setCreateError("");
+    },
+    onError: (err) => setCreateError(err.message),
+  });
+
+  const updateMutation = useMutation({
+    ...trpc.tables.update.mutationOptions(),
+    onSuccess: () => {
+      void invalidateTables();
+      cancelEdit();
+    },
+    onError: (err) => setUpdateError(err.message),
+  });
 
   useEffect(() => {
     if (!pkTypes.some((type) => type.value === pkType)) {
@@ -167,72 +175,26 @@ export function TablesPageContent() {
     }
   }, [pkType, pkTypes]);
 
-  const submitModel = async (event: FormEvent<HTMLFormElement>) => {
+  const submitModel = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmedName = modelName.trim();
-
-    if (!trimmedName) {
-      setCreateError("Model name is required.");
-      return;
-    }
-
-    if (!pkName.trim()) {
-      setCreateError("Primary key name is required.");
-      return;
-    }
-
+    if (!trimmedName) { setCreateError("Model name is required."); return; }
+    if (!pkName.trim()) { setCreateError("Primary key name is required."); return; }
     if (!prismaIdentifierPattern.test(pkName.trim())) {
       setCreateError("Primary key name must start with a letter and contain only letters, numbers, and underscores.");
       return;
     }
-
-    if (!pkType) {
-      setCreateError("Primary key type is required.");
-      return;
-    }
-
+    if (!pkType) { setCreateError("Primary key type is required."); return; }
     if (!prismaIdentifierPattern.test(trimmedName)) {
       setCreateError("Model name must start with a letter and contain only letters, numbers, and underscores.");
       return;
     }
-
-    const exists = models.some((m) => m.name === trimmedName);
-    if (exists) {
+    if (models.some((m) => m.name === trimmedName)) {
       setCreateError("A model with this name already exists.");
       return;
     }
-
-    try {
-      setIsCreating(true);
-      setCreateError("");
-      const response = await fetch("/api/tables", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectName,
-          version,
-          modelName: trimmedName,
-          pkName,
-          pkType,
-        }),
-      });
-
-      if (!response.ok) {
-        const data = (await response.json()) as { error?: string };
-        throw new Error(data.error ?? "Failed to create model.");
-      }
-
-      const data = (await response.json()) as { models: PrismaModel[] };
-      setModels(data.models ?? []);
-      setCurrentPage(1);
-      setModelName("");
-      setPkName("id");
-      setPkType(defaultPkType);
-    } catch (err) {
-      setCreateError(err instanceof Error ? err.message : "Failed to create model.");
-    } finally {
-      setIsCreating(false);
-    }
+    setCreateError("");
+    createMutation.mutate({ projectName, version, modelName: trimmedName, pkName: pkName.trim(), pkType: pkType as "String" | "Int" | "BigInt" | "DateTime" | "Uuid" });
   };
 
   const startEdit = (model: PrismaModel) => {
@@ -253,61 +215,26 @@ export function TablesPageContent() {
     setUpdateError("");
   };
 
-  const saveEdit = async () => {
+  const saveEdit = () => {
     if (!selectedModel) return;
-
     const trimmedName = editModelName.trim();
-    if (!trimmedName) {
-      setUpdateError("Model name is required.");
-      return;
-    }
-
-    if (!editPkName.trim()) {
-      setUpdateError("Primary key name is required.");
-      return;
-    }
-
+    if (!trimmedName) { setUpdateError("Model name is required."); return; }
+    if (!editPkName.trim()) { setUpdateError("Primary key name is required."); return; }
     if (!prismaIdentifierPattern.test(editPkName.trim())) {
       setUpdateError("Primary key name must start with a letter and contain only letters, numbers, and underscores.");
       return;
     }
-
-    if (!editPkType) {
-      setUpdateError("Primary key type is required.");
-      return;
-    }
-
-    try {
-      setIsUpdating(true);
-      setUpdateError("");
-      const response = await fetch("/api/tables", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectName,
-          version,
-          modelKey: selectedModel.key,
-          oldModelName: selectedModel.name,
-          newModelName: trimmedName,
-          pkName: editPkName.trim(),
-          pkType: editPkType,
-        }),
-      });
-
-      if (!response.ok) {
-        const data = (await response.json()) as { error?: string };
-        throw new Error(data.error ?? "Failed to update model.");
-      }
-
-      const data = (await response.json()) as { models: PrismaModel[] };
-      setModels(data.models ?? []);
-      setCurrentPage(1);
-      cancelEdit();
-    } catch (err) {
-      setUpdateError(err instanceof Error ? err.message : "Failed to update model.");
-    } finally {
-      setIsUpdating(false);
-    }
+    if (!editPkType) { setUpdateError("Primary key type is required."); return; }
+    setUpdateError("");
+    updateMutation.mutate({
+      projectName,
+      version,
+      modelKey: selectedModel.key,
+      oldModelName: selectedModel.name,
+      newModelName: trimmedName,
+      pkName: editPkName.trim(),
+      pkType: editPkType as "String" | "Int" | "BigInt" | "DateTime" | "Uuid",
+    });
   };
 
   if (!hasProject) {
@@ -438,15 +365,15 @@ export function TablesPageContent() {
 
             <button
               type="submit"
-              disabled={isCreating || models.length >= 50}
+              disabled={createMutation.isPending || models.length >= 50}
               className="mt-5 h-10 w-full rounded-md bg-cyan-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
-              {isCreating ? "Creating..." : "Add Table"}
+              {createMutation.isPending ? "Creating..." : "Add Table"}
             </button>
           </form>
 
           <div className="p-5">
-            {loading ? (
+            {listQuery.isLoading ? (
               <div className="text-center py-8 text-slate-500">Loading...</div>
             ) : models.length === 0 ? (
               <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
@@ -527,15 +454,15 @@ export function TablesPageContent() {
                   <button
                     type="button"
                     onClick={saveEdit}
-                    disabled={isUpdating}
+                    disabled={updateMutation.isPending}
                     className="h-10 rounded-md border border-cyan-300 bg-white px-4 text-sm font-semibold text-cyan-700 transition hover:bg-cyan-50 disabled:cursor-not-allowed disabled:text-slate-400"
                   >
-                    {isUpdating ? "Saving..." : "Save"}
+                    {updateMutation.isPending ? "Saving..." : "Save"}
                   </button>
                   <button
                     type="button"
                     onClick={cancelEdit}
-                    disabled={isUpdating}
+                    disabled={updateMutation.isPending}
                     className="h-10 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
                   >
                     Cancel

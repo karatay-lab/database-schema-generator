@@ -1,7 +1,8 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
 import { classNames } from "../shared/dashboard-data";
 import type {
@@ -134,52 +135,132 @@ function templateToInput(template: FieldTemplate): PrismaFieldInput {
 export function SchemaPageContent() {
   const { projectName, version, hasProject } = useProjectInfo();
   const activeProject = hasProject;
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
 
-  const [models, setModels] = useState<PrismaModel[]>([]);
-  const [loadingTables, setLoadingTables] = useState(true);
   const [selectedModelName, setSelectedModelName] = useState("");
   const [tableSearch, setTableSearch] = useState("");
-  const [fields, setFields] = useState<PrismaField[]>([]);
-  const [enumTypes, setEnumTypes] = useState<string[]>([]);
-  const [scalarTypes, setScalarTypes] = useState<string[]>([]);
-  const [loadingFields, setLoadingFields] = useState(false);
   const [fieldDrafts, setFieldDrafts] = useState<Record<string, PrismaFieldInput>>({});
   const [newField, setNewField] = useState<PrismaFieldInput>(emptyFieldInput);
-  const [savingField, setSavingField] = useState("");
-  const [deletingField, setDeletingField] = useState("");
-  const [creatingField, setCreatingField] = useState(false);
+  const [savingFieldKey, setSavingFieldKey] = useState("");
+  const [deletingFieldKey, setDeletingFieldKey] = useState("");
   const [error, setError] = useState("");
   const [fieldTypeFilter, setFieldTypeFilter] = useState("All");
   const [fieldPage, setFieldPage] = useState(1);
   const [isTableSelectorOpen, setIsTableSelectorOpen] = useState(false);
   const [isTemplatesOpen, setIsTemplatesOpen] = useState(false);
-  const [templates, setTemplates] = useState<FieldTemplate[]>([]);
   const [templateTypeFilter, setTemplateTypeFilter] = useState("All");
   const [templatePage, setTemplatePage] = useState(1);
-  const [templateOverrideNames, setTemplateOverrideNames] =
-    useState<Record<string, string>>({});
-  const [loadingTemplates, setLoadingTemplates] = useState(false);
-  const [templateField, setTemplateField] =
-    useState<PrismaFieldInput>(emptyFieldInput);
+  const [templateOverrideNames, setTemplateOverrideNames] = useState<Record<string, string>>({});
+  const [templateField, setTemplateField] = useState<PrismaFieldInput>(emptyFieldInput);
   const [editingTemplateId, setEditingTemplateId] = useState("");
-  const [creatingTemplateField, setCreatingTemplateField] = useState(false);
   const [addingTemplateToTable, setAddingTemplateToTable] = useState("");
-  const [savingTemplateField, setSavingTemplateField] = useState("");
-  const [deletingTemplateField, setDeletingTemplateField] = useState("");
+  const [savingTemplateFieldId, setSavingTemplateFieldId] = useState("");
+  const [deletingTemplateFieldId, setDeletingTemplateFieldId] = useState("");
   const [templateError, setTemplateError] = useState("");
   const fieldsPerPage = 12;
   const templatesPerPage = 15;
+
+  // ── Queries ──────────────────────────────────────────────────────────────────
+
+  const tablesQuery = useQuery(
+    trpc.tables.list.queryOptions(
+      { projectName, version },
+      { enabled: !!projectName && !!version },
+    ),
+  );
+  const models: PrismaModel[] = (tablesQuery.data ?? []) as PrismaModel[];
+
+  const selectedModel = useMemo(
+    () => models.find((m) => m.name === selectedModelName) ?? null,
+    [models, selectedModelName],
+  );
+  const selectedModelKey = selectedModel?.key ?? "";
+
+  const fieldsQuery = useQuery(
+    trpc.fields.list.queryOptions(
+      { projectName, version, modelName: selectedModelName, modelKey: selectedModelKey },
+      { enabled: !!selectedModelName },
+    ),
+  );
+  const fields: PrismaField[] = fieldsQuery.data?.fields ?? [];
+  const enumTypes: string[] = fieldsQuery.data?.enumTypes ?? [];
+  const scalarTypes: string[] = fieldsQuery.data?.scalarTypes ?? [];
+
+  const templatesQuery = useQuery(trpc.fieldTemplates.list.queryOptions());
+  const templates: FieldTemplate[] = (templatesQuery.data ?? []) as FieldTemplate[];
+
+  // Sync fieldDrafts whenever the server fields change
+  useEffect(() => {
+    setFieldDrafts(
+      Object.fromEntries(
+        fields.filter((f) => f.isEditable).map((f) => [f.key, fieldToInput(f)]),
+      ),
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fieldsQuery.data]);
+
+  // Sync templateOverrideNames whenever templates change
+  useEffect(() => {
+    setTemplateOverrideNames((cur) =>
+      Object.fromEntries(templates.map((t) => [t.id, cur[t.id] || t.name])),
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templatesQuery.data]);
+
+  // ── Invalidators ─────────────────────────────────────────────────────────────
+
+  const invalidateFields = () =>
+    queryClient.invalidateQueries({
+      queryKey: trpc.fields.list.queryOptions({ projectName, version, modelName: selectedModelName, modelKey: selectedModelKey }).queryKey,
+    });
+  const invalidateTemplates = () =>
+    queryClient.invalidateQueries({ queryKey: trpc.fieldTemplates.list.queryOptions().queryKey });
+
+  // ── Mutations ─────────────────────────────────────────────────────────────────
+
+  const createFieldMutation = useMutation({
+    ...trpc.fields.create.mutationOptions(),
+    onSuccess: () => { void invalidateFields(); setNewField(emptyFieldInput); setSavingFieldKey(""); },
+    onError: (err) => { setError(err.message); setSavingFieldKey(""); },
+  });
+  const updateFieldMutation = useMutation({
+    ...trpc.fields.update.mutationOptions(),
+    onSuccess: () => { void invalidateFields(); setSavingFieldKey(""); },
+    onError: (err) => { setError(err.message); setSavingFieldKey(""); },
+  });
+  const deleteFieldMutation = useMutation({
+    ...trpc.fields.delete.mutationOptions(),
+    onSuccess: () => { void invalidateFields(); setDeletingFieldKey(""); },
+    onError: (err) => { setError(err.message); setDeletingFieldKey(""); },
+  });
+  const createTemplateMutation = useMutation({
+    ...trpc.fieldTemplates.create.mutationOptions(),
+    onSuccess: () => { void invalidateTemplates(); setTemplateField(emptyFieldInput); setEditingTemplateId(""); setSavingTemplateFieldId(""); },
+    onError: (err) => { setTemplateError(err.message); setSavingTemplateFieldId(""); },
+  });
+  const updateTemplateMutation = useMutation({
+    ...trpc.fieldTemplates.update.mutationOptions(),
+    onSuccess: () => { void invalidateTemplates(); setEditingTemplateId(""); setTemplateField(emptyFieldInput); setSavingTemplateFieldId(""); },
+    onError: (err) => { setTemplateError(err.message); setSavingTemplateFieldId(""); },
+  });
+  const deleteTemplateMutation = useMutation({
+    ...trpc.fieldTemplates.delete.mutationOptions(),
+    onSuccess: () => { void invalidateTemplates(); setDeletingTemplateFieldId(""); },
+    onError: (err) => { setTemplateError(err.message); setDeletingTemplateFieldId(""); },
+  });
+  const addTemplateToTableMutation = useMutation({
+    ...trpc.fields.create.mutationOptions(),
+    onSuccess: () => { void invalidateFields(); setAddingTemplateToTable(""); },
+    onError: () => setAddingTemplateToTable(""),
+  });
+
+  // ── Derived field type options ────────────────────────────────────────────────
 
   const fieldTypeOptions = useMemo(
     () => Array.from(new Set([...defaultFieldTypes, ...scalarTypes, ...enumTypes])),
     [enumTypes, scalarTypes],
   );
-
-  const selectedModel = useMemo(
-    () => models.find((model) => model.name === selectedModelName) ?? null,
-    [models, selectedModelName],
-  );
-  const selectedModelKey = selectedModel?.key ?? "";
 
   const editableFields = useMemo(
     () => fields.filter((field) => field.isEditable && !field.isId),
@@ -233,118 +314,12 @@ export function SchemaPageContent() {
     fieldPage * fieldsPerPage,
   );
 
-  const loadTables = useCallback(async () => {
-    if (!projectName || !version) {
-      return [];
-    }
-
-    try {
-      const params = new URLSearchParams({ projectName, version });
-      const response = await fetch(`/api/tables?${params}`);
-      const data = (await response.json()) as { models?: PrismaModel[] };
-      return data.models ?? [];
-    } catch {
-      return [];
-    }
-  }, [projectName, version]);
-
-  const loadFields = useCallback(
-    async (modelName: string, modelKey = "") => {
-      if (!projectName || !version || (!modelName && !modelKey)) {
-        setFields([]);
-        setEnumTypes([]);
-        setScalarTypes([]);
-        setFieldDrafts({});
-        return;
-      }
-
-      setLoadingFields(true);
-      setError("");
-
-      try {
-        const params = new URLSearchParams({ projectName, version });
-        if (modelName) {
-          params.set("modelName", modelName);
-        }
-        if (modelKey) {
-          params.set("modelKey", modelKey);
-        }
-        const response = await fetch(`/api/schema-fields?${params}`);
-        const data = (await response.json()) as FieldsResponse;
-
-        if (!response.ok) {
-          throw new Error(data.error ?? "Failed to load fields.");
-        }
-
-        const nextFields = data.fields ?? [];
-        setFields(nextFields);
-        setEnumTypes(data.enumTypes ?? []);
-        setScalarTypes(data.scalarTypes ?? []);
-        setFieldDrafts(
-          Object.fromEntries(
-            nextFields
-              .filter((field) => field.isEditable)
-              .map((field) => [field.key, fieldToInput(field)]),
-          ),
-        );
-      } catch (err) {
-        setFields([]);
-        setFieldDrafts({});
-        setError(err instanceof Error ? err.message : "Failed to load fields.");
-      } finally {
-        setLoadingFields(false);
-      }
-    },
-    [projectName, version],
-  );
-
-  const loadTemplates = useCallback(async () => {
-    setLoadingTemplates(true);
-    setTemplateError("");
-
-    try {
-      const response = await fetch("/api/field-templates");
-      const data = (await response.json()) as TemplatesResponse;
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "Failed to load field templates.");
-      }
-
-      const nextTemplates = data.templates ?? data.fields ?? [];
-      setTemplates(nextTemplates);
-      setTemplateOverrideNames(
-        Object.fromEntries(
-          nextTemplates.map((template) => [template.id, template.name]),
-        ),
-      );
-    } catch (err) {
-      setTemplateError(
-        err instanceof Error ? err.message : "Failed to load field templates.",
-      );
-    } finally {
-      setLoadingTemplates(false);
-    }
-  }, []);
-
+  // Deselect model if it disappears from the list
   useEffect(() => {
-    setLoadingTables(true);
-    loadTables().then((data) => {
-      setModels(data);
-      setLoadingTables(false);
-
-      if (selectedModelName && !data.some((model) => model.name === selectedModelName)) {
-        setSelectedModelName("");
-      }
-    });
-  }, [loadTables, selectedModelName]);
-
-  useEffect(() => {
-    loadFields(selectedModelName, selectedModelKey);
-  }, [loadFields, selectedModelKey, selectedModelName]);
-
-  useEffect(() => {
-    loadTemplates();
-  }, [loadTemplates]);
+    if (selectedModelName && models.length > 0 && !models.some((m) => m.name === selectedModelName)) {
+      setSelectedModelName("");
+    }
+  }, [models, selectedModelName]);
 
   useEffect(() => {
     setFieldPage(1);
@@ -367,33 +342,6 @@ export function SchemaPageContent() {
     setTemplatePage((page) => Math.min(page, templatePageCount));
   }, [templatePageCount]);
 
-  const refreshFields = (data: FieldsResponse) => {
-    const nextFields = data.fields ?? [];
-    setFields(nextFields);
-    setEnumTypes(data.enumTypes ?? enumTypes);
-    setScalarTypes(data.scalarTypes ?? scalarTypes);
-    setFieldDrafts(
-      Object.fromEntries(
-        nextFields
-          .filter((field) => field.isEditable)
-          .map((field) => [field.key, fieldToInput(field)]),
-      ),
-    );
-  };
-
-  const refreshTemplates = (data: TemplatesResponse) => {
-    const nextTemplates = data.templates ?? data.fields ?? [];
-    setTemplates(nextTemplates);
-    setTemplateOverrideNames((currentNames) =>
-      Object.fromEntries(
-        nextTemplates.map((template) => [
-          template.id,
-          currentNames[template.id] || template.name,
-        ]),
-      ),
-    );
-  };
-
   const updateDraft = (
     fieldKey: string,
     patch: Partial<PrismaFieldInput>,
@@ -412,109 +360,38 @@ export function SchemaPageContent() {
     setError("");
   };
 
-  const saveField = async (field: PrismaField) => {
+  const saveField = (field: PrismaField) => {
     const draft = fieldDrafts[field.key];
-
-    if (!selectedModelName || !draft) {
-      return;
-    }
-
-    try {
-      setSavingField(field.key);
-      setError("");
-      const response = await fetch("/api/schema-fields", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectName,
-          version,
-          modelKey: selectedModelKey,
-          modelName: selectedModelName,
-          fieldKey: field.key,
-          oldFieldName: field.name,
-          ...draft,
-        }),
-      });
-      const data = (await response.json()) as FieldsResponse;
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "Failed to save field.");
-      }
-
-      refreshFields(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save field.");
-    } finally {
-      setSavingField("");
-    }
+    if (!selectedModelName || !draft) return;
+    setSavingFieldKey(field.key);
+    setError("");
+    updateFieldMutation.mutate({
+      projectName, version,
+      modelKey: selectedModelKey, modelName: selectedModelName,
+      fieldKey: field.key, oldFieldName: field.name,
+      ...draft,
+    });
   };
 
-  const deleteField = async (field: PrismaField) => {
-    if (!selectedModelName) {
-      return;
-    }
-
-    try {
-      setDeletingField(field.key);
-      setError("");
-      const response = await fetch("/api/schema-fields", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectName,
-          version,
-          modelKey: selectedModelKey,
-          modelName: selectedModelName,
-          fieldKey: field.key,
-          fieldName: field.name,
-        }),
-      });
-      const data = (await response.json()) as FieldsResponse;
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "Failed to delete field.");
-      }
-
-      refreshFields(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete field.");
-    } finally {
-      setDeletingField("");
-    }
+  const deleteField = (field: PrismaField) => {
+    if (!selectedModelName) return;
+    setDeletingFieldKey(field.key);
+    setError("");
+    deleteFieldMutation.mutate({
+      projectName, version,
+      modelKey: selectedModelKey, modelName: selectedModelName,
+      fieldKey: field.key, fieldName: field.name,
+    });
   };
 
-  const createField = async () => {
-    if (!selectedModelName) {
-      return;
-    }
-
-    try {
-      setCreatingField(true);
-      setError("");
-      const response = await fetch("/api/schema-fields", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectName,
-          version,
-          modelKey: selectedModelKey,
-          modelName: selectedModelName,
-          ...newField,
-        }),
-      });
-      const data = (await response.json()) as FieldsResponse;
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "Failed to create field.");
-      }
-
-      refreshFields(data);
-      setNewField(emptyFieldInput);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create field.");
-    } finally {
-      setCreatingField(false);
-    }
+  const createField = () => {
+    if (!selectedModelName) return;
+    setError("");
+    createFieldMutation.mutate({
+      projectName, version,
+      modelKey: selectedModelKey, modelName: selectedModelName,
+      ...newField,
+    });
   };
 
   const filteredModels = models.filter((model) =>
@@ -583,36 +460,13 @@ export function SchemaPageContent() {
     setTemplateError("");
   };
 
-  const createTemplateField = async () => {
+  const createTemplateField = () => {
     if (templateDuplicateSuggestion) {
       setTemplateError("A template field with this name already exists.");
       return;
     }
-
-    try {
-      setCreatingTemplateField(true);
-      setTemplateError("");
-      const response = await fetch("/api/field-templates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(templateField),
-      });
-      const data = (await response.json()) as TemplatesResponse;
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "Failed to create field template.");
-      }
-
-      refreshTemplates(data);
-      setTemplateField(emptyFieldInput);
-      setEditingTemplateId("");
-    } catch (err) {
-      setTemplateError(
-        err instanceof Error ? err.message : "Failed to create field template.",
-      );
-    } finally {
-      setCreatingTemplateField(false);
-    }
+    setTemplateError("");
+    createTemplateMutation.mutate(templateField);
   };
 
   const editTemplateField = (template: FieldTemplate) => {
@@ -627,121 +481,45 @@ export function SchemaPageContent() {
     setTemplateError("");
   };
 
-  const saveTemplateField = async () => {
-    if (!editingTemplateId) {
-      return;
-    }
-
-    try {
-      setSavingTemplateField(editingTemplateId);
-      setTemplateError("");
-      const response = await fetch("/api/field-templates", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: editingTemplateId,
-          ...templateField,
-        }),
-      });
-      const data = (await response.json()) as TemplatesResponse;
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "Failed to update field template.");
-      }
-
-      refreshTemplates(data);
-      setEditingTemplateId("");
-      setTemplateField(emptyFieldInput);
-    } catch (err) {
-      setTemplateError(
-        err instanceof Error ? err.message : "Failed to update field template.",
-      );
-    } finally {
-      setSavingTemplateField("");
-    }
+  const saveTemplateField = () => {
+    if (!editingTemplateId) return;
+    setSavingTemplateFieldId(editingTemplateId);
+    setTemplateError("");
+    updateTemplateMutation.mutate({ id: editingTemplateId, ...templateField });
   };
 
   const submitTemplateField = () => {
-    if (editingTemplateId) {
-      void saveTemplateField();
-      return;
-    }
-
-    void createTemplateField();
+    if (editingTemplateId) { saveTemplateField(); return; }
+    createTemplateField();
   };
 
-  const deleteTemplateField = async (template: FieldTemplate) => {
-    try {
-      setDeletingTemplateField(template.id);
-      setTemplateError("");
-      const response = await fetch("/api/field-templates", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: template.id }),
-      });
-      const data = (await response.json()) as TemplatesResponse;
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "Failed to delete field template.");
-      }
-
-      refreshTemplates(data);
-      if (editingTemplateId === template.id) {
-        setEditingTemplateId("");
-        setTemplateField(emptyFieldInput);
-      }
-    } catch (err) {
-      setTemplateError(
-        err instanceof Error ? err.message : "Failed to delete field template.",
-      );
-    } finally {
-      setDeletingTemplateField("");
+  const deleteTemplateField = (template: FieldTemplate) => {
+    setDeletingTemplateFieldId(template.id);
+    setTemplateError("");
+    deleteTemplateMutation.mutate({ id: template.id });
+    if (editingTemplateId === template.id) {
+      setEditingTemplateId("");
+      setTemplateField(emptyFieldInput);
     }
   };
 
-  const addTemplateToTable = (template: FieldTemplate) => async () => {
+  const addTemplateToTable = (template: FieldTemplate) => () => {
     const overrideName = (templateOverrideNames[template.id] || template.name).trim();
-
-    if (!selectedModelName || usedTemplateNames.has(overrideName)) {
-      return;
-    }
-
-    try {
-      setAddingTemplateToTable(template.id);
-      setTemplateError("");
-      const response = await fetch("/api/schema-fields", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectName,
-          version,
-          modelKey: selectedModelKey,
-          modelName: selectedModelName,
-          name: overrideName,
-          type: template.type,
-          nullable: template.nullable,
-          unique: template.type === "Boolean" ? false : template.unique,
-          defaultValue: template.defaultValue,
-          comment: template.comment,
-          nativeAttribute: template.nativeAttribute,
-          updatedAtAttribute: template.updatedAtAttribute,
-          isId: template.isId,
-        }),
-      });
-      const data = (await response.json()) as FieldsResponse;
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "Failed to add template to table.");
-      }
-
-      refreshFields(data);
-    } catch (err) {
-      setTemplateError(
-        err instanceof Error ? err.message : "Failed to add template to table.",
-      );
-    } finally {
-      setAddingTemplateToTable("");
-    }
+    if (!selectedModelName || usedTemplateNames.has(overrideName)) return;
+    setAddingTemplateToTable(template.id);
+    addTemplateToTableMutation.mutate({
+      projectName, version,
+      modelKey: selectedModelKey, modelName: selectedModelName,
+      name: overrideName,
+      type: template.type,
+      nullable: template.nullable,
+      unique: template.type === "Boolean" ? false : template.unique,
+      defaultValue: template.defaultValue,
+      comment: template.comment,
+      nativeAttribute: template.nativeAttribute,
+      updatedAtAttribute: template.updatedAtAttribute,
+      isId: template.isId,
+    });
   };
 
   return (
@@ -812,7 +590,7 @@ export function SchemaPageContent() {
                 Select Table
               </button>
             </div>
-          ) : loadingFields ? (
+          ) : fieldsQuery.isLoading ? (
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-8 text-center text-sm font-medium text-slate-500">
               Loading fields...
             </div>
@@ -915,18 +693,18 @@ export function SchemaPageContent() {
                                   <button
                                     type="button"
                                     onClick={() => saveField(field)}
-                                    disabled={savingField === field.key || deletingField === field.key}
+                                    disabled={savingFieldKey === field.key || deletingFieldKey === field.key}
                                     className="h-8 rounded-md border border-cyan-300 bg-white px-2.5 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-50 disabled:cursor-not-allowed disabled:text-slate-400"
                                   >
-                                    {savingField === field.key ? "Saving..." : "Save"}
+                                    {savingFieldKey === field.key ? "Saving..." : "Save"}
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => deleteField(field)}
-                                    disabled={savingField === field.key || deletingField === field.key}
+                                    disabled={savingFieldKey === field.key || deletingFieldKey === field.key}
                                     className="h-8 rounded-md border border-rose-200 bg-white px-2.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:text-slate-400"
                                   >
-                                    {deletingField === field.key ? "Deleting..." : "Delete"}
+                                    {deletingFieldKey === field.key ? "Deleting..." : "Delete"}
                                   </button>
                                 </div>
                               </div>
@@ -1091,10 +869,10 @@ export function SchemaPageContent() {
                     <button
                       type="button"
                       onClick={createField}
-                      disabled={creatingField}
+                      disabled={createFieldMutation.isPending}
                       className="h-10 w-full rounded-md bg-cyan-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                     >
-                      {creatingField ? "Creating..." : "Add Field"}
+                      {createFieldMutation.isPending ? "Creating..." : "Add Field"}
                     </button>
                   </div>
                 </div>
@@ -1151,7 +929,7 @@ export function SchemaPageContent() {
               </div>
 
               <div className="max-h-[70vh] overflow-y-auto pr-1">
-                {loadingTables ? (
+                {tablesQuery.isLoading ? (
                   <div className="py-8 text-center text-sm font-medium text-slate-500">
                     Loading...
                   </div>
@@ -1273,7 +1051,7 @@ export function SchemaPageContent() {
                     </div>
                   ) : null}
 
-                  {loadingTemplates ? (
+                  {templatesQuery.isLoading ? (
                     <div className="rounded-lg border border-slate-200 bg-slate-50 p-8 text-center text-sm font-medium text-slate-500">
                       Loading templates...
                     </div>
@@ -1313,8 +1091,8 @@ export function SchemaPageContent() {
                               const canAdd = Boolean(selectedModelName) && !isUsed && Boolean(overrideName);
                               const isBusy =
                                 addingTemplateToTable === template.id ||
-                                savingTemplateField === template.id ||
-                                deletingTemplateField === template.id;
+                                savingTemplateFieldId === template.id ||
+                                deletingTemplateFieldId === template.id;
 
                               return (
                                 <tr key={template.id} className="align-top">
@@ -1414,7 +1192,7 @@ export function SchemaPageContent() {
                                         disabled={isBusy}
                                         className="h-8 rounded-md border border-rose-200 bg-white px-2.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:text-slate-400"
                                       >
-                                        {deletingTemplateField === template.id ? "Deleting..." : "Delete"}
+                                        {deletingTemplateFieldId === template.id ? "Deleting..." : "Delete"}
                                       </button>
                                     <button
                                       type="button"
@@ -1582,17 +1360,17 @@ export function SchemaPageContent() {
                       type="button"
                       onClick={submitTemplateField}
                       disabled={
-                        creatingTemplateField ||
+                        createTemplateMutation.isPending ||
                         Boolean(templateDuplicateSuggestion) ||
-                        Boolean(savingTemplateField)
+                        Boolean(savingTemplateFieldId)
                       }
                       className="h-10 w-full rounded-md bg-emerald-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                     >
                       {editingTemplateId
-                        ? savingTemplateField
+                        ? savingTemplateFieldId
                           ? "Updating..."
                           : "Update Template"
-                        : creatingTemplateField
+                        : createTemplateMutation.isPending
                           ? "Adding..."
                           : "Add Template"}
                     </button>

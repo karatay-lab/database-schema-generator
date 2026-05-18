@@ -1,7 +1,8 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useTRPC } from "@/trpc/client";
 import { classNames } from "../shared/dashboard-data";
 import { fieldTypeBadgeClass } from "@/lib/badge-utils";
 import { useProjectInfo } from "../shared/project-info-context";
@@ -124,16 +125,12 @@ function FieldPills({
 
 export function RelationsPageContent() {
   const { projectName, version, hasProject } = useProjectInfo();
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
 
-  const [models, setModels] = useState<PrismaModel[]>([]);
-  const [loadingTables, setLoadingTables] = useState(true);
   const [selectedModelName, setSelectedModelName] = useState("");
   const [tableSearch, setTableSearch] = useState("");
   const [isTableSelectorOpen, setIsTableSelectorOpen] = useState(false);
-  const [targetFields, setTargetFields] = useState<PrismaField[]>([]);
-  const [relations, setRelations] = useState<PrismaRelation[]>([]);
-  const [loadingRelations, setLoadingRelations] = useState(false);
-  const [loadingTargetFields, setLoadingTargetFields] = useState(false);
   const [activeRelationTab, setActiveRelationTab] =
     useState<RelationTab>("relations");
   const [relationTargetFilter, setRelationTargetFilter] = useState("");
@@ -144,16 +141,67 @@ export function RelationsPageContent() {
   const [openFieldMappingPanel, setOpenFieldMappingPanel] =
     useState<FieldMappingPanel>("local");
   const [editingRelationKey, setEditingRelationKey] = useState("");
-  const [savingRelation, setSavingRelation] = useState(false);
-  const [deletingRelation, setDeletingRelation] = useState("");
+  const [deletingRelationKey, setDeletingRelationKey] = useState("");
   const [error, setError] = useState("");
   const relationsPerPage = 6;
+
+  const tablesQuery = useQuery(
+    trpc.tables.list.queryOptions(
+      { projectName, version },
+      { enabled: !!projectName && !!version },
+    ),
+  );
+  const models: PrismaModel[] = (tablesQuery.data ?? []) as PrismaModel[];
 
   const selectedModel = useMemo(
     () => models.find((model) => model.name === selectedModelName) ?? null,
     [models, selectedModelName],
   );
   const selectedModelKey = selectedModel?.key ?? "";
+
+  const relationsQuery = useQuery(
+    trpc.relations.list.queryOptions(
+      { projectName, version, modelName: selectedModelName, modelKey: selectedModelKey },
+      { enabled: !!selectedModelName },
+    ),
+  );
+  const relations: PrismaRelation[] = relationsQuery.data?.relations ?? [];
+
+  const targetModel = models.find((m) => m.name === draft.targetModel);
+  const targetFieldsQuery = useQuery(
+    trpc.fields.list.queryOptions(
+      { projectName, version, modelName: draft.targetModel, modelKey: targetModel?.key ?? "" },
+      { enabled: !!draft.targetModel },
+    ),
+  );
+  const targetFields: PrismaField[] = targetFieldsQuery.data?.fields ?? [];
+  const selectableTargetFields = useMemo(
+    () => targetFields.filter((field) => !field.isRelation),
+    [targetFields],
+  );
+
+  const invalidateRelations = () =>
+    queryClient.invalidateQueries({
+      queryKey: trpc.relations.list.queryOptions({ projectName, version, modelName: selectedModelName, modelKey: selectedModelKey }).queryKey,
+    });
+
+  const createRelationMutation = useMutation({
+    ...trpc.relations.create.mutationOptions(),
+    onSuccess: () => { void invalidateRelations(); resetDraft(); },
+    onError: (err) => setError(err.message),
+  });
+  const updateRelationMutation = useMutation({
+    ...trpc.relations.update.mutationOptions(),
+    onSuccess: () => { void invalidateRelations(); resetDraft(); },
+    onError: (err) => setError(err.message),
+  });
+  const deleteRelationMutation = useMutation({
+    ...trpc.relations.delete.mutationOptions(),
+    onSuccess: () => { void invalidateRelations(); setDeletingRelationKey(""); },
+    onError: (err) => { setError(err.message); setDeletingRelationKey(""); },
+  });
+
+  const savingRelation = createRelationMutation.isPending || updateRelationMutation.isPending;
 
   const filteredModels = useMemo(
     () =>
@@ -164,169 +212,49 @@ export function RelationsPageContent() {
   );
 
   const ownedRelations = useMemo(
-    () =>
-      relations.filter(
-        (relation) => !relation.isBackReference,
-      ),
+    () => relations.filter((r) => !r.isBackReference),
     [relations],
   );
   const backReferences = useMemo(
-    () =>
-      relations.filter(
-        (relation) => relation.isBackReference,
-      ),
+    () => relations.filter((r) => r.isBackReference),
     [relations],
   );
-  const visibleRelations =
-    activeRelationTab === "relations" ? ownedRelations : backReferences;
+  const visibleRelations = activeRelationTab === "relations" ? ownedRelations : backReferences;
   const relationTargetOptions = useMemo(
     () =>
-      Array.from(new Set(visibleRelations.map((relation) => relation.targetModel)))
+      Array.from(new Set(visibleRelations.map((r) => r.targetModel)))
         .filter(Boolean)
-        .sort((left, right) => left.localeCompare(right)),
+        .sort((a, b) => a.localeCompare(b)),
     [visibleRelations],
   );
   const relationKindOptions = useMemo(
     () =>
-      Array.from(new Set(visibleRelations.map((relation) => relation.kind))).sort(
-        (left, right) =>
-          relationKindLabel(left).localeCompare(relationKindLabel(right)),
+      Array.from(new Set(visibleRelations.map((r) => r.kind))).sort((a, b) =>
+        relationKindLabel(a).localeCompare(relationKindLabel(b)),
       ),
     [visibleRelations],
   );
   const filteredVisibleRelations = useMemo(
     () =>
-      visibleRelations.filter((relation) => {
-        const matchesTarget =
-          !relationTargetFilter || relation.targetModel === relationTargetFilter;
-        const matchesKind =
-          !relationKindFilter || relation.kind === relationKindFilter;
-
+      visibleRelations.filter((r) => {
+        const matchesTarget = !relationTargetFilter || r.targetModel === relationTargetFilter;
+        const matchesKind = !relationKindFilter || r.kind === relationKindFilter;
         return matchesTarget && matchesKind;
       }),
     [relationKindFilter, relationTargetFilter, visibleRelations],
   );
-  const relationPageCount = Math.max(
-    1,
-    Math.ceil(filteredVisibleRelations.length / relationsPerPage),
-  );
+  const relationPageCount = Math.max(1, Math.ceil(filteredVisibleRelations.length / relationsPerPage));
   const paginatedRelations = filteredVisibleRelations.slice(
     (relationPage - 1) * relationsPerPage,
     relationPage * relationsPerPage,
   );
-  const selectableTargetFields = useMemo(
-    () => targetFields.filter((field) => !field.isRelation),
-    [targetFields],
-  );
 
-  const loadTables = useCallback(async () => {
-    if (!projectName || !version) {
-      return [];
-    }
-
-    try {
-      const params = new URLSearchParams({ projectName, version });
-      const response = await fetch(`/api/tables?${params}`);
-      const data = (await response.json()) as { models?: PrismaModel[] };
-      return data.models ?? [];
-    } catch {
-      return [];
-    }
-  }, [projectName, version]);
-
-  const loadRelations = useCallback(
-    async (modelName: string, modelKey = "") => {
-      if (!projectName || !version || (!modelName && !modelKey)) {
-        setRelations([]);
-        return;
-      }
-
-      setLoadingRelations(true);
-      setError("");
-
-      try {
-        const params = new URLSearchParams({ projectName, version });
-        if (modelName) {
-          params.set("modelName", modelName);
-        }
-        if (modelKey) {
-          params.set("modelKey", modelKey);
-        }
-
-        const response = await fetch(`/api/schema-relations?${params}`);
-        const data = (await response.json()) as RelationsResponse;
-
-        if (!response.ok) {
-          throw new Error(data.error ?? "Failed to load relations.");
-        }
-
-        setRelations(data.relations ?? []);
-      } catch (err) {
-        setRelations([]);
-        setError(err instanceof Error ? err.message : "Failed to load relations.");
-      } finally {
-        setLoadingRelations(false);
-      }
-    },
-    [projectName, version],
-  );
-
-  const loadTargetFields = useCallback(
-    async (targetModelName: string) => {
-      if (!projectName || !version || !targetModelName) {
-        setTargetFields([]);
-        return;
-      }
-
-      const targetModel = models.find((model) => model.name === targetModelName);
-
-      setLoadingTargetFields(true);
-
-      try {
-        const params = new URLSearchParams({
-          projectName,
-          version,
-          modelName: targetModelName,
-        });
-        if (targetModel?.key) {
-          params.set("modelKey", targetModel.key);
-        }
-
-        const response = await fetch(`/api/schema-fields?${params}`);
-        const data = (await response.json()) as { fields?: PrismaField[] };
-
-        if (!response.ok) {
-          throw new Error("Failed to load target fields.");
-        }
-
-        setTargetFields(data.fields ?? []);
-      } catch {
-        setTargetFields([]);
-      } finally {
-        setLoadingTargetFields(false);
-      }
-    },
-    [models, projectName, version],
-  );
-
+  // Deselect model if it disappears from the list
   useEffect(() => {
-    setLoadingTables(true);
-    loadTables().then((data) => {
-      setModels(data);
-      setLoadingTables(false);
-
-      if (
-        selectedModelName &&
-        !data.some((model) => model.name === selectedModelName)
-      ) {
-        setSelectedModelName("");
-      }
-    });
-  }, [loadTables, selectedModelName]);
-
-  useEffect(() => {
-    void loadRelations(selectedModelName, selectedModelKey);
-  }, [loadRelations, selectedModelKey, selectedModelName]);
+    if (selectedModelName && models.length > 0 && !models.some((m) => m.name === selectedModelName)) {
+      setSelectedModelName("");
+    }
+  }, [models, selectedModelName]);
 
   useEffect(() => {
     setDraft(emptyRelationDraftForModel(selectedModelName));
@@ -335,24 +263,11 @@ export function RelationsPageContent() {
   }, [selectedModelName]);
 
   useEffect(() => {
-    void loadTargetFields(draft.targetModel);
-  }, [draft.targetModel, loadTargetFields]);
-
-  useEffect(() => {
     setRelationPage(1);
-  }, [
-    activeRelationTab,
-    filteredVisibleRelations.length,
-    relationKindFilter,
-    relationTargetFilter,
-    selectedModelName,
-  ]);
+  }, [activeRelationTab, filteredVisibleRelations.length, relationKindFilter, relationTargetFilter, selectedModelName]);
 
   useEffect(() => {
-    if (
-      relationTargetFilter &&
-      !relationTargetOptions.includes(relationTargetFilter)
-    ) {
+    if (relationTargetFilter && !relationTargetOptions.includes(relationTargetFilter)) {
       setRelationTargetFilter("");
     }
   }, [relationTargetFilter, relationTargetOptions]);
@@ -373,10 +288,6 @@ export function RelationsPageContent() {
     setRelationTargetFilter("");
     setRelationKindFilter("");
     setIsTableSelectorOpen(false);
-  };
-
-  const refreshRelations = (data: RelationsResponse) => {
-    setRelations(data.relations ?? []);
   };
 
   const updateDraft = (patch: Partial<RelationDraft>) => {
@@ -415,88 +326,38 @@ export function RelationsPageContent() {
     setError("");
   };
 
-  const saveRelation = async () => {
-    if (
-      !selectedModelName ||
-      !draft.name.trim() ||
-      !draft.targetModel.trim() ||
-      !draft.backReferenceName.trim() ||
-      !draft.fields.trim() ||
-      !draft.references.trim()
-    ) {
+  const saveRelation = () => {
+    if (!selectedModelName || !draft.name.trim() || !draft.targetModel.trim() || !draft.backReferenceName.trim() || !draft.fields.trim() || !draft.references.trim()) {
       setError("Relation field, target table, back reference, local field, and target reference are required.");
       return;
     }
-
-    try {
-      setSavingRelation(true);
-      setError("");
-      const response = await fetch("/api/schema-relations", {
-        method: editingRelationKey ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectName,
-          version,
-          modelKey: selectedModelKey,
-          modelName: selectedModelName,
-          relationKey: editingRelationKey,
-          name: draft.name,
-          targetModel: draft.targetModel,
-          backReferenceName: draft.backReferenceName,
-          fields: toList(draft.fields),
-          references: toList(draft.references),
-          onDelete: draft.onDelete,
-          onUpdate: draft.onUpdate,
-          nullable: draft.nullable,
-          isArray: false,
-          backReferenceIsArray: draft.cardinality === "one-to-many",
-        }),
-      });
-      const data = (await response.json()) as RelationsResponse;
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "Failed to save relation.");
-      }
-
-      refreshRelations(data);
-      resetDraft();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save relation.");
-    } finally {
-      setSavingRelation(false);
+    setError("");
+    const payload = {
+      projectName, version,
+      modelKey: selectedModelKey, modelName: selectedModelName,
+      name: draft.name, targetModel: draft.targetModel,
+      backReferenceName: draft.backReferenceName,
+      fields: toList(draft.fields), references: toList(draft.references),
+      onDelete: draft.onDelete, onUpdate: draft.onUpdate,
+      nullable: draft.nullable, isArray: false,
+      backReferenceIsArray: draft.cardinality === "one-to-many",
+    };
+    if (editingRelationKey) {
+      updateRelationMutation.mutate({ ...payload, relationKey: editingRelationKey });
+    } else {
+      createRelationMutation.mutate(payload);
     }
   };
 
-  const deleteRelation = async (relation: PrismaRelation) => {
-    try {
-      setDeletingRelation(relation.key);
-      setError("");
-      const response = await fetch("/api/schema-relations", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectName,
-          version,
-          modelKey: selectedModelKey,
-          modelName: selectedModelName,
-          relationKey: relation.key,
-        }),
-      });
-      const data = (await response.json()) as RelationsResponse;
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "Failed to delete relation.");
-      }
-
-      refreshRelations(data);
-      if (editingRelationKey === relation.key) {
-        resetDraft();
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete relation.");
-    } finally {
-      setDeletingRelation("");
-    }
+  const deleteRelation = (relation: PrismaRelation) => {
+    setDeletingRelationKey(relation.key);
+    setError("");
+    deleteRelationMutation.mutate({
+      projectName, version,
+      modelKey: selectedModelKey, modelName: selectedModelName,
+      relationKey: relation.key,
+    });
+    if (editingRelationKey === relation.key) resetDraft();
   };
 
   if (!hasProject) {
@@ -552,7 +413,7 @@ export function RelationsPageContent() {
                 Select Table
               </button>
             </div>
-          ) : loadingRelations ? (
+          ) : relationsQuery.isLoading ? (
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-8 text-center text-sm font-medium text-slate-500">
               Loading relations...
             </div>
@@ -715,11 +576,11 @@ export function RelationsPageContent() {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => void deleteRelation(relation)}
-                                  disabled={deletingRelation === relation.key}
+                                  onClick={() => deleteRelation(relation)}
+                                  disabled={deletingRelationKey === relation.key}
                                   className="h-8 rounded-md border border-rose-200 bg-white px-2.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:text-slate-400"
                                 >
-                                  {deletingRelation === relation.key
+                                  {deletingRelationKey === relation.key
                                     ? "Deleting..."
                                     : "Delete"}
                                 </button>
@@ -945,7 +806,7 @@ export function RelationsPageContent() {
                                   <p className="px-2 py-3 text-center text-sm font-medium text-slate-500">
                                     Select a target table first.
                                   </p>
-                                ) : loadingTargetFields ? (
+                                ) : targetFieldsQuery.isLoading ? (
                                   <p className="px-2 py-3 text-center text-sm font-medium text-slate-500">
                                     Loading target fields...
                                   </p>
@@ -1092,7 +953,7 @@ export function RelationsPageContent() {
 
                     <button
                       type="button"
-                      onClick={() => void saveRelation()}
+                      onClick={() => saveRelation()}
                       disabled={
                         savingRelation ||
                         !draft.name.trim() ||
@@ -1157,7 +1018,7 @@ export function RelationsPageContent() {
               </div>
 
               <div className="max-h-[70vh] overflow-y-auto pr-1">
-                {loadingTables ? (
+                {tablesQuery.isLoading ? (
                   <div className="py-8 text-center text-sm font-medium text-slate-500">
                     Loading...
                   </div>

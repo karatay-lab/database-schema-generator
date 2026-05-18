@@ -1,7 +1,8 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useTRPC } from "@/trpc/client";
 import { classNames } from "../shared/dashboard-data";
 import { fieldTypeBadgeClass } from "@/lib/badge-utils";
 import { useProjectInfo } from "../shared/project-info-context";
@@ -52,128 +53,83 @@ function getDbNameSuggestion(fieldNames: string[]) {
 
 export function RestrictionsPageContent() {
   const { projectName, version, hasProject } = useProjectInfo();
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
 
-  const [models, setModels] = useState<PrismaModel[]>([]);
-  const [loadingTables, setLoadingTables] = useState(true);
   const [selectedModelName, setSelectedModelName] = useState("");
   const [tableSearch, setTableSearch] = useState("");
   const [isTableSelectorOpen, setIsTableSelectorOpen] = useState(false);
-  const [fields, setFields] = useState<PrismaField[]>([]);
-  const [restrictions, setRestrictions] = useState<PrismaRestriction[]>([]);
-  const [loadingRestrictions, setLoadingRestrictions] = useState(false);
   const [draft, setDraft] = useState<RestrictionDraft>(emptyRestrictionDraft);
   const [editingRestrictionKey, setEditingRestrictionKey] = useState("");
-  const [savingRestriction, setSavingRestriction] = useState(false);
-  const [deletingRestriction, setDeletingRestriction] = useState("");
+  const [deletingRestrictionKey, setDeletingRestrictionKey] = useState("");
   const [error, setError] = useState("");
 
+  const tablesQuery = useQuery(
+    trpc.tables.list.queryOptions(
+      { projectName, version },
+      { enabled: !!projectName && !!version },
+    ),
+  );
+  const models: PrismaModel[] = (tablesQuery.data ?? []) as PrismaModel[];
+
   const selectedModel = useMemo(
-    () => models.find((model) => model.name === selectedModelName) ?? null,
+    () => models.find((m) => m.name === selectedModelName) ?? null,
     [models, selectedModelName],
   );
   const selectedModelKey = selectedModel?.key ?? "";
 
+  const restrictionsQuery = useQuery(
+    trpc.restrictions.list.queryOptions(
+      { projectName, version, modelName: selectedModelName, modelKey: selectedModelKey },
+      { enabled: !!selectedModelName },
+    ),
+  );
+  const fields: PrismaField[] = restrictionsQuery.data?.fields ?? [];
+  const restrictions: PrismaRestriction[] = restrictionsQuery.data?.restrictions ?? [];
+
   const filteredModels = useMemo(
-    () =>
-      models.filter((model) =>
-        model.name.toLowerCase().includes(tableSearch.toLowerCase()),
-      ),
+    () => models.filter((m) => m.name.toLowerCase().includes(tableSearch.toLowerCase())),
     [models, tableSearch],
   );
 
   const selectableFields = useMemo(
-    () =>
-      fields.filter(
-        (field) => draft.type !== "UNIQUE" || field.type !== "Boolean",
-      ),
+    () => fields.filter((f) => draft.type !== "UNIQUE" || f.type !== "Boolean"),
     [draft.type, fields],
   );
 
-  const loadTables = useCallback(async () => {
-    if (!projectName || !version) {
-      return [];
-    }
-
-    try {
-      const params = new URLSearchParams({ projectName, version });
-      const response = await fetch(`/api/tables?${params}`);
-      const data = (await response.json()) as { models?: PrismaModel[] };
-      return data.models ?? [];
-    } catch {
-      return [];
-    }
-  }, [projectName, version]);
-
-  const loadRestrictions = useCallback(
-    async (modelName: string, modelKey = "") => {
-      if (!projectName || !version || (!modelName && !modelKey)) {
-        setFields([]);
-        setRestrictions([]);
-        return;
-      }
-
-      setLoadingRestrictions(true);
-      setError("");
-
-      try {
-        const params = new URLSearchParams({ projectName, version });
-        if (modelName) {
-          params.set("modelName", modelName);
-        }
-        if (modelKey) {
-          params.set("modelKey", modelKey);
-        }
-
-        const response = await fetch(`/api/schema-restrictions?${params}`);
-        const data = (await response.json()) as RestrictionsResponse;
-
-        if (!response.ok) {
-          throw new Error(data.error ?? "Failed to load restrictions.");
-        }
-
-        setFields(data.fields ?? []);
-        setRestrictions(data.restrictions ?? []);
-      } catch (err) {
-        setFields([]);
-        setRestrictions([]);
-        setError(
-          err instanceof Error ? err.message : "Failed to load restrictions.",
-        );
-      } finally {
-        setLoadingRestrictions(false);
-      }
-    },
-    [projectName, version],
-  );
-
-  useEffect(() => {
-    setLoadingTables(true);
-    loadTables().then((data) => {
-      setModels(data);
-      setLoadingTables(false);
-
-      if (
-        selectedModelName &&
-        !data.some((model) => model.name === selectedModelName)
-      ) {
-        setSelectedModelName("");
-      }
+  const invalidateRestrictions = () =>
+    queryClient.invalidateQueries({
+      queryKey: trpc.restrictions.list.queryOptions({ projectName, version, modelName: selectedModelName, modelKey: selectedModelKey }).queryKey,
     });
-  }, [loadTables, selectedModelName]);
+
+  const createRestrictionMutation = useMutation({
+    ...trpc.restrictions.create.mutationOptions(),
+    onSuccess: () => { void invalidateRestrictions(); resetDraft(); },
+    onError: (err) => setError(err.message),
+  });
+  const updateRestrictionMutation = useMutation({
+    ...trpc.restrictions.update.mutationOptions(),
+    onSuccess: () => { void invalidateRestrictions(); resetDraft(); },
+    onError: (err) => setError(err.message),
+  });
+  const deleteRestrictionMutation = useMutation({
+    ...trpc.restrictions.delete.mutationOptions(),
+    onSuccess: () => { void invalidateRestrictions(); setDeletingRestrictionKey(""); },
+    onError: (err) => { setError(err.message); setDeletingRestrictionKey(""); },
+  });
+
+  const savingRestriction = createRestrictionMutation.isPending || updateRestrictionMutation.isPending;
 
   useEffect(() => {
-    void loadRestrictions(selectedModelName, selectedModelKey);
-  }, [loadRestrictions, selectedModelKey, selectedModelName]);
+    if (selectedModelName && models.length > 0 && !models.some((m) => m.name === selectedModelName)) {
+      setSelectedModelName("");
+    }
+  }, [models, selectedModelName]);
 
   useEffect(() => {
     setDraft(emptyRestrictionDraft);
     setEditingRestrictionKey("");
   }, [selectedModelName]);
-
-  const refreshRestrictions = (data: RestrictionsResponse) => {
-    setFields(data.fields ?? []);
-    setRestrictions(data.restrictions ?? []);
-  };
 
   const selectModel = (modelName: string) => {
     setSelectedModelName(modelName);
@@ -223,76 +179,33 @@ export function RestrictionsPageContent() {
     setError("");
   };
 
-  const saveRestriction = async () => {
+  const saveRestriction = () => {
     if (!selectedModelName || draft.fields.length === 0) {
       setError("Select at least one field for this restriction.");
       return;
     }
-
-    try {
-      setSavingRestriction(true);
-      setError("");
-      const response = await fetch("/api/schema-restrictions", {
-        method: editingRestrictionKey ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectName,
-          version,
-          modelKey: selectedModelKey,
-          modelName: selectedModelName,
-          restrictionKey: editingRestrictionKey,
-          type: draft.type,
-          fields: draft.fields,
-          dbName: draft.dbName,
-        }),
-      });
-      const data = (await response.json()) as RestrictionsResponse;
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "Failed to save restriction.");
-      }
-
-      refreshRestrictions(data);
-      resetDraft();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save restriction.");
-    } finally {
-      setSavingRestriction(false);
+    setError("");
+    const payload = {
+      projectName, version,
+      modelKey: selectedModelKey, modelName: selectedModelName,
+      type: draft.type, fields: draft.fields, dbName: draft.dbName,
+    };
+    if (editingRestrictionKey) {
+      updateRestrictionMutation.mutate({ ...payload, restrictionKey: editingRestrictionKey });
+    } else {
+      createRestrictionMutation.mutate(payload);
     }
   };
 
-  const deleteRestriction = async (restriction: PrismaRestriction) => {
-    try {
-      setDeletingRestriction(restriction.key);
-      setError("");
-      const response = await fetch("/api/schema-restrictions", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectName,
-          version,
-          modelKey: selectedModelKey,
-          modelName: selectedModelName,
-          restrictionKey: restriction.key,
-        }),
-      });
-      const data = (await response.json()) as RestrictionsResponse;
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "Failed to delete restriction.");
-      }
-
-      refreshRestrictions(data);
-      if (editingRestrictionKey === restriction.key) {
-        resetDraft();
-      }
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to delete restriction.",
-      );
-    } finally {
-      setDeletingRestriction("");
-    }
+  const deleteRestriction = (restriction: PrismaRestriction) => {
+    setDeletingRestrictionKey(restriction.key);
+    setError("");
+    deleteRestrictionMutation.mutate({
+      projectName, version,
+      modelKey: selectedModelKey, modelName: selectedModelName,
+      restrictionKey: restriction.key,
+    });
+    if (editingRestrictionKey === restriction.key) resetDraft();
   };
 
   if (!hasProject) {
@@ -348,7 +261,7 @@ export function RestrictionsPageContent() {
                 Select Table
               </button>
             </div>
-          ) : loadingRestrictions ? (
+          ) : restrictionsQuery.isLoading ? (
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-8 text-center text-sm font-medium text-slate-500">
               Loading restrictions...
             </div>
@@ -418,11 +331,11 @@ export function RestrictionsPageContent() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => void deleteRestriction(restriction)}
-                              disabled={deletingRestriction === restriction.key}
+                              onClick={() => deleteRestriction(restriction)}
+                              disabled={deletingRestrictionKey === restriction.key}
                               className="h-8 rounded-md border border-rose-200 bg-white px-2.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:text-slate-400"
                             >
-                              {deletingRestriction === restriction.key
+                              {deletingRestrictionKey === restriction.key
                                 ? "Deleting..."
                                 : "Delete"}
                             </button>
@@ -528,7 +441,7 @@ export function RestrictionsPageContent() {
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={() => void saveRestriction()}
+                      onClick={() => saveRestriction()}
                       disabled={savingRestriction || draft.fields.length === 0}
                       className="h-10 flex-1 rounded-md bg-violet-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                     >
@@ -595,7 +508,7 @@ export function RestrictionsPageContent() {
               </div>
 
               <div className="max-h-[70vh] overflow-y-auto pr-1">
-                {loadingTables ? (
+                {tablesQuery.isLoading ? (
                   <div className="py-8 text-center text-sm font-medium text-slate-500">
                     Loading...
                   </div>

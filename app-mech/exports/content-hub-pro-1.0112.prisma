@@ -1,0 +1,10 @@
+// Content Hub Pro 1.0112 Prisma schema
+// Generated from app-mech database.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
