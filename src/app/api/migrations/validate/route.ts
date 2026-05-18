@@ -7,6 +7,7 @@ import { z } from "zod";
 import type { ValidationIssue } from "@/types/migrations";
 import { db } from "@/lib/db/client";
 import { prepareMigrationPrismaSchema } from "@/lib/migration-schema-artifacts";
+import { checkTypeConversion, generatedUniqueValue } from "@/lib/migrations/rules";
 
 const migrationsDir = path.join(process.cwd(), "src/database/migrations");
 
@@ -26,7 +27,7 @@ function jsonError(message: string, status = 400) {
 
 // ─── canonical model types (for field rename map) ─────────────────────────────
 
-type CanonicalField = { key: string; fieldId?: string; name: string };
+type CanonicalField = { key: string; fieldId?: string; name: string; dbName?: string; type?: string; nullable?: boolean };
 type CanonicalModel = { key: string; tableId?: string; name: string; fields: CanonicalField[] };
 type CanonicalStore = { models: CanonicalModel[] };
 
@@ -57,8 +58,10 @@ function buildRenameMapsByModel(
     for (const v2Field of v2Model.fields) {
       const v2FieldId = v2Field.fieldId ?? v2Field.key;
       const v1Field = v1Model.fields.find((f) => (f.fieldId ?? f.key) === v2FieldId);
-      if (v1Field && v1Field.name !== v2Field.name) {
-        fieldMap.set(v1Field.name, v2Field.name);
+      const fromName = v1Field?.dbName || v1Field?.name || "";
+      const toName = v2Field.dbName || v2Field.name;
+      if (v1Field && fromName !== toName) {
+        fieldMap.set(fromName, toName);
       }
     }
     if (fieldMap.size > 0) {
@@ -95,6 +98,20 @@ function getFieldTypeName(fieldType: Field["fieldType"]): string {
   return String(fieldType);
 }
 
+function valueToString(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === null || value === undefined) return "";
+  return String(value);
+}
+
+function fieldDbName(field: Field) {
+  const mapAttribute = field.attributes?.find(
+    (attribute) => attribute.type === "attribute" && attribute.name === "map",
+  );
+  const firstArg = mapAttribute?.args?.[0]?.value;
+  return valueToString(firstArg).replace(/^["']|["']$/g, "") || field.name;
+}
+
 function extractSchemaModels(content: string): SchemaModel[] {
   const schema = getSchema(content);
   return schema.list
@@ -113,7 +130,7 @@ function extractSchemaModels(content: string): SchemaModel[] {
         .map((p) => {
           const f = p as Field;
           return {
-            name: f.name,
+            name: fieldDbName(f),
             type: getFieldTypeName(f.fieldType),
             optional: f.optional ?? false,
             hasDefault: JSON.stringify(f).includes('"default"'),
@@ -239,6 +256,82 @@ function runStage2(
   return issues;
 }
 
+function runUpgradeRules(
+  v1Store: CanonicalStore | null,
+  v2Store: CanonicalStore | null,
+  snapshotsByTable: Map<string, Record<string, unknown>[]>,
+): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  if (!v1Store || !v2Store) return issues;
+
+  for (const targetModel of v2Store.models) {
+    const sourceModel = v1Store.models.find(
+      (model) => (model.tableId ?? model.key) === (targetModel.tableId ?? targetModel.key),
+    );
+    if (!sourceModel) continue;
+
+    const records =
+      snapshotsByTable.get(sourceModel.name) ??
+      snapshotsByTable.get(targetModel.name) ??
+      [];
+
+    for (const targetField of targetModel.fields) {
+      const sourceField = sourceModel.fields.find(
+        (field) => (field.fieldId ?? field.key) === (targetField.fieldId ?? targetField.key),
+      );
+      const targetName = targetField.dbName || targetField.name;
+      const sourceName = sourceField?.dbName || sourceField?.name || targetName;
+
+      if (!sourceField) {
+        if (!targetField.nullable) {
+          issues.push({
+            model: targetModel.name,
+            field: targetName,
+            issue: `Required field "${targetName}" does not exist in the source version.`,
+            suggestion: `Existing rows will be filled using generated unique values like ${generatedUniqueValue(targetName)}.`,
+            severity: "warning",
+          });
+        }
+        continue;
+      }
+
+      const conversion = checkTypeConversion(sourceField.type ?? "", targetField.type ?? "");
+      if (!conversion.compatible) {
+        issues.push({
+          model: targetModel.name,
+          field: targetName,
+          issue: `Cannot safely convert ${sourceField.type} to ${targetField.type}.`,
+          suggestion: "Choose a compatible type conversion or provide a custom migration.",
+          severity: "error",
+        });
+      } else if (conversion.warning) {
+        issues.push({
+          model: targetModel.name,
+          field: targetName,
+          issue: conversion.warning,
+          suggestion: `Values from "${sourceName}" will be converted before writing "${targetName}".`,
+          severity: "warning",
+        });
+      }
+
+      if (sourceField.nullable && !targetField.nullable) {
+        const hasNulls = records.some((record) => record[sourceName] === null || record[sourceName] === undefined);
+        if (hasNulls) {
+          issues.push({
+            model: targetModel.name,
+            field: targetName,
+            issue: `Field '${targetName}' contains null values.`,
+            suggestion: "Existing rows will be filled using generated unique values.",
+            severity: "warning",
+          });
+        }
+      }
+    }
+  }
+
+  return issues;
+}
+
 // ─── route handler ────────────────────────────────────────────────────────────
 
 export async function POST(request: Request) {
@@ -288,7 +381,10 @@ export async function POST(request: Request) {
     }
 
     const stage1Issues = runStage1(syncModels, snapshotsByTable);
-    const stage2Issues = runStage2(targetModels, snapshotsByTable, renameMapsByModel);
+    const stage2Issues = [
+      ...runStage2(targetModels, snapshotsByTable, renameMapsByModel),
+      ...runUpgradeRules(v1Store, v2Store, snapshotsByTable),
+    ];
     const passed =
       !stage1Issues.some((i) => i.severity === "error") &&
       !stage2Issues.some((i) => i.severity === "error");

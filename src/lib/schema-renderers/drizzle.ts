@@ -1,4 +1,5 @@
 import type { graphToCanonicalStore } from "@/lib/schema-db/graph";
+import { isInternalMigrationField, normalizeDatabaseIdentifier } from "@/lib/schema-naming";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -41,7 +42,7 @@ function drizzleDefault(defaultVal: string, provider: string, colExpr: string): 
 }
 
 type FieldShape = {
-  name: string; type: string; nullable: boolean; default: string;
+  name: string; dbName?: string; type: string; nullable: boolean; default: string;
   constraints: Array<{ type: string; name?: string; args?: string[] }>;
   array?: boolean; relation?: { fields?: string[]; references?: string[] };
 };
@@ -157,7 +158,8 @@ export function generateDrizzleSchema(
 
     for (const field of model.fields) {
       if (field.relation !== undefined) continue;
-      const colName = toSnakeCase(field.name);
+      if (isInternalMigrationField(field.name)) continue;
+      const colName = field.dbName || normalizeDatabaseIdentifier(field.name);
       const isPk = field.constraints.some((c) => c.type === "PK");
       const isUnique = field.constraints.some((c) => c.type === "UNIQUE");
       const isUpdatedAt = field.constraints.some((c) => c.type === "UPDATED_AT");

@@ -16,6 +16,7 @@ import { promisify } from "node:util";
 import { db } from "@/lib/db/client";
 import { registerFsPath } from "@/lib/db/fs-paths";
 import { readProjectVersionGraph, replaceNormalizedSchemaFromCanonicalStore } from "@/lib/schema-db/graph";
+import { isInternalMigrationField, normalizeDatabaseIdentifier, toCamelCaseIdentifier } from "@/lib/schema-naming";
 import { renderPrismaSchemaFromGraph } from "@/lib/schema-renderers/prisma";
 
 const databaseDirectory = path.join(process.cwd(), "src/database");
@@ -62,6 +63,7 @@ export type PrismaModel = {
 export type PrismaField = {
   key: string;
   name: string;
+  dbName: string;
   type: string;
   nullable: boolean;
   unique: boolean;
@@ -142,6 +144,7 @@ export type PrismaModelRestrictions = {
 
 export type PrismaFieldInput = {
   name: string;
+  dbName?: string;
   type: string;
   nullable: boolean;
   unique: boolean;
@@ -203,6 +206,7 @@ type CanonicalField = {
   key: string;
   fieldId?: string;
   name: string;
+  dbName?: string;
   type: string;
   nullable: boolean;
   default: string;
@@ -544,7 +548,8 @@ function normalizeField(value: unknown): CanonicalField | null {
   return {
     key,
     fieldId: getString(record.fieldId) || key,
-    name,
+    name: isInternalMigrationField(name) ? name : toCamelCaseIdentifier(name),
+    dbName: getString(record.dbName) || normalizeDatabaseIdentifier(name),
     type,
     nullable: getBoolean(record.nullable),
     default: getString(record.default),
@@ -684,6 +689,7 @@ function canonicalFieldToUiField(
   return {
     key: field.key,
     name: field.name,
+    dbName: field.dbName ?? normalizeDatabaseIdentifier(field.name),
     type,
     nullable: field.nullable,
     unique: restrictions.some(
@@ -746,7 +752,11 @@ function fieldInputToCanonical(
   key: string = randomUUID(),
   fieldId: string = randomUUID(),
 ): CanonicalField {
-  const name = input.name.trim();
+  const rawName = input.name.trim();
+  const name = isInternalMigrationField(rawName) ? rawName : toCamelCaseIdentifier(rawName);
+  const dbName = isInternalMigrationField(rawName)
+    ? rawName
+    : normalizeDatabaseIdentifier(input.dbName?.trim() || rawName || name);
   const uiType = input.type.trim();
   const logicalType = uiTypeToLogicalType(uiType);
   const constraints: CanonicalConstraint[] = [];
@@ -772,6 +782,7 @@ function fieldInputToCanonical(
     key,
     fieldId,
     name,
+    dbName,
     type: logicalType,
     nullable: Boolean(input.nullable),
     default: storeDefaultValue(input.defaultValue),
@@ -875,7 +886,9 @@ function ensureRelationScalarFields(
   }
 
   fields.forEach((fieldName, index) => {
-    assertValidIdentifier(fieldName, "Local relation field");
+    const schemaFieldName = toCamelCaseIdentifier(fieldName);
+    const dbName = normalizeDatabaseIdentifier(fieldName);
+    assertValidIdentifier(schemaFieldName, "Local relation field");
 
     const referenceName = references[index];
     const referenceField = targetModel.fields.find(
@@ -886,7 +899,7 @@ function ensureRelationScalarFields(
       throw new Error(`Referenced field ${referenceName} was not found in the target model.`);
     }
 
-    const existingField = model.fields.find((field) => field.name === fieldName);
+    const existingField = model.fields.find((field) => field.name === schemaFieldName);
 
     if (existingField) {
       if (existingField.relation || existingField.array) {
@@ -904,7 +917,8 @@ function ensureRelationScalarFields(
     model.fields.push({
       key: scalarKey,
       fieldId: scalarKey,
-      name: fieldName,
+      name: schemaFieldName,
+      dbName,
       type: referenceField.type,
       nullable,
       default: "",
@@ -954,7 +968,7 @@ function relationInputToCanonicalField(
   // After ensureRelationScalarFields, the scalar fields exist in model.fields.
   // Resolve field names to keys for storage.
   const localFieldKeys = fields.map(
-    (name) => model.fields.find((f) => !f.relation && f.name === name)?.key ?? name,
+    (name) => model.fields.find((f) => !f.relation && f.name === toCamelCaseIdentifier(name))?.key ?? name,
   );
   const refFieldKeys = references.map(
     (name) => targetModel.fields.find((f) => !f.relation && f.name === name)?.key ?? name,
@@ -1168,6 +1182,16 @@ function attributeDbName(attribute: { args?: AttributeArgument[] }) {
   return unquotePrismaString(valueToPrisma(value.value));
 }
 
+function attributeFirstString(attribute: { args?: AttributeArgument[] } | undefined) {
+  const [firstArg] = attribute?.args ?? [];
+  if (!firstArg) return "";
+  return unquotePrismaString(valueToPrisma(firstArg.value));
+}
+
+function fieldDbNameFromPrismaAst(field: Field) {
+  return attributeFirstString(findAttribute(field, "map")) || normalizeDatabaseIdentifier(field.name);
+}
+
 function blockAttributeFields(attribute: BlockAttribute) {
   const [fieldsArg] = attribute.args ?? [];
   const value = fieldsArg?.value;
@@ -1315,7 +1339,8 @@ function fieldFromPrismaAst(field: Field): CanonicalField {
   return {
     key,
     fieldId: key,
-    name: field.name,
+    name: isInternalMigrationField(field.name) ? field.name : toCamelCaseIdentifier(field.name),
+    dbName: fieldDbNameFromPrismaAst(field),
     type: logicalType,
     nullable: Boolean(field.optional),
     default: getDefaultValue(field),
@@ -1741,9 +1766,11 @@ function modelFieldsToUiFields(
   const enumTypes = store.enums?.map((item) => item.name) ?? [];
   const modelKeyToName = new Map(store.models.map((m) => [m.key, m.name]));
 
-  return model.fields.map((field) =>
-    canonicalFieldToUiField(field, modelNames, enumTypes, model.restrictions, modelKeyToName),
-  );
+  return model.fields
+    .filter((field) => !isInternalMigrationField(field.name))
+    .map((field) =>
+      canonicalFieldToUiField(field, modelNames, enumTypes, model.restrictions, modelKeyToName),
+    );
 }
 
 export async function initializeModelSchema(
@@ -2545,6 +2572,48 @@ export async function updateModel(
   await writeModelStore(store);
 }
 
+export async function deleteModel(
+  projectName: string,
+  version: string,
+  modelName: string,
+  modelKey = "",
+) {
+  const store = await readModelStore(projectName, version);
+  const modelIndex = store.models.findIndex(
+    (model) =>
+      (modelKey && model.key === modelKey) ||
+      (!modelKey && modelName && model.name === modelName),
+  );
+
+  if (modelIndex === -1) {
+    throw new Error("Model was not found in the selected schema.");
+  }
+
+  const [deletedModel] = store.models.splice(modelIndex, 1);
+  if (!deletedModel) {
+    throw new Error("Model was not found in the selected schema.");
+  }
+
+  const deletedModelIdentifiers = new Set([deletedModel.key, deletedModel.name]);
+  for (const model of store.models) {
+    const relationFieldsToRemove = model.fields.filter(
+      (field) => field.relation && deletedModelIdentifiers.has(field.type),
+    );
+
+    for (const field of relationFieldsToRemove) {
+      removeUnusedRelationScalarFields(model, field);
+      removeFieldRestrictions(model, field.key);
+    }
+
+    if (relationFieldsToRemove.length > 0) {
+      const relationFieldKeysToRemove = new Set(relationFieldsToRemove.map((field) => field.key));
+      model.fields = model.fields.filter((field) => !relationFieldKeysToRemove.has(field.key));
+    }
+  }
+
+  await writeModelStore(store);
+}
+
 export async function modelExistsInSchema(
   projectName: string,
   version: string,
@@ -2710,6 +2779,8 @@ function renderFieldSQLite(field: CanonicalField, model: CanonicalModel, store: 
   if (field.constraints.some((c) => c.type === "UPDATED_AT")) attributes.push("@updatedAt");
 
   // Skip @db.* native attributes — not valid for SQLite provider
+  const dbName = field.dbName ?? normalizeDatabaseIdentifier(field.name);
+  if (dbName && dbName !== field.name) attributes.push(`@map(${quotedPrismaString(dbName)})`);
 
   if (field.relation) {
     const targetModel = field.relation.fields.length > 0
@@ -2744,7 +2815,9 @@ generator client {
   }
 
   for (const model of store.models) {
-    const fieldLines = model.fields.map((field) => renderFieldSQLite(field, model, store));
+    const fieldLines = model.fields
+      .filter((field) => !isInternalMigrationField(field.name))
+      .map((field) => renderFieldSQLite(field, model, store));
     const restrictionLines = model.restrictions.map((r) => renderBlockRestriction(r, model)).filter(Boolean);
     chunks.push(
       `model ${model.name} {\n${[...fieldLines, ...restrictionLines].join("\n")}\n}`,

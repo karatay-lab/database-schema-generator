@@ -107,6 +107,7 @@ function FieldNameSuggestion({
 function fieldToInput(field: PrismaField): PrismaFieldInput {
   return {
     name: field.name,
+    dbName: field.dbName,
     type: field.type,
     nullable: field.nullable,
     unique: field.unique,

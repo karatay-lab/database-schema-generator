@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Trash2 } from "lucide-react";
 import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
 import type { PrismaModel } from "@/lib/schema-store";
@@ -144,7 +145,8 @@ export function TablesPageContent() {
   const activeProvider = providerKey(provider);
   const providerDisplay = providerLabel(activeProvider);
   const pkTypes = useMemo(() => pkOptionsForProvider(activeProvider), [activeProvider]);
-  const selectedPkSummary = pkTypeDetails[pkType as PkTypeValue]?.summary ?? "Primary key field.";
+  const effectivePkType = pkTypes.some((type) => type.value === pkType) ? pkType : pkTypes[0]?.value ?? defaultPkType;
+  const selectedPkSummary = pkTypeDetails[effectivePkType as PkTypeValue]?.summary ?? "Primary key field.";
   const selectedEditPkSummary = pkTypeDetails[editPkType as PkTypeValue]?.summary ?? "Primary key field.";
 
   const createMutation = useMutation({
@@ -169,11 +171,15 @@ export function TablesPageContent() {
     onError: (err) => setUpdateError(err.message),
   });
 
-  useEffect(() => {
-    if (!pkTypes.some((type) => type.value === pkType)) {
-      setPkType(pkTypes[0]?.value ?? defaultPkType);
-    }
-  }, [pkType, pkTypes]);
+  const deleteMutation = useMutation({
+    ...trpc.tables.delete.mutationOptions(),
+    onSuccess: () => {
+      void invalidateTables();
+      setCurrentPage(1);
+      cancelEdit();
+    },
+    onError: (err) => setUpdateError(err.message),
+  });
 
   const submitModel = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -184,7 +190,7 @@ export function TablesPageContent() {
       setCreateError("Primary key name must start with a letter and contain only letters, numbers, and underscores.");
       return;
     }
-    if (!pkType) { setCreateError("Primary key type is required."); return; }
+    if (!effectivePkType) { setCreateError("Primary key type is required."); return; }
     if (!prismaIdentifierPattern.test(trimmedName)) {
       setCreateError("Model name must start with a letter and contain only letters, numbers, and underscores.");
       return;
@@ -194,7 +200,7 @@ export function TablesPageContent() {
       return;
     }
     setCreateError("");
-    createMutation.mutate({ projectName, version, modelName: trimmedName, pkName: pkName.trim(), pkType: pkType as "String" | "Int" | "BigInt" | "DateTime" | "Uuid" });
+    createMutation.mutate({ projectName, version, modelName: trimmedName, pkName: pkName.trim(), pkType: effectivePkType as "String" | "Int" | "BigInt" | "DateTime" | "Uuid" });
   };
 
   const startEdit = (model: PrismaModel) => {
@@ -234,6 +240,20 @@ export function TablesPageContent() {
       newModelName: trimmedName,
       pkName: editPkName.trim(),
       pkType: editPkType as "String" | "Int" | "BigInt" | "DateTime" | "Uuid",
+    });
+  };
+
+  const deleteSelectedModel = () => {
+    if (!selectedModel) return;
+    const confirmed = window.confirm(`Delete ${selectedModel.name}? This will also remove its fields and relations.`);
+    if (!confirmed) return;
+
+    setUpdateError("");
+    deleteMutation.mutate({
+      projectName,
+      version,
+      modelName: selectedModel.name,
+      modelKey: selectedModel.key,
     });
   };
 
@@ -334,7 +354,7 @@ export function TablesPageContent() {
             </label>
             <select
               id="table-pk-type"
-              value={pkType}
+              value={effectivePkType}
               onChange={(e) => {
                 setPkType(e.target.value);
                 setCreateError("");
@@ -355,7 +375,7 @@ export function TablesPageContent() {
                 <span className="text-xs font-medium text-slate-500">{selectedPkSummary}</span>
               </div>
               <code className="mt-2 block overflow-x-auto whitespace-nowrap rounded bg-white px-2 py-2 font-mono text-xs text-slate-700">
-                {pkExampleLine(pkName, pkType, activeProvider)}
+                {pkExampleLine(pkName, effectivePkType, activeProvider)}
               </code>
             </div>
 
@@ -454,7 +474,7 @@ export function TablesPageContent() {
                   <button
                     type="button"
                     onClick={saveEdit}
-                    disabled={updateMutation.isPending}
+                    disabled={updateMutation.isPending || deleteMutation.isPending}
                     className="h-10 rounded-md border border-cyan-300 bg-white px-4 text-sm font-semibold text-cyan-700 transition hover:bg-cyan-50 disabled:cursor-not-allowed disabled:text-slate-400"
                   >
                     {updateMutation.isPending ? "Saving..." : "Save"}
@@ -462,10 +482,19 @@ export function TablesPageContent() {
                   <button
                     type="button"
                     onClick={cancelEdit}
-                    disabled={updateMutation.isPending}
+                    disabled={updateMutation.isPending || deleteMutation.isPending}
                     className="h-10 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
                   >
                     Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={deleteSelectedModel}
+                    disabled={updateMutation.isPending || deleteMutation.isPending}
+                    className="ml-auto inline-flex h-10 items-center gap-2 rounded-md border border-rose-200 bg-white px-4 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    {deleteMutation.isPending ? "Deleting..." : "Delete"}
                   </button>
                 </div>
               </div>

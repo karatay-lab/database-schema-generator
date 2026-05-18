@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import {
   addModel,
+  deleteModel,
   modelExistsInSchema,
   readSchema,
   updateModel,
@@ -100,6 +101,30 @@ export const tablesRouter = createTRPCRouter({
           input.newModelName,
           input.pkName,
           input.pkType,
+          input.modelKey ?? "",
+        );
+        void refreshProjectStats(input.projectName);
+        return await readSchema(input.projectName, input.version);
+      } catch (err) {
+        trpcError(err);
+      }
+    }),
+
+  delete: baseProcedure
+    .input(
+      z.object({
+        projectName: z.string(),
+        version: z.string(),
+        modelName: z.string().trim().optional(),
+        modelKey: z.string().trim().optional(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      try {
+        await deleteModel(
+          input.projectName,
+          input.version,
+          input.modelName ?? "",
           input.modelKey ?? "",
         );
         void refreshProjectStats(input.projectName);

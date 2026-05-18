@@ -19,7 +19,7 @@ export async function prepareMigrationPrismaSchema(
 ) {
   const graph = readProjectVersionGraph(projectName, version);
   const schemaPath = path.join(schemasDir, toSlug(projectName), `${toSlug(version)}.prisma`);
-  const content = renderPrismaSchemaFromGraph(graph);
+  const content = renderPrismaSchemaFromGraph(graph, { includeMigrationReference: true });
 
   await mkdir(path.dirname(schemaPath), { recursive: true });
   await writeFile(schemaPath, content, "utf8");

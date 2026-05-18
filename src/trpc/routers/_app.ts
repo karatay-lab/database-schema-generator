@@ -11,6 +11,7 @@ import { migrationsRouter } from "./migrations";
 import { historyRouter } from "./history";
 import { commentaryRouter } from "./commentary";
 import { exportsRouter } from "./exports";
+import { hierarchyRouter } from "./hierarchy";
 
 export const appRouter = createTRPCRouter({
   projects: projectsRouter,
@@ -25,6 +26,7 @@ export const appRouter = createTRPCRouter({
   history: historyRouter,
   commentary: commentaryRouter,
   exports: exportsRouter,
+  hierarchy: hierarchyRouter,
 });
 
 export type AppRouter = typeof appRouter;
