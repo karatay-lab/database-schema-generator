@@ -38,6 +38,7 @@ function restrictionTypeClass(type: PrismaRestrictionType) {
 
 
 function getDbNameSuggestion(fieldNames: string[]) {
+  const seen = new Set<string>();
   const fieldParts = fieldNames
     .map((fieldName) =>
       fieldName
@@ -47,7 +48,11 @@ function getDbNameSuggestion(fieldNames: string[]) {
         .replace(/^_+|_+$/g, "")
         .slice(0, 3),
     )
-    .filter(Boolean);
+    .filter((part) => {
+      if (!part || seen.has(part)) return false;
+      seen.add(part);
+      return true;
+    });
 
   return fieldParts.length ? `${fieldParts.join("_")}_ix` : "";
 }
