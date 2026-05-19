@@ -1131,6 +1131,70 @@ export function SchemaPageContent() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
+                          {/* Inline add row */}
+                          <tr className={classNames("align-middle border-b-2", editingTemplateId ? "border-slate-200 bg-slate-50/50" : "border-emerald-200 bg-emerald-50/30")}>
+                            {editingTemplateId ? (
+                              <td colSpan={10} className="px-3 py-2.5 text-xs font-medium text-slate-400">
+                                Save or cancel the row being edited to add a new template.
+                              </td>
+                            ) : (
+                              <>
+                                <td className="px-2 py-2">
+                                  <input
+                                    value={templateField.name}
+                                    onChange={(e) => updateTemplateField({ name: e.target.value })}
+                                    placeholder="field_name"
+                                    className={classNames("h-8 w-full rounded-md border bg-white px-2.5 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-cyan-600", templateDuplicateSuggestion ? "border-rose-400" : "border-slate-300")}
+                                  />
+                                  {templateDuplicateSuggestion ? (
+                                    <p className="mt-1 text-[10px] font-semibold text-rose-600">
+                                      Taken — use{" "}
+                                      <button type="button" onClick={() => updateTemplateField({ name: templateDuplicateSuggestion })} className="underline underline-offset-1">{templateDuplicateSuggestion}</button>?
+                                    </p>
+                                  ) : null}
+                                </td>
+                                <td className="px-2 py-2">
+                                  <select value={templateField.provider} onChange={(e) => updateTemplateField({ provider: e.target.value })} className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-950 outline-none focus:border-cyan-600">
+                                    <option value="All">All</option>
+                                    {allProviders.map((p) => <option key={p} value={p}>{p}</option>)}
+                                  </select>
+                                </td>
+                                <td className="px-2 py-2">
+                                  <select value={templateField.type} onChange={(e) => updateTemplateField({ type: e.target.value })} className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-950 outline-none focus:border-cyan-600">
+                                    {fieldTypeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
+                                  </select>
+                                </td>
+                                <td className="px-2 py-2">
+                                  <input value={templateField.defaultValue} onChange={(e) => updateTemplateField({ defaultValue: e.target.value })} placeholder="now()" className="h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-cyan-600" />
+                                </td>
+                                <td className="px-2 py-2 text-center">
+                                  <button type="button" onClick={() => updateTemplateField({ nullable: !templateField.nullable })} className={classNames("h-8 w-20 rounded-md border text-xs font-semibold transition", templateField.nullable ? "border-emerald-500 bg-emerald-500 text-white" : "border-amber-400 bg-amber-400 text-white")}>
+                                    {templateField.nullable ? "Yes" : "No"}
+                                  </button>
+                                </td>
+                                <td className="px-2 py-2 text-center">
+                                  {templateField.type === "Boolean" ? (
+                                    <span className="text-xs font-semibold text-slate-400">N/A</span>
+                                  ) : (
+                                    <button type="button" onClick={() => updateTemplateField({ unique: !templateField.unique })} className={classNames("h-8 w-20 rounded-md border text-xs font-semibold transition", templateField.unique ? "border-violet-500 bg-violet-500 text-white" : "border-sky-400 bg-sky-400 text-white")}>
+                                      {templateField.unique ? "Yes" : "No"}
+                                    </button>
+                                  )}
+                                </td>
+                                <td className="px-2 py-2">
+                                  <input value={templateField.comment} onChange={(e) => updateTemplateField({ comment: e.target.value })} placeholder="Description" className="h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-cyan-600" />
+                                </td>
+                                <td className="px-3 py-2 text-xs font-semibold text-slate-400">—</td>
+                                <td className="px-3 py-2 text-xs font-semibold text-slate-400">—</td>
+                                <td className="px-2 py-2">
+                                  <button type="button" onClick={createTemplateField} disabled={!templateField.name.trim() || !!templateDuplicateSuggestion || createTemplateMutation.isPending} className="h-8 rounded-md border border-emerald-300 bg-white px-3 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40">
+                                    {createTemplateMutation.isPending ? "Adding..." : "Add"}
+                                  </button>
+                                </td>
+                              </>
+                            )}
+                          </tr>
+
                           {filteredTemplates.length === 0 && templates.length > 0 ? (
                             <tr>
                               <td colSpan={10} className="px-3 py-6 text-center text-sm font-medium text-slate-500">
@@ -1298,100 +1362,6 @@ export function SchemaPageContent() {
                             })
                           )}
 
-                          {/* Inline add row */}
-                          <tr className={classNames("align-middle border-t-2", editingTemplateId ? "border-slate-200 bg-slate-50/50" : "border-emerald-200 bg-emerald-50/30")}>
-                            {editingTemplateId ? (
-                              <td colSpan={10} className="px-3 py-2.5 text-xs font-medium text-slate-400">
-                                Save or cancel the row being edited above to add a new template.
-                              </td>
-                            ) : (
-                              <>
-                                <td className="px-2 py-2">
-                                  <input
-                                    value={templateField.name}
-                                    onChange={(e) => updateTemplateField({ name: e.target.value })}
-                                    placeholder="field_name"
-                                    className={classNames("h-8 w-full rounded-md border bg-white px-2.5 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-cyan-600", templateDuplicateSuggestion ? "border-rose-400" : "border-slate-300")}
-                                  />
-                                  {templateDuplicateSuggestion ? (
-                                    <p className="mt-1 text-[10px] font-semibold text-rose-600">
-                                      Taken — use{" "}
-                                      <button type="button" onClick={() => updateTemplateField({ name: templateDuplicateSuggestion })} className="underline underline-offset-1">{templateDuplicateSuggestion}</button>?
-                                    </p>
-                                  ) : null}
-                                </td>
-                                <td className="px-2 py-2">
-                                  <select
-                                    value={templateField.provider}
-                                    onChange={(e) => updateTemplateField({ provider: e.target.value })}
-                                    className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-950 outline-none focus:border-cyan-600"
-                                  >
-                                    <option value="All">All</option>
-                                    {allProviders.map((p) => <option key={p} value={p}>{p}</option>)}
-                                  </select>
-                                </td>
-                                <td className="px-2 py-2">
-                                  <select
-                                    value={templateField.type}
-                                    onChange={(e) => updateTemplateField({ type: e.target.value })}
-                                    className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-950 outline-none focus:border-cyan-600"
-                                  >
-                                    {fieldTypeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
-                                  </select>
-                                </td>
-                                <td className="px-2 py-2">
-                                  <input
-                                    value={templateField.defaultValue}
-                                    onChange={(e) => updateTemplateField({ defaultValue: e.target.value })}
-                                    placeholder='now()'
-                                    className="h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-cyan-600"
-                                  />
-                                </td>
-                                <td className="px-2 py-2 text-center">
-                                  <button
-                                    type="button"
-                                    onClick={() => updateTemplateField({ nullable: !templateField.nullable })}
-                                    className={classNames("h-8 w-20 rounded-md border text-xs font-semibold transition", templateField.nullable ? "border-emerald-500 bg-emerald-500 text-white" : "border-amber-400 bg-amber-400 text-white")}
-                                  >
-                                    {templateField.nullable ? "Yes" : "No"}
-                                  </button>
-                                </td>
-                                <td className="px-2 py-2 text-center">
-                                  {templateField.type === "Boolean" ? (
-                                    <span className="text-xs font-semibold text-slate-400">N/A</span>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      onClick={() => updateTemplateField({ unique: !templateField.unique })}
-                                      className={classNames("h-8 w-20 rounded-md border text-xs font-semibold transition", templateField.unique ? "border-violet-500 bg-violet-500 text-white" : "border-sky-400 bg-sky-400 text-white")}
-                                    >
-                                      {templateField.unique ? "Yes" : "No"}
-                                    </button>
-                                  )}
-                                </td>
-                                <td className="px-2 py-2">
-                                  <input
-                                    value={templateField.comment}
-                                    onChange={(e) => updateTemplateField({ comment: e.target.value })}
-                                    placeholder="Description"
-                                    className="h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-cyan-600"
-                                  />
-                                </td>
-                                <td className="px-3 py-2 text-xs font-semibold text-slate-400">—</td>
-                                <td className="px-3 py-2 text-xs font-semibold text-slate-400">—</td>
-                                <td className="px-2 py-2">
-                                  <button
-                                    type="button"
-                                    onClick={createTemplateField}
-                                    disabled={!templateField.name.trim() || !!templateDuplicateSuggestion || createTemplateMutation.isPending}
-                                    className="h-8 rounded-md border border-emerald-300 bg-white px-3 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
-                                  >
-                                    {createTemplateMutation.isPending ? "Adding..." : "Add"}
-                                  </button>
-                                </td>
-                              </>
-                            )}
-                          </tr>
                         </tbody>
                       </table>
                     </div>
