@@ -724,7 +724,7 @@ export function SchemaPageContent() {
                                           value={draft.input.defaultValue}
                                           onChange={(event) => updateNewFieldDraft(draft.id, { defaultValue: event.target.value })}
                                           className="mt-1 h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium normal-case tracking-normal text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-600"
-                                          placeholder="now()"
+                                          placeholder="Default value"
                                         />
                                       </label>
                                     </div>
@@ -841,7 +841,7 @@ export function SchemaPageContent() {
                                         value={draft.defaultValue}
                                         onChange={(event) => updateDraft(field.key, { defaultValue: event.target.value })}
                                         className="mt-1 h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium normal-case tracking-normal text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-600"
-                                        placeholder="now()"
+                                        placeholder="Default value"
                                       />
                                     </label>
                                   </div>
@@ -1185,7 +1185,7 @@ export function SchemaPageContent() {
                                   </select>
                                 </td>
                                 <td className="px-2 py-2">
-                                  <input value={templateField.defaultValue} onChange={(e) => updateTemplateField({ defaultValue: e.target.value })} placeholder="now()" className="h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-cyan-600" />
+                                  <input value={templateField.defaultValue} onChange={(e) => updateTemplateField({ defaultValue: e.target.value })} placeholder="Default value" className="h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-cyan-600" />
                                 </td>
                                 <td className="px-2 py-2">
                                   <button type="button" onClick={() => updateTemplateField({ nullable: !templateField.nullable })} className={classNames("h-8 w-20 rounded-md border text-xs font-semibold transition", templateField.nullable ? "border-emerald-500 bg-emerald-500 text-white" : "border-amber-400 bg-amber-400 text-white")}>
@@ -1263,7 +1263,7 @@ export function SchemaPageContent() {
                                       <input
                                         value={editDraft.defaultValue}
                                         onChange={(e) => updateEditDraft({ defaultValue: e.target.value })}
-                                        placeholder='now()'
+                                        placeholder="Default value"
                                         className="h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-cyan-600"
                                       />
                                     </td>
