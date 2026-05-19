@@ -76,6 +76,20 @@ function typeBadgeClass(type: string) {
   return "bg-slate-100 text-slate-600";
 }
 
+function typeSelectClass(type: string) {
+  if (type === "Int")                         return "border-blue-200 bg-blue-50 text-blue-800";
+  if (type === "BigInt")                      return "border-rose-200 bg-rose-50 text-rose-800";
+  if (type === "Float" || type === "Decimal") return "border-sky-200 bg-sky-50 text-sky-800";
+  if (type === "String")                      return "border-green-200 bg-green-50 text-green-800";
+  if (type === "Boolean")                     return "border-amber-200 bg-amber-50 text-amber-800";
+  if (type === "DateTime")                    return "border-orange-200 bg-orange-50 text-orange-800";
+  if (type === "Timestamp")                   return "border-orange-200 bg-orange-50 text-orange-800";
+  if (type === "Json")                        return "border-violet-200 bg-violet-50 text-violet-800";
+  if (type === "Uuid")                        return "border-purple-200 bg-purple-50 text-purple-800";
+  if (type === "Bytes")                       return "border-slate-200 bg-slate-100 text-slate-600";
+  return "border-slate-300 bg-white text-slate-950";
+}
+
 function templateTypeLabel(template: FieldTemplate) {
   return template.type === "DateTime" &&
     template.nativeAttribute?.name === "Timestamptz"
@@ -803,7 +817,7 @@ export function SchemaPageContent() {
                                         <select
                                           value={draft.input.type}
                                           onChange={(event) => updateNewFieldDraft(draft.id, { type: event.target.value })}
-                                          className="mt-1 h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium normal-case tracking-normal text-slate-950 outline-none transition focus:border-cyan-600"
+                                          className={classNames("mt-1 h-8 w-full rounded-md border px-2.5 text-xs font-medium normal-case tracking-normal outline-none transition focus:border-cyan-600", typeSelectClass(draft.input.type))}
                                         >
                                           {fieldTypeOptions.map((type) => (
                                             <option key={type} value={type}>
@@ -920,7 +934,7 @@ export function SchemaPageContent() {
                                       <select
                                         value={draft.type}
                                         onChange={(event) => updateDraft(field.key, { type: event.target.value })}
-                                        className="mt-1 h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium normal-case tracking-normal text-slate-950 outline-none transition focus:border-cyan-600"
+                                        className={classNames("mt-1 h-8 w-full rounded-md border px-2.5 text-xs font-medium normal-case tracking-normal outline-none transition focus:border-cyan-600", typeSelectClass(draft.type))}
                                       >
                                         {fieldTypeOptions.map((type) => (
                                           <option key={type} value={type}>
@@ -1274,7 +1288,7 @@ export function SchemaPageContent() {
                                   </select>
                                 </td>
                                 <td className="px-2 py-2">
-                                  <select value={templateField.type} onChange={(e) => updateTemplateField({ type: e.target.value })} className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-950 outline-none focus:border-cyan-600">
+                                  <select value={templateField.type} onChange={(e) => updateTemplateField({ type: e.target.value })} className={classNames("h-8 w-full rounded-md border px-2 text-xs font-medium outline-none focus:border-cyan-600", typeSelectClass(templateField.type))}>
                                     {fieldTypeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
                                   </select>
                                 </td>
@@ -1348,7 +1362,7 @@ export function SchemaPageContent() {
                                       <select
                                         value={editDraft.type}
                                         onChange={(e) => updateEditDraft({ type: e.target.value })}
-                                        className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-950 outline-none focus:border-cyan-600"
+                                        className={classNames("h-8 w-full rounded-md border px-2 text-xs font-medium outline-none focus:border-cyan-600", typeSelectClass(editDraft.type))}
                                       >
                                         {fieldTypeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
                                       </select>
