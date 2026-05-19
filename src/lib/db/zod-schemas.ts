@@ -61,12 +61,15 @@ export function listZodSchemas(opts: { projectId: string; version: string }) {
     generatedAt: string;
   }[] = [];
 
+  const seenModels = new Set<string>();
+
   for (const row of rows) {
     const abs = path.join(cwd, row.fs_path);
     if (!existsSync(abs)) {
       stale.push(row.id);
       continue;
     }
+    seenModels.add(row.model_name);
     results.push({
       id: row.id,
       modelName: row.model_name,
@@ -81,6 +84,41 @@ export function listZodSchemas(opts: { projectId: string; version: string }) {
   if (stale.length > 0) {
     const placeholders = stale.map(() => "?").join(",");
     db.prepare(`DELETE FROM zod_schemas WHERE id IN (${placeholders})`).run(...stale);
+  }
+
+  // Seed from fs_paths for any previously-generated files not yet in zod_schemas
+  type FsPathRow = { label: string | null; fs_path: string; created_at: string };
+  const fsRows = db
+    .prepare(
+      `SELECT label, fs_path, created_at FROM fs_paths WHERE project_id = ? AND version = ? AND file_type = 'zod_file'`,
+    )
+    .all(opts.projectId, opts.version) as FsPathRow[];
+
+  for (const fsRow of fsRows) {
+    const modelName = fsRow.label ?? "";
+    if (!modelName || seenModels.has(modelName)) continue;
+    const abs = path.join(cwd, fsRow.fs_path);
+    if (!existsSync(abs)) continue;
+    db.prepare(`
+      INSERT OR IGNORE INTO zod_schemas
+        (project_id, version, model_name, fs_path, schema_count, enum_count, field_count, generated_at)
+      VALUES (?, ?, ?, ?, 0, 0, 0, ?)
+    `).run(opts.projectId, opts.version, modelName, fsRow.fs_path, fsRow.created_at);
+    const seeded = db
+      .prepare(`SELECT * FROM zod_schemas WHERE project_id = ? AND version = ? AND model_name = ?`)
+      .get(opts.projectId, opts.version, modelName) as ZodSchemaRow | undefined;
+    if (seeded) {
+      seenModels.add(modelName);
+      results.push({
+        id: seeded.id,
+        modelName: seeded.model_name,
+        relativePath: seeded.fs_path,
+        schemaCount: 0,
+        enumCount: 0,
+        fieldCount: 0,
+        generatedAt: seeded.generated_at,
+      });
+    }
   }
 
   return results;
