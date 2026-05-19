@@ -1,7 +1,8 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useTRPC } from "@/trpc/client";
 import { classNames } from "../shared/dashboard-data";
 import { fieldTypeBadgeClass } from "@/lib/badge-utils";
 import { useProjectInfo } from "../shared/project-info-context";
@@ -106,18 +107,21 @@ function displayType(field: PrismaField, enumTypes: string[]) {
 export function ValidationPageContent() {
   const { projectName, version: selectedVersion, hasProject } = useProjectInfo();
   const version = selectedVersion;
+  const trpc = useTRPC();
 
-  const [models, setModels] = useState<PrismaModel[]>([]);
-  const [loadingTables, setLoadingTables] = useState(true);
   const [selectedModelName, setSelectedModelName] = useState("");
   const [tableSearch, setTableSearch] = useState("");
   const [isTableSelectorOpen, setIsTableSelectorOpen] = useState(false);
   const [tablePage, setTablePage] = useState(1);
   const TABLE_PAGE_SIZE = 9;
 
-  const [fields, setFields] = useState<PrismaField[]>([]);
-  const [enumTypes, setEnumTypes] = useState<string[]>([]);
-  const [loadingFields, setLoadingFields] = useState(false);
+  const tablesQuery = useQuery(
+    trpc.tables.list.queryOptions(
+      { projectName, version },
+      { enabled: !!projectName && !!version },
+    ),
+  );
+  const models: PrismaModel[] = (tablesQuery.data ?? []) as PrismaModel[];
 
   const [selectedFieldKeys, setSelectedFieldKeys] = useState<Set<string>>(new Set());
   const [fieldSearch, setFieldSearch] = useState("");
@@ -125,7 +129,21 @@ export function ValidationPageContent() {
   const [fieldPage, setFieldPage] = useState(1);
   const FIELD_PAGE_SIZE = 30;
 
-  const [generating, setGenerating] = useState(false);
+  const selectedModel = useMemo(
+    () => models.find((m) => m.name === selectedModelName) ?? null,
+    [models, selectedModelName],
+  );
+  const selectedModelKey = selectedModel?.key ?? "";
+
+  const fieldsQuery = useQuery(
+    trpc.fields.list.queryOptions(
+      { projectName, version, modelName: selectedModelName, modelKey: selectedModelKey },
+      { enabled: !!selectedModelName },
+    ),
+  );
+  const fields: PrismaField[] = fieldsQuery.data?.fields ?? [];
+  const enumTypes: string[] = fieldsQuery.data?.enumTypes ?? [];
+
   const [generateError, setGenerateError] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogCode, setDialogCode] = useState("");
@@ -134,12 +152,6 @@ export function ValidationPageContent() {
   const [dialogEnumCount, setDialogEnumCount] = useState(0);
   const [dialogWarnings, setDialogWarnings] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
-
-  const selectedModel = useMemo(
-    () => models.find((model) => model.name === selectedModelName) ?? null,
-    [models, selectedModelName],
-  );
-  const selectedModelKey = selectedModel?.key ?? "";
 
   const filteredModels = useMemo(
     () =>
@@ -187,74 +199,16 @@ export function ValidationPageContent() {
 
   const totalFieldPages = Math.ceil(selectableFields.length / FIELD_PAGE_SIZE);
 
-  const loadTables = useCallback(async () => {
-    if (!projectName || !version) {
-      return [];
-    }
-
-    try {
-      const params = new URLSearchParams({ projectName, version });
-      const response = await fetch(`/api/tables?${params}`);
-      const data = (await response.json()) as { models?: PrismaModel[] };
-      return data.models ?? [];
-    } catch {
-      return [];
-    }
-  }, [projectName, version]);
-
-  const loadFields = useCallback(
-    async (modelName: string, modelKey = "") => {
-      if (!projectName || !version || !modelName) {
-        setFields([]);
-        setEnumTypes([]);
-        return;
-      }
-
-      setLoadingFields(true);
-      setSelectedFieldKeys(new Set());
-
-      try {
-        const params = new URLSearchParams({ projectName, version, modelName });
-        if (modelKey) {
-          params.set("modelKey", modelKey);
-        }
-
-        const response = await fetch(`/api/schema-fields?${params}`);
-        const data = (await response.json()) as {
-          fields?: PrismaField[];
-          enumTypes?: string[];
-        };
-
-        setFields(data.fields ?? []);
-        setEnumTypes(data.enumTypes ?? []);
-      } catch {
-        setFields([]);
-        setEnumTypes([]);
-      } finally {
-        setLoadingFields(false);
-      }
-    },
-    [projectName, version],
-  );
-
   useEffect(() => {
-    setLoadingTables(true);
-    void loadTables().then((data) => {
-      setModels(data);
-      setLoadingTables(false);
+    if (selectedModelName && models.length > 0 && !models.some((m) => m.name === selectedModelName)) {
+      setSelectedModelName("");
+    }
+  }, [models, selectedModelName]);
 
-      if (
-        selectedModelName &&
-        !data.some((model) => model.name === selectedModelName)
-      ) {
-        setSelectedModelName("");
-      }
-    });
-  }, [loadTables, selectedModelName]);
-
+  // Reset field selection when model changes
   useEffect(() => {
-    void loadFields(selectedModelName, selectedModelKey);
-  }, [loadFields, selectedModelKey, selectedModelName]);
+    setSelectedFieldKeys(new Set());
+  }, [selectedModelName]);
 
   const selectModel = (modelName: string) => {
     setSelectedModelName(modelName);
@@ -288,47 +242,29 @@ export function ValidationPageContent() {
     setGenerateError("");
   };
 
-  const handleConvert = async () => {
-    if (selectedFieldKeys.size === 0) {
-      setGenerateError("Select at least one field.");
-      return;
-    }
-
-    setGenerating(true);
-    setGenerateError("");
-
-    try {
-      const request: GenerateRequest = {
-        projectName,
-        version,
-        modelName: selectedModelName,
-        modelKey: selectedModelKey,
-        selectedFields: Array.from(selectedFieldKeys),
-      };
-
-      const response = await fetch("/api/schema-validation/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
-      });
-
-      const data: GenerateResponse = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "Generation failed.");
-      }
-
-      setDialogCode(data.code ?? "");
-      setDialogFilePath(data.filePath ?? "");
-      setDialogSchemaCount(data.schemaCount ?? 0);
-      setDialogEnumCount(data.enumCount ?? 0);
-      setDialogWarnings(data.warnings ?? []);
+  const generateMutation = useMutation({
+    ...trpc.schema.generateZod.mutationOptions(),
+    onSuccess: (data) => {
+      const d = data as GenerateResponse | undefined;
+      setDialogCode(d?.code ?? "");
+      setDialogFilePath(d?.filePath ?? "");
+      setDialogSchemaCount(d?.schemaCount ?? 0);
+      setDialogEnumCount(d?.enumCount ?? 0);
+      setDialogWarnings(d?.warnings ?? []);
       setDialogOpen(true);
-    } catch (err) {
-      setGenerateError(err instanceof Error ? err.message : "Generation failed.");
-    } finally {
-      setGenerating(false);
-    }
+    },
+    onError: (err) => setGenerateError(err.message),
+  });
+
+  const handleConvert = () => {
+    if (selectedFieldKeys.size === 0) { setGenerateError("Select at least one field."); return; }
+    setGenerateError("");
+    generateMutation.mutate({
+      projectName, version,
+      modelName: selectedModelName,
+      modelKey: selectedModelKey,
+      selectedFieldKeys: Array.from(selectedFieldKeys),
+    });
   };
 
   const handleCopy = async () => {
@@ -409,7 +345,7 @@ export function ValidationPageContent() {
                 Select Table
               </button>
             </div>
-          ) : loadingFields ? (
+          ) : fieldsQuery.isLoading ? (
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-8 text-center text-sm font-medium text-slate-500">
               Loading fields...
             </div>
@@ -564,14 +500,14 @@ export function ValidationPageContent() {
                 </p>
                 <button
                   type="button"
-                  onClick={() => void handleConvert()}
+                  onClick={() => handleConvert()}
                   disabled={
-                    generating ||
+                    generateMutation.isPending ||
                     selectedFieldKeys.size === 0
                   }
                   className="h-10 min-w-36 rounded-md bg-amber-600 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
-                  {generating ? "Generating..." : "Convert"}
+                  {generateMutation.isPending ? "Generating..." : "Convert"}
                 </button>
               </div>
             </div>
@@ -619,7 +555,7 @@ export function ValidationPageContent() {
               </div>
 
               <div className="max-h-[70vh] overflow-y-auto pr-1">
-                {loadingTables ? (
+                {tablesQuery.isLoading ? (
                   <div className="py-8 text-center text-sm font-medium text-slate-500">
                     Loading...
                   </div>

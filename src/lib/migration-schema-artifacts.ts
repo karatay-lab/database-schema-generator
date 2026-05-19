@@ -1,11 +1,9 @@
 import "server-only";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { registerFsPath } from "@/lib/db/fs-paths";
 import { readProjectVersionGraph } from "@/lib/schema-db/graph";
 import { renderPrismaSchemaFromGraph } from "@/lib/schema-renderers/prisma";
-
-const schemasDir = path.join(process.cwd(), "src/database/schemas");
 
 function toSlug(value: string) {
   return (
@@ -13,34 +11,25 @@ function toSlug(value: string) {
   );
 }
 
-export async function prepareMigrationPrismaSchema(
+export function renderMigrationPrismaSchema(
   projectName: string,
   version: string,
 ) {
   const graph = readProjectVersionGraph(projectName, version);
-  const schemaPath = path.join(schemasDir, toSlug(projectName), `${toSlug(version)}.prisma`);
-  const content = renderPrismaSchemaFromGraph(graph);
+  const content = renderPrismaSchemaFromGraph(graph, { includeMigrationReference: true });
 
-  await mkdir(path.dirname(schemaPath), { recursive: true });
-  await writeFile(schemaPath, content, "utf8");
-  registerFsPath({
-    projectId: graph.project.id,
-    version,
-    fileType: "prisma_schema",
-    label: `migration:${version}`,
-    fsPath: schemaPath,
-  });
-
-  return { schemaPath, content };
+  return { content };
 }
 
-export async function prepareMigrationPrismaSchemas(
+export async function prepareMigrationPrismaSchema(
   projectName: string,
-  versions: string[],
+  version: string,
 ) {
-  return Promise.all(
-    Array.from(new Set(versions)).map((version) =>
-      prepareMigrationPrismaSchema(projectName, version),
-    ),
-  );
+  const { content } = renderMigrationPrismaSchema(projectName, version);
+  const tempDirectory = await mkdtemp(path.join(tmpdir(), "database-schema-generator-"));
+  const schemaPath = path.join(tempDirectory, `${toSlug(projectName)}-${toSlug(version)}.prisma`);
+
+  await writeFile(schemaPath, content, "utf8");
+
+  return { cleanupPath: tempDirectory, schemaPath, content };
 }

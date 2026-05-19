@@ -154,6 +154,8 @@ type MigrationSession = {
   updatedAt: string;
 };
 
+type MigrationOrderItem = NonNullable<CollectResponse["migrationOrder"]>[number];
+
 // ─── main component ───────────────────────────────────────────────────────────
 
 type MigrationPlan = "new" | "version";
@@ -217,6 +219,7 @@ export function MigrationsPageContent() {
   const [collectTotal, setCollectTotal] = useState(0);
   const [collectQueryError, setCollectQueryError] = useState("");
   const [collectMismatches, setCollectMismatches] = useState<{ schemaTable: string; resolvedTable: string | null }[]>([]);
+  const [migrationOrder, setMigrationOrder] = useState<MigrationOrderItem[]>([]);
   const [showEmptyModal, setShowEmptyModal] = useState(false);
   const [collectModalPage, setCollectModalPage] = useState(0);
 
@@ -338,6 +341,7 @@ export function MigrationsPageContent() {
     setCollectTotal(0);
     setCollectQueryError("");
     setCollectMismatches([]);
+    setMigrationOrder([]);
     setShowEmptyModal(false);
     resetFromValidate();
   }
@@ -382,6 +386,7 @@ export function MigrationsPageContent() {
   }, [projectName]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadConnections();
   }, [loadConnections]);
 
@@ -532,6 +537,7 @@ export function MigrationsPageContent() {
       setCollectTotal(data.totalRecords ?? 0);
       setCollectQueryError(data.collectError ?? "");
       setCollectMismatches(data.tableMismatches ?? []);
+      setMigrationOrder(data.migrationOrder ?? []);
       setCollectModalPage(0);
       setShowEmptyModal(true);
       setCollectState("idle");
@@ -579,6 +585,7 @@ export function MigrationsPageContent() {
 
   function applyMigrateSuccess(data: RunResponse) {
     setMigrateTables(data.tables ?? []);
+    if (data.migrationOrder) setMigrationOrder(data.migrationOrder);
     setMigrateVersion(data.newVersion ?? targetVersion);
     setMigrateState("success");
     if (data.stage1Issues?.length) setStage1Issues(data.stage1Issues);
@@ -1379,6 +1386,15 @@ export function MigrationsPageContent() {
                       </div>
                     );
                   })()}
+
+                  {migrationOrder.length > 0 && (
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
+                      <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">Migration order</p>
+                      <p className="mt-1 font-mono text-xs text-slate-700">
+                        {migrationOrder.map((item) => item.modelName).join(" -> ")}
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1670,8 +1686,16 @@ export function MigrationsPageContent() {
               )}
               {collectTables.length > 0 && collectTotal === 0 && collectQueryError && (
                 <p className="text-xs text-slate-500">
-                  Snapshots with 0 rows were saved for each table. Click "Proceed Anyway" to continue — the migration will create and populate the tables from scratch.
+                  Snapshots with 0 rows were saved for each table. Click Proceed Anyway to continue; the migration will create and populate the tables from scratch.
                 </p>
+              )}
+              {migrationOrder.length > 0 && (
+                <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">Migration order</p>
+                  <p className="mt-1 font-mono text-xs text-slate-700">
+                    {migrationOrder.map((item) => item.modelName).join(" -> ")}
+                  </p>
+                </div>
               )}
             </div>
 

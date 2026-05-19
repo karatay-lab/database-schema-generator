@@ -6,6 +6,7 @@ import type {
   SchemaGraphRelation,
   SchemaGraphTable,
 } from "@/lib/schema-db/graph";
+import { isInternalMigrationField, MIGRATION_REFERENCE_FIELD } from "@/lib/schema-naming";
 
 const logicalToPrisma: Record<string, string> = {
   string: "String",
@@ -101,6 +102,10 @@ function fieldLine(
   return field.comment ? `${docComment(field.comment)}\n${line}` : line;
 }
 
+function migrationReferenceLine() {
+  return `  ${MIGRATION_REFERENCE_FIELD} String? @unique @map("${MIGRATION_REFERENCE_FIELD}")`;
+}
+
 function relationLine(
   relation: SchemaGraphRelation,
   side: SchemaGraphRelation["sides"][number],
@@ -174,7 +179,10 @@ function renderPrelude(graph: ProjectVersionGraph) {
   ].join("\n");
 }
 
-export function renderPrismaSchemaFromGraph(graph: ProjectVersionGraph) {
+export function renderPrismaSchemaFromGraph(
+  graph: ProjectVersionGraph,
+  options: { includeMigrationReference?: boolean } = {},
+) {
   const tableById = new Map(graph.tables.map((table) => [table.id, table]));
   const fieldById = new Map(graph.fields.map((field) => [field.id, field]));
   const fieldsByTable = new Map<string, SchemaGraphField[]>();
@@ -199,7 +207,9 @@ export function renderPrismaSchemaFromGraph(graph: ProjectVersionGraph) {
 
   for (const table of graph.tables) {
     const lines: string[] = [];
-    const fields = fieldsByTable.get(table.id) ?? [];
+    const fields = (fieldsByTable.get(table.id) ?? []).filter(
+      (field) => !isInternalMigrationField(field.name),
+    );
     const constraints = constraintsByTable.get(table.id) ?? [];
 
     if (table.comment) lines.push(docComment(table.comment));
@@ -209,6 +219,10 @@ export function renderPrismaSchemaFromGraph(graph: ProjectVersionGraph) {
         .sort((left, right) => left.sortOrder - right.sortOrder)
         .map((field) => fieldLine(field, constraints, graph.project.provider)),
     );
+
+    if (options.includeMigrationReference) {
+      lines.push(migrationReferenceLine());
+    }
 
     for (const relation of graph.relations) {
       const side = relation.sides.find((item) => item.tableId === table.id);

@@ -106,6 +106,13 @@ export const menuItemsBase: MenuItem[] = [
     tone: "bg-slate-300",
     metric: "",
   },
+  {
+    label: "Hierarchy",
+    href: "/hierarchy",
+    detail: "Order",
+    tone: "bg-emerald-400",
+    metric: "",
+  },
   { label: "History", href: "/history", tone: "bg-teal-400", metric: "0 saves" },
 ];
 
@@ -124,6 +131,8 @@ export function computeMenuItems(project: Project | null): MenuItem[] {
         return { ...item, metric: `${project.relations} links` };
       case "Restrictions":
         return { ...item, metric: `${project.restrictions ?? 0} rules` };
+      case "Hierarchy":
+        return { ...item, metric: `${project.relations} deps` };
       case "Imports":
         return { ...item, metric: `${project.imports ?? 0} queued` };
       case "History":
@@ -185,6 +194,7 @@ export const workflowSummaries: Record<string, string> = {
   "SQL Query": "Draft provider-aware SQL examples against the selected schema version.",
   Commentary: "Plan GraphQL-like schema comments and generated documentation hints.",
   Migrations: "Compare committed schema state with the active draft and prepare sync steps.",
+  Hierarchy: "Review table dependencies and the migration execution order used for relation-safe data moves.",
   History: "Select a project from committed history and restore its schema context.",
 };
 

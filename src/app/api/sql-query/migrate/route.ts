@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { execFile } from "node:child_process";
 import { copyFile, mkdir, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { generateSQLiteSchema } from "@/lib/schema-store";
@@ -24,8 +25,9 @@ function getDbPath(projectName: string, version: string) {
 
 function getSchemaPath(projectName: string, version: string) {
   return path.join(
-    process.cwd(),
-    "src/database/schemas/.tmp",
+    tmpdir(),
+    "database-schema-generator",
+    "schemas",
     `${toSchemaFilePart(projectName)}-${toSchemaFilePart(version)}-sqlite.prisma`,
   );
 }
@@ -134,6 +136,8 @@ export async function POST(request: Request) {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Migration failed.";
     return NextResponse.json({ error: message }, { status: 500 });
+  } finally {
+    await rm(schemaPath, { force: true });
   }
 }
 

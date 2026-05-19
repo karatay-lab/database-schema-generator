@@ -1,27 +1,14 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useTRPC } from "@/trpc/client";
 import type { Project } from "../shared/dashboard-data";
 import { classNames } from "../shared/dashboard-data";
 import type {
   SchemaImportFile,
   SchemaImportGroup,
 } from "@/lib/schema-imports-store";
-
-type SchemaImportsResponse = {
-  error?: string;
-  groups?: SchemaImportGroup[];
-  projects?: Project[];
-  result?: {
-    sync?: {
-      fieldCount: number;
-      relationCount: number;
-      tableCount: number;
-    };
-    version?: string;
-  };
-};
 
 type MatchDraft = {
   mode: "existing" | "new";
@@ -42,28 +29,53 @@ const emptyDraft: MatchDraft = {
   projectName: "",
 };
 
-function syncSummary(data: SchemaImportsResponse) {
-  const sync = data.result?.sync;
-  if (!sync) {
-    return "";
-  }
-
-  return `${sync.tableCount} tables / ${sync.fieldCount} fields / ${sync.relationCount} relations`;
-}
-
 export function ImportsPageContent() {
-  const [groups, setGroups] = useState<SchemaImportGroup[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [drafts, setDrafts] = useState<Record<string, MatchDraft>>({});
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
   const [syncingKey, setSyncingKey] = useState("");
   const [matchingKey, setMatchingKey] = useState("");
   const [pendingMatch, setPendingMatch] = useState<PendingMatchState | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+
+  const listQuery = useQuery(trpc.imports.list.queryOptions());
+  const groups: SchemaImportGroup[] = listQuery.data?.groups ?? [];
+  const projects: Project[] = (listQuery.data as { projects?: Project[] } | undefined)?.projects ?? [];
+
+  const invalidateImports = () => queryClient.invalidateQueries({ queryKey: trpc.imports.list.queryOptions().queryKey });
+
+  const uploadMutation = useMutation({
+    ...trpc.imports.upload.mutationOptions(),
+    onSuccess: () => { void invalidateImports(); setSelectedFiles([]); setMessage("Imported schema file queued."); },
+    onError: (err) => setError(err.message),
+  });
+  const matchMutation = useMutation({
+    ...trpc.imports.match.mutationOptions(),
+    onSuccess: (data) => {
+      void invalidateImports();
+      const result = (data as { result?: { version?: string; sync?: { tableCount: number; fieldCount: number; relationCount: number } } } | undefined)?.result;
+      const summary = result?.sync ? `${result.sync.tableCount} tables / ${result.sync.fieldCount} fields / ${result.sync.relationCount} relations` : "";
+      setMessage(`Matched import as ${result?.version ?? "new version"}${summary ? ` (${summary})` : ""}.`);
+      setMatchingKey("");
+    },
+    onError: (err) => { setError(err.message); setMatchingKey(""); },
+  });
+  const syncMutation = useMutation({
+    ...trpc.imports.sync.mutationOptions(),
+    onSuccess: (data, vars) => {
+      void invalidateImports();
+      const result = (data as { result?: { sync?: { tableCount: number; fieldCount: number; relationCount: number } } } | undefined)?.result;
+      const summary = result?.sync ? `${result.sync.tableCount} tables / ${result.sync.fieldCount} fields / ${result.sync.relationCount} relations` : "";
+      const fileName = (vars as { version: string }).version;
+      setMessage(`Synced ${fileName}${summary ? ` (${summary})` : ""}.`);
+      setSyncingKey("");
+    },
+    onError: (err) => { setError(err.message); setSyncingKey(""); },
+  });
 
   const importedGroup = useMemo(
     () => groups.find((group) => group.kind === "imported"),
@@ -77,35 +89,6 @@ export function ImportsPageContent() {
     () => groups.filter((group) => group.kind === "unmatched"),
     [groups],
   );
-
-  const applyResponse = (data: SchemaImportsResponse) => {
-    setGroups(data.groups ?? []);
-    setProjects(data.projects ?? []);
-  };
-
-  const loadImports = useCallback(async () => {
-    setLoading(true);
-    setError("");
-
-    try {
-      const response = await fetch("/api/schema-imports");
-      const data = (await response.json()) as SchemaImportsResponse;
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "Failed to load imports.");
-      }
-
-      applyResponse(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load imports.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadImports();
-  }, [loadImports]);
 
   const draftForFile = (fileName: string): MatchDraft => {
     const currentDraft = drafts[fileName];
@@ -136,111 +119,35 @@ export function ImportsPageContent() {
   };
 
   const uploadSchemas = async () => {
-    if (selectedFiles.length === 0) {
-      setError("Select at least one Prisma schema file.");
-      return;
-    }
-
-    const formData = new FormData();
-    selectedFiles.forEach((file) => formData.append("files", file));
-    setUploading(true);
-    setError("");
-    setMessage("");
-
-    try {
-      const response = await fetch("/api/schema-imports", {
-        method: "POST",
-        body: formData,
-      });
-      const data = (await response.json()) as SchemaImportsResponse;
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "Upload failed.");
-      }
-
-      applyResponse(data);
-      setSelectedFiles([]);
-      setMessage("Imported schema file queued.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed.");
-    } finally {
-      setUploading(false);
-    }
+    if (selectedFiles.length === 0) { setError("Select at least one Prisma schema file."); return; }
+    setError(""); setMessage("");
+    const files = await Promise.all(
+      selectedFiles.map(async (file) => ({ content: await file.text(), fileName: file.name })),
+    );
+    uploadMutation.mutate({ files });
   };
 
-  const matchSchema = async (file: SchemaImportFile, replaceVersion?: string) => {
+  const matchSchema = (file: SchemaImportFile, replaceVersion?: string) => {
     const draft = draftForFile(file.fileName);
-    const body =
+    setMatchingKey(file.fileName); setError(""); setMessage("");
+    matchMutation.mutate(
       draft.mode === "existing"
-        ? { fileName: file.fileName, projectId: draft.projectId, replaceVersion }
-        : { fileName: file.fileName, projectName: draft.projectName };
-
-    setMatchingKey(file.fileName);
-    setError("");
-    setMessage("");
-
-    try {
-      const response = await fetch("/api/schema-imports/match", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = (await response.json()) as SchemaImportsResponse;
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "Match failed.");
-      }
-
-      applyResponse(data);
-      setMessage(
-        `Matched import as ${data.result?.version ?? "new version"}${syncSummary(data) ? ` (${syncSummary(data)})` : ""}.`,
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Match failed.");
-    } finally {
-      setMatchingKey("");
-    }
+        ? { fileName: file.fileName, projectId: draft.projectId, projectName: "", replaceVersion }
+        : { fileName: file.fileName, projectId: "", projectName: draft.projectName },
+    );
   };
 
-  const syncSchema = async (group: SchemaImportGroup, file: SchemaImportFile) => {
-    if (!group.projectId) {
-      return;
-    }
-
-    const syncKey = `${group.id}:${file.fileName}`;
-    setSyncingKey(syncKey);
-    setError("");
-    setMessage("");
-
-    try {
-      const response = await fetch("/api/schema-imports/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectId: group.projectId,
-          version: file.version,
-        }),
-      });
-      const data = (await response.json()) as SchemaImportsResponse;
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "Sync failed.");
-      }
-
-      applyResponse(data);
-      setMessage(`Synced ${file.fileName}${syncSummary(data) ? ` (${syncSummary(data)})` : ""}.`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Sync failed.");
-    } finally {
-      setSyncingKey("");
-    }
+  const syncSchema = (group: SchemaImportGroup, file: SchemaImportFile) => {
+    if (!group.projectId) return;
+    setSyncingKey(`${group.id}:${file.fileName}`); setError(""); setMessage("");
+    syncMutation.mutate({ projectId: group.projectId, version: file.version });
   };
 
   const confirmPendingMatch = () => {
     if (!pendingMatch) return;
     const { file, versionMode, replaceVersion } = pendingMatch;
     setPendingMatch(null);
-    void matchSchema(file, versionMode === "replace" ? replaceVersion : undefined);
+    matchSchema(file, versionMode === "replace" ? replaceVersion : undefined);
   };
 
   const renderAccordion = (group: SchemaImportGroup) => {
@@ -366,7 +273,7 @@ export function ImportsPageContent() {
                   return;
                 }
               }
-              void matchSchema(file);
+              matchSchema(file);
             }}
             disabled={!canMatch || matchingKey === file.fileName}
             className="h-10 rounded-md bg-lime-600 px-4 text-sm font-semibold text-white transition hover:bg-lime-700 disabled:cursor-not-allowed disabled:bg-slate-300"
@@ -410,7 +317,7 @@ export function ImportsPageContent() {
 
         <button
           type="button"
-          onClick={() => void syncSchema(group, file)}
+          onClick={() => syncSchema(group, file)}
           disabled={!canSync || syncingKey === syncKey}
           className="h-9 rounded-md border border-lime-300 bg-white px-4 text-sm font-semibold text-lime-700 transition hover:bg-lime-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
         >
@@ -440,7 +347,7 @@ export function ImportsPageContent() {
                   Upload Prisma schemas
                 </p>
                 <p className="mt-1 text-sm text-slate-500">
-                  Uploaded files are queued under schemas/imported until matched.
+                  Uploaded schemas are queued in the database until matched.
                 </p>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -455,11 +362,11 @@ export function ImportsPageContent() {
                 />
                 <button
                   type="button"
-                  onClick={() => void uploadSchemas()}
-                  disabled={uploading || selectedFiles.length === 0}
+                  onClick={() => uploadSchemas()}
+                  disabled={uploadMutation.isPending || selectedFiles.length === 0}
                   className="h-9 rounded-md bg-lime-600 px-4 text-sm font-semibold text-white transition hover:bg-lime-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
-                  {uploading ? "Uploading..." : "Upload"}
+                  {uploadMutation.isPending ? "Uploading..." : "Upload"}
                 </button>
               </div>
             </div>
@@ -478,7 +385,7 @@ export function ImportsPageContent() {
         </div>
       </section>
 
-      {loading ? (
+      {listQuery.isLoading ? (
         <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-sm font-medium text-slate-500">
           Loading imports...
         </div>

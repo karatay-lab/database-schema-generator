@@ -297,6 +297,13 @@ if (!global._appDb) {
       imported_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS schema_import_files (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      file_name TEXT NOT NULL UNIQUE,
+      content TEXT NOT NULL,
+      uploaded_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS migration_sessions (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -433,6 +440,13 @@ db.exec(`
     version TEXT,
     source_file TEXT NOT NULL,
     imported_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS schema_import_files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_name TEXT NOT NULL UNIQUE,
+    content TEXT NOT NULL,
+    uploaded_at TEXT NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS migration_snapshots (

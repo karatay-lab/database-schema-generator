@@ -1,6 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { db } from "@/lib/db/client";
+import { isInternalMigrationField, normalizeDatabaseIdentifier } from "@/lib/schema-naming";
 
 type DbProject = {
   id: string;
@@ -23,6 +24,7 @@ type CanonicalField = {
   key: string;
   fieldId?: string;
   name: string;
+  dbName?: string;
   type: string;
   nullable: boolean;
   default: string;
@@ -352,7 +354,7 @@ function migrateLegacyStore(project: DbProject, version: DbVersion, store: Canon
         stableFieldId,
         tableId,
         field.name,
-        null,
+        field.dbName || normalizeDatabaseIdentifier(field.name),
         field.type,
         nativeConstraint(field),
         field.nullable ? 1 : 0,
@@ -447,7 +449,7 @@ function migrateLegacyStore(project: DbProject, version: DbVersion, store: Canon
       }
 
       insertRelationSide.run(
-        randomUUID(),
+        field.key,
         relationId,
         tableIdByModelName.get(sourceModel.name)!,
         field.name,
@@ -521,7 +523,7 @@ function migrateLegacyStore(project: DbProject, version: DbVersion, store: Canon
       }
 
       insertRelationSide.run(
-        randomUUID(),
+        field.key,
         relationId,
         tableIdByModelName.get(sourceModel.name)!,
         field.name,
@@ -766,6 +768,8 @@ export function graphToCanonicalStore(graph: ProjectVersionGraph): CanonicalStor
         const targetTable = tableById.get(side.isOwner ? relation.targetTableId : relation.sourceTableId);
         if (!targetTable) continue;
 
+        if (isInternalMigrationField(side.fieldName)) continue;
+
         relationFields.push({
           key: side.id,
           name: side.fieldName,
@@ -797,11 +801,14 @@ export function graphToCanonicalStore(graph: ProjectVersionGraph): CanonicalStor
 
       return {
         key: table.modelKey,
+        tableId: table.tableId,
         name: table.name,
         fields: [
           ...tableFields.map((field): CanonicalField => ({
             key: field.fieldKey,
+            fieldId: field.fieldId,
             name: field.name,
+            dbName: field.dbName ?? normalizeDatabaseIdentifier(field.name),
             type: field.logicalType,
             nullable: field.nullable,
             default: field.defaultValue,

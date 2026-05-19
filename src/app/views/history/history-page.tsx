@@ -1,25 +1,27 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useTRPC } from "@/trpc/client";
 import { classNames } from "../shared/dashboard-data";
 import { useDashboard } from "../shared/dashboard-context";
 import { useProjectInfo } from "../shared/project-info-context";
-import type { VersionHistory } from "@/app/api/history/route";
+
+type VersionHistory = {
+  name: string;
+  createdAt: string;
+  tables: number;
+  fields: number;
+  relations: number;
+  restrictions: number;
+};
 
 function formatDate(iso: string) {
   if (!iso) return "—";
   try {
     return new Intl.DateTimeFormat("en-GB", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
+      day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
     }).format(new Date(iso));
-  } catch {
-    return "—";
-  }
+  } catch { return "—"; }
 }
 
 function StatBadge({ label, value }: { label: string; value: number }) {
@@ -34,28 +36,15 @@ function StatBadge({ label, value }: { label: string; value: number }) {
 export function HistoryPageContent() {
   const { setSelectedVersion } = useDashboard();
   const { projectId: activeProjectId, projectName, version: selectedVersion, hasProject } = useProjectInfo();
-  const [versions, setVersions] = useState<VersionHistory[]>([]);
-  const [loading, setLoading] = useState(false);
+  const trpc = useTRPC();
 
-  const fetchHistory = useCallback(async () => {
-    if (!activeProjectId) return;
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({ projectId: activeProjectId });
-      const res = await fetch(`/api/history?${params}`);
-      const data = (await res.json()) as { versions?: VersionHistory[]; error?: string };
-      setVersions(data.versions ?? []);
-    } catch {
-      setVersions([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [activeProjectId]);
-
-  useEffect(() => {
-    setVersions([]);
-    void fetchHistory();
-  }, [fetchHistory]);
+  const historyQuery = useQuery(
+    trpc.history.list.queryOptions(
+      { projectId: activeProjectId },
+      { enabled: !!activeProjectId },
+    ),
+  );
+  const versions: VersionHistory[] = (historyQuery.data?.versions ?? []) as VersionHistory[];
 
   if (!hasProject) {
     return (
@@ -91,7 +80,7 @@ export function HistoryPageContent() {
         </div>
 
         <div className="p-5">
-          {loading ? (
+          {historyQuery.isLoading ? (
             <div className="py-12 text-center text-sm font-medium text-slate-500">
               Loading history…
             </div>

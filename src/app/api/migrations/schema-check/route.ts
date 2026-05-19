@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { execFile } from "node:child_process";
-import { access } from "node:fs/promises";
+import { access, rm } from "node:fs/promises";
 import { promisify } from "node:util";
 import type { SchemaCheckResult } from "@/types/migrations";
 import { prepareMigrationPrismaSchema } from "@/lib/migration-schema-artifacts";
@@ -58,21 +58,28 @@ export async function POST(request: Request) {
   }
 
   try {
-    const [{ schemaPath: syncPath }, { schemaPath: targetPath }] = await Promise.all([
+    const [syncPrepared, targetPrepared] = await Promise.all([
       prepareMigrationPrismaSchema(projectName, syncVersion),
       prepareMigrationPrismaSchema(projectName, targetVersion),
     ]);
-    const [sync, target] = await Promise.all([
-      validateSchema(syncVersion, syncPath),
-      validateSchema(targetVersion, targetPath),
-    ]);
+    try {
+      const [sync, target] = await Promise.all([
+        validateSchema(syncVersion, syncPrepared.schemaPath),
+        validateSchema(targetVersion, targetPrepared.schemaPath),
+      ]);
 
-    return NextResponse.json({
-      success: true,
-      sync,
-      target,
-      bothValid: sync.valid && target.valid,
-    });
+      return NextResponse.json({
+        success: true,
+        sync,
+        target,
+        bothValid: sync.valid && target.valid,
+      });
+    } finally {
+      await Promise.allSettled([
+        rm(syncPrepared.cleanupPath, { force: true, recursive: true }),
+        rm(targetPrepared.cleanupPath, { force: true, recursive: true }),
+      ]);
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : "Schema check failed.";
     return NextResponse.json({ success: false, error: message }, { status: 500 });

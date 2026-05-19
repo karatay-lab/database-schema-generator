@@ -72,6 +72,7 @@ export type CollectResponse = {
   totalRecords?: number;
   isEmpty?: boolean;
   tableMismatches?: { schemaTable: string; resolvedTable: string | null }[];
+  migrationOrder?: { tableId: string; modelName: string; dbName: string; parentCount: number }[];
   collectError?: string;
   error?: string;
 };
@@ -99,6 +100,7 @@ export type RunResponse = {
   stage2Issues?: ValidationIssue[];
   invalidRows?: InvalidRow[];
   tables?: { name: string; created: number; updated: number; errors: number }[];
+  migrationOrder?: { tableId: string; modelName: string; dbName: string; parentCount: number }[];
   logPath?: string;
   newVersion?: string;
   error?: string;

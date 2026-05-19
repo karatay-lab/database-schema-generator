@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { execFile } from "node:child_process";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { getSchema } from "@mrleebo/prisma-ast";
@@ -11,15 +12,18 @@ import { getConnection, touchLastUsedAt } from "@/lib/db/migration-connections";
 import { registerFsPath } from "@/lib/db/fs-paths";
 import { db as appDb } from "@/lib/db/client";
 import { upsertMigrationSession } from "@/lib/db/migration-state";
-import { prepareMigrationPrismaSchema } from "@/lib/migration-schema-artifacts";
+import { prepareMigrationPrismaSchema, renderMigrationPrismaSchema } from "@/lib/migration-schema-artifacts";
+import { readProjectVersionGraph } from "@/lib/schema-db/graph";
+import { MIGRATION_REFERENCE_FIELD } from "@/lib/schema-naming";
+import { computeMigrationOrder, generatedUniqueValue } from "@/lib/migrations/rules";
 
 const execFileAsync = promisify(execFile);
 const migrationsDir = path.join(process.cwd(), "src/database/migrations");
-const tmpDir = path.join(process.cwd(), "src/database/schemas/.tmp");
+const tmpDir = path.join(tmpdir(), "database-schema-generator", "migration-runtime");
 
 // ─── canonical types ──────────────────────────────────────────────────────────
 
-type CanonicalField = { key: string; fieldId?: string; name: string };
+type CanonicalField = { key: string; fieldId?: string; name: string; dbName?: string; type?: string; nullable?: boolean };
 type CanonicalModel = { key: string; tableId?: string; name: string; fields: CanonicalField[] };
 type CanonicalStore = { models: CanonicalModel[] };
 
@@ -84,6 +88,20 @@ function getFieldTypeName(fieldType: Field["fieldType"]): string {
   return String(fieldType);
 }
 
+function valueToString(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === null || value === undefined) return "";
+  return String(value);
+}
+
+function fieldDbName(field: Field) {
+  const mapAttribute = field.attributes?.find(
+    (attribute: Attribute) => attribute.type === "attribute" && attribute.name === "map",
+  );
+  const firstArg = mapAttribute?.args?.[0]?.value;
+  return valueToString(firstArg).replace(/^["']|["']$/g, "") || field.name;
+}
+
 // ─── schema extraction ────────────────────────────────────────────────────────
 
 function extractSchemaModels(content: string): SchemaModel[] {
@@ -110,7 +128,7 @@ function extractSchemaModels(content: string): SchemaModel[] {
             (a: Attribute) => a.type === "attribute" && a.name === "default",
           ) ?? false;
           return {
-            name: f.name,
+            name: fieldDbName(f),
             type: getFieldTypeName(f.fieldType),
             optional: f.optional ?? false,
             isId,
@@ -224,18 +242,20 @@ function buildFieldTransforms(
       for (const tf of targetCanon.fields) {
         const tfId = tf.fieldId ?? tf.key;
         const sf = syncCanon.fields.find((f) => (f.fieldId ?? f.key) === tfId);
+        const targetName = tf.dbName || targetSchema.fields.find((f) => f.name === tf.name)?.name || tf.name;
         if (sf) {
-          if (sf.name === tf.name) unchanged.push(tf.name);
-          else renames[sf.name] = tf.name;
+          const syncName = sf.dbName || sf.name;
+          if (syncName === targetName) unchanged.push(targetName);
+          else renames[syncName] = targetName;
         } else {
-          const schemaField = targetSchema.fields.find((f) => f.name === tf.name);
-          added.push({ name: tf.name, type: schemaField?.type ?? "String", optional: schemaField?.optional ?? true });
+          const schemaField = targetSchema.fields.find((f) => f.name === targetName || f.name === tf.name);
+          added.push({ name: targetName, type: schemaField?.type ?? "String", optional: schemaField?.optional ?? true });
         }
       }
       // Fields in sync but not in target → removed
       for (const sf of syncCanon.fields) {
         const sfId = sf.fieldId ?? sf.key;
-        if (!targetCanon.fields.find((f) => (f.fieldId ?? f.key) === sfId)) removed.push(sf.name);
+        if (!targetCanon.fields.find((f) => (f.fieldId ?? f.key) === sfId)) removed.push(sf.dbName || sf.name);
       }
     } else {
       // Model is new in target — all fields are added
@@ -312,11 +332,14 @@ function transformRecord(
   }
 
   // Add new fields with null default (user must fix via modal if required)
-  for (const { name } of transform.added) {
-    if (!(name in out)) out[name] = null;
+  for (const { name, optional } of transform.added) {
+    if (!(name in out)) out[name] = optional ? null : generatedUniqueValue(name);
   }
 
   // Removed fields are simply excluded — not added to out
+  if (raw[MIGRATION_REFERENCE_FIELD] !== undefined) {
+    out[MIGRATION_REFERENCE_FIELD] = raw[MIGRATION_REFERENCE_FIELD];
+  }
 
   return out;
 }
@@ -480,6 +503,12 @@ const main = async () => {
       run(records);
       summaries.push({ name: tableName, created, updated: 0, errors: errorDetails.length, errorDetails });
     }
+    if (summaries.every((summary) => summary.errors === 0)) {
+      for (const { tableName } of tables) {
+        try { db.prepare('ALTER TABLE "' + tableName + '" DROP COLUMN "${MIGRATION_REFERENCE_FIELD}"').run(); }
+        catch (_) {}
+      }
+    }
     db.close();
 
   } else if (p === 'postgresql' || p === 'postgres') {
@@ -502,6 +531,12 @@ const main = async () => {
           errorDetails.push({ error: e?.message ?? String(e) });
         }
         summaries.push({ name: tableName, created, updated: 0, errors: errorDetails.length, errorDetails });
+      }
+      if (summaries.every((summary) => summary.errors === 0)) {
+        for (const { tableName } of tables) {
+          try { await client.query('ALTER TABLE "' + tableName + '" DROP COLUMN IF EXISTS "${MIGRATION_REFERENCE_FIELD}"'); }
+          catch (_) {}
+        }
       }
     } finally {
       await client.end();
@@ -547,14 +582,20 @@ export async function POST(request: Request) {
 
   // Load sync + target Prisma schemas
   let schemaPath: string;
+  let schemaCleanupPath = "";
   let syncContent: string;
   let targetContent: string;
+  let migrationOrder: ReturnType<typeof computeMigrationOrder> = [];
   try {
-    ({ content: targetContent, schemaPath } = await prepareMigrationPrismaSchema(projectName, targetVersion));
+    const preparedSchema = await prepareMigrationPrismaSchema(projectName, targetVersion);
+    targetContent = preparedSchema.content;
+    schemaPath = preparedSchema.schemaPath;
+    schemaCleanupPath = preparedSchema.cleanupPath;
     ({ content: syncContent } = syncVersion
-      ? await prepareMigrationPrismaSchema(projectName, syncVersion)
+      ? renderMigrationPrismaSchema(projectName, syncVersion)
       : { content: targetContent }
     );
+    migrationOrder = computeMigrationOrder(readProjectVersionGraph(projectName, targetVersion));
   } catch (err) {
     return jsonError(err instanceof Error ? err.message : "Schema could not be prepared.", 404);
   }
@@ -740,8 +781,10 @@ export async function POST(request: Request) {
       },
     );
 
-    // Build FK-safe insert order
-    const insertOrder = buildFkInsertOrder(targetContent, targetModels.map((m) => m.name));
+    // Build dependency-aware migration order and tell the client/log exactly what ran.
+    const insertOrder = migrationOrder.length
+      ? migrationOrder.map((item) => item.modelName)
+      : buildFkInsertOrder(targetContent, targetModels.map((m) => m.name));
 
     // Build payload for upsert child process (pre-transformed, FK-ordered)
     const tables = insertOrder
@@ -794,6 +837,7 @@ export async function POST(request: Request) {
       totalCreated,
       totalErrors,
       insertOrder,
+      migrationOrder,
       tables: tableSummaries,
     }, null, 2), "utf8");
 
@@ -815,6 +859,7 @@ export async function POST(request: Request) {
       success: true,
       stage1Issues,
       tables: tableSummaries,
+      migrationOrder,
       logPath: path.relative(process.cwd(), logPath),
       newVersion: targetVersion,
     });
@@ -855,6 +900,9 @@ export async function POST(request: Request) {
     await Promise.allSettled([
       rm(tmpScriptPath, { force: true }),
       rm(tmpPayloadPath, { force: true }),
+      schemaCleanupPath
+        ? rm(schemaCleanupPath, { force: true, recursive: true })
+        : Promise.resolve(),
     ]);
   }
 }

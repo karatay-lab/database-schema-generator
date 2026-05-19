@@ -13,7 +13,9 @@ import { registerFsPath } from "@/lib/db/fs-paths";
 import { db as appDb } from "@/lib/db/client";
 import { insertMigrationSnapshot, upsertMigrationSession } from "@/lib/db/migration-state";
 import { setMigrationState } from "@/lib/db/migration-state";
-import { prepareMigrationPrismaSchema } from "@/lib/migration-schema-artifacts";
+import { renderMigrationPrismaSchema } from "@/lib/migration-schema-artifacts";
+import { readProjectVersionGraph } from "@/lib/schema-db/graph";
+import { computeMigrationOrder, fieldReadName, withMigrationReference } from "@/lib/migrations/rules";
 
 const migrationsDir = path.join(process.cwd(), "src/database/migrations");
 
@@ -210,8 +212,30 @@ export async function POST(request: Request) {
   if (!stored) return jsonError("Connection not found. Complete the connection step first.", 404);
 
   let syncContent: string;
+  let migrationOrder: ReturnType<typeof computeMigrationOrder> = [];
+  let referencesByModelName = new Map<string, Array<{ targetTable: string; fields: string[] }>>();
   try {
-    ({ content: syncContent } = await prepareMigrationPrismaSchema(projectName, syncVersion));
+    ({ content: syncContent } = renderMigrationPrismaSchema(projectName, syncVersion));
+    const syncGraph = readProjectVersionGraph(projectName, syncVersion);
+    migrationOrder = computeMigrationOrder(syncGraph);
+
+    const tableById = new Map(syncGraph.tables.map((table) => [table.id, table]));
+    const fieldById = new Map(syncGraph.fields.map((field) => [field.id, field]));
+    referencesByModelName = new Map();
+    for (const relation of syncGraph.relations) {
+      const sourceTable = tableById.get(relation.sourceTableId);
+      const targetTable = tableById.get(relation.targetTableId);
+      if (!sourceTable || !targetTable || relation.fieldPairs.length === 0) continue;
+      const fields = [...relation.fieldPairs]
+        .sort((left, right) => left.sortOrder - right.sortOrder)
+        .map((pair) => fieldById.get(pair.sourceFieldId))
+        .filter((field): field is NonNullable<typeof field> => Boolean(field))
+        .map(fieldReadName);
+      if (fields.length === 0) continue;
+      const bucket = referencesByModelName.get(sourceTable.name) ?? [];
+      bucket.push({ targetTable: targetTable.dbName ?? targetTable.name, fields });
+      referencesByModelName.set(sourceTable.name, bucket);
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : `Schema version "${syncVersion}" could not be prepared.`;
     return jsonError(message, 404);
@@ -227,7 +251,7 @@ export async function POST(request: Request) {
   // Load target Prisma schema for table name resolution (@@map overrides).
   const targetModelTableMap = new Map<string, string>(); // target model name → target table name
   try {
-    const { content: targetContent } = await prepareMigrationPrismaSchema(projectName, targetVersion);
+    const { content: targetContent } = renderMigrationPrismaSchema(projectName, targetVersion);
     for (const { modelName, tableName } of extractModelInfo(targetContent)) {
       targetModelTableMap.set(modelName, tableName);
     }
@@ -307,6 +331,18 @@ export async function POST(request: Request) {
     const fileTable = matched ? resolvedTable : schemaTable;
     const tableId = syncTableIdByModelName.get(modelName) ?? null;
     const targetInfo = tableId ? targetInfoByTableId.get(tableId) : null;
+    const relationRefs = referencesByModelName.get(modelName) ?? [];
+    const recordsWithReferences = records.map((record, index) => {
+      const refs = Object.fromEntries(
+        relationRefs.map((relation) => [
+          relation.targetTable,
+          relation.fields.length === 1
+            ? record[relation.fields[0]!]
+            : relation.fields.map((field) => record[field]),
+        ]),
+      );
+      return withMigrationReference(record, index, refs);
+    });
     await writeFile(
       path.join(dataDir, `${fileTable}.json`),
       JSON.stringify({
@@ -319,7 +355,8 @@ export async function POST(request: Request) {
         targetModelKey: tableId,
         count: records.length,
         collectedAt: new Date().toISOString(),
-        records,
+        migrationOrder,
+        records: recordsWithReferences,
       }, null, 2),
       "utf8",
     );
@@ -380,6 +417,7 @@ export async function POST(request: Request) {
     timestamp,
     tables,
     totalRecords,
+    migrationOrder,
     isEmpty: totalRecords === 0,
     tableMismatches: tableMismatches.length > 0 ? tableMismatches : undefined,
     ...(collectError ? { collectError } : {}),

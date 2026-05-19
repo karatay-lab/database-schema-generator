@@ -13,7 +13,6 @@ const dbPath = path.join(cwd, "src/database/app.db");
 const projectsFile = path.join(cwd, "src/database/projects/projects.json");
 const modelsDir = path.join(cwd, "src/database/models");
 const templatesFile = path.join(cwd, "src/database/templates/fields/fields.json");
-const schemasDir = path.join(cwd, "src/database/schemas");
 const zodDir = path.join(cwd, "src/database/zod");
 const migrationsDir = path.join(cwd, "src/database/migrations");
 
@@ -146,9 +145,6 @@ for (const p of rawProjects) {
   const versions = Array.isArray(p.versions) ? p.versions : [{ name: "1.0111" }];
 
   for (const v of versions) {
-    const schemaFile = path.join(schemasDir, slug, `${toSlug(v.name)}.prisma`);
-    try { readFileSync(schemaFile); reg(p.id, null, v.name, "prisma_schema", null, schemaFile); } catch { /* skip */ }
-
     const zodVersionDir = path.join(zodDir, slug, toSlug(v.name));
     for (const f of safeReaddir(zodVersionDir).filter((n) => n.endsWith(".ts"))) {
       const modelName = f.replace(/\.ts$/, "");

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { execFile } from "node:child_process";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
@@ -10,7 +11,7 @@ import { db as appDb } from "@/lib/db/client";
 import { saveConnection } from "@/lib/db/migration-connections";
 
 const execFileAsync = promisify(execFile);
-const tmpDir = path.join(process.cwd(), "src/database/schemas/.tmp");
+const tmpDir = path.join(tmpdir(), "database-schema-generator", "schemas");
 
 function buildConnectionUrl(
   provider: string,
@@ -73,26 +74,23 @@ export async function POST(request: Request) {
   const connectionUrl = buildConnectionUrl(provider, host, port, user, password, database);
   const prismaProvider = toPrismaProvider(provider);
   const tmpSchemaPath = path.join(tmpDir, `migration-introspect-${Date.now()}.prisma`);
+  const datasourceSchema = `datasource db {\n  provider = "${prismaProvider}"\n}\n`;
 
   try {
     await mkdir(tmpDir, { recursive: true });
 
-    await writeFile(
-      tmpSchemaPath,
-      `datasource db {\n  provider = "${prismaProvider}"\n}\n`,
-      "utf8",
-    );
+    await writeFile(tmpSchemaPath, datasourceSchema, "utf8");
 
     let tables: string[] = [];
     let introspectedSchema = "";
 
     try {
-      await execFileAsync(
+      const result = await execFileAsync(
         "pnpm",
-        ["prisma", "db", "pull", "--schema", tmpSchemaPath, `--url=${connectionUrl}`, "--force"],
+        ["prisma", "db", "pull", "--print", "--schema", tmpSchemaPath, `--url=${connectionUrl}`],
         { cwd: process.cwd(), timeout: 30_000 },
       );
-      introspectedSchema = await readFile(tmpSchemaPath, "utf8");
+      introspectedSchema = result.stdout;
       const parsed = getSchema(introspectedSchema);
       tables = parsed.list
         .filter((b) => b.type === "model")
@@ -102,7 +100,7 @@ export async function POST(request: Request) {
       const raw = `${e.stdout ?? ""}\n${e.stderr ?? ""}\n${e.message ?? ""}`;
       if (raw.includes("P4001")) {
         tables = [];
-        introspectedSchema = await readFile(tmpSchemaPath, "utf8").catch(() => "");
+        introspectedSchema = datasourceSchema;
       } else {
         throw new Error(stripAnsi(raw.trim()) || "Could not connect to the database.");
       }

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { getSchema } from "@mrleebo/prisma-ast";
@@ -10,14 +11,7 @@ import type { StoredConnection } from "@/types/migrations";
 import { getConnection } from "@/lib/db/migration-connections";
 
 const execFileAsync = promisify(execFile);
-const migrationsDir = path.join(process.cwd(), "src/database/migrations");
-const tmpDir = path.join(process.cwd(), "src/database/schemas/.tmp");
-
-function toSlug(value: string) {
-  return (
-    value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "untitled"
-  );
-}
+const tmpDir = path.join(tmpdir(), "database-schema-generator", "schemas");
 
 function buildConnectionUrl(conn: StoredConnection): string {
   const p = conn.provider.toLowerCase();
@@ -66,26 +60,23 @@ export async function POST(request: Request) {
   const connectionUrl = buildConnectionUrl(stored);
   const prismaProvider = toPrismaProvider(stored.provider);
   const tmpSchemaPath = path.join(tmpDir, `migration-pull-${Date.now()}.prisma`);
+  const datasourceSchema = `datasource db {\n  provider = "${prismaProvider}"\n}\n`;
 
   try {
     await mkdir(tmpDir, { recursive: true });
 
-    await writeFile(
-      tmpSchemaPath,
-      `datasource db {\n  provider = "${prismaProvider}"\n}\n`,
-      "utf8",
-    );
+    await writeFile(tmpSchemaPath, datasourceSchema, "utf8");
 
     let introspectedSchema = "";
     let tables: string[] = [];
 
     try {
-      await execFileAsync(
+      const result = await execFileAsync(
         "pnpm",
-        ["prisma", "db", "pull", "--schema", tmpSchemaPath, `--url=${connectionUrl}`, "--force"],
+        ["prisma", "db", "pull", "--print", "--schema", tmpSchemaPath, `--url=${connectionUrl}`],
         { cwd: process.cwd(), timeout: 30_000 },
       );
-      introspectedSchema = await readFile(tmpSchemaPath, "utf8");
+      introspectedSchema = result.stdout;
       const parsed = getSchema(introspectedSchema);
       tables = parsed.list
         .filter((b) => b.type === "model")
@@ -94,29 +85,19 @@ export async function POST(request: Request) {
       const e = pullErr as { stdout?: string; stderr?: string; message?: string };
       const raw = `${e.stdout ?? ""}\n${e.stderr ?? ""}\n${e.message ?? ""}`;
       if (raw.includes("P4001")) {
-        introspectedSchema = await readFile(tmpSchemaPath, "utf8").catch(() => "");
+        introspectedSchema = datasourceSchema;
         tables = [];
       } else {
         throw new Error(stripAnsi(raw.trim()) || "Introspection failed.");
       }
     }
 
-    const projectSlug = toSlug(projectName);
-    const connDir = path.join(migrationsDir, projectSlug, connectionId);
-    await mkdir(connDir, { recursive: true });
-
-    const schemaPath = path.join(connDir, `${toSlug(syncVersion)}-sync.prisma`);
-    const hashPath = path.join(connDir, `${toSlug(syncVersion)}-sync.sha256`);
-
     const hash = createHash("sha256").update(introspectedSchema, "utf8").digest("hex");
-    await writeFile(schemaPath, introspectedSchema, "utf8");
-    await writeFile(hashPath, hash, "utf8");
 
     return NextResponse.json({
       success: true,
       hash,
       tables,
-      storedPath: path.relative(process.cwd(), schemaPath),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Pull failed.";
