@@ -253,6 +253,7 @@ export async function generateZodSchema(
       schemaCount: nestedEntries.length + 1,
       enumCount: enumEntries.length,
       fieldCount: selectedCanonicalFields.length,
+      selectedFieldKeys: input.selectedFieldKeys,
     });
   }
 

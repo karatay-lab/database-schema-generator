@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
 import { classNames } from "../shared/dashboard-data";
 import { fieldTypeBadgeClass } from "@/lib/badge-utils";
 import { useProjectInfo } from "../shared/project-info-context";
-import { IconCheck, IconCopy, IconEye, IconFolderOpen } from "@tabler/icons-react";
+import { IconCheck, IconCopy, IconEye, IconFolderOpen, IconPencil } from "@tabler/icons-react";
 import type { PrismaField, PrismaModel } from "@/lib/schema-store";
 import type { GenerateResponse } from "@/types/validation";
 
@@ -113,6 +113,8 @@ export function ValidationPageContent() {
   const queryClient = useQueryClient();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const generatorRef = useRef<HTMLElement>(null);
+  const [pendingFieldKeys, setPendingFieldKeys] = useState<string[] | null>(null);
 
   const [selectedModelName, setSelectedModelName] = useState(
     () => searchParams.get("table") ?? "",
@@ -246,10 +248,18 @@ export function ValidationPageContent() {
     }
   }, [selectedModelName]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reset field selection when model changes
+  // Reset field selection when model changes (unless we're restoring from an edit)
   useEffect(() => {
-    setSelectedFieldKeys(new Set());
-  }, [selectedModelName]);
+    if (pendingFieldKeys === null) setSelectedFieldKeys(new Set());
+  }, [selectedModelName]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Restore field selection after fields load (triggered by Edit button)
+  useEffect(() => {
+    if (!pendingFieldKeys || fieldsQuery.isLoading || fields.length === 0) return;
+    const validKeys = new Set(fields.map((f) => f.key));
+    setSelectedFieldKeys(new Set(pendingFieldKeys.filter((k) => validKeys.has(k))));
+    setPendingFieldKeys(null);
+  }, [fields, fieldsQuery.isLoading, pendingFieldKeys]);
 
   useEffect(() => {
     if (!readFileQuery.data || !viewingModel) return;
@@ -285,6 +295,15 @@ export function ValidationPageContent() {
     }
     setCopiedRowPath(schema.relativePath);
     setTimeout(() => setCopiedRowPath(null), 1500);
+  };
+
+  const handleEditSchema = (schema: { modelName: string; selectedFieldKeys: string[] }) => {
+    setPendingFieldKeys(schema.selectedFieldKeys);
+    setSelectedModelName(schema.modelName);
+    setFieldSearch("");
+    setFieldTypeFilter("all");
+    setGenerateError("");
+    setTimeout(() => generatorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   };
 
   const selectModel = (modelName: string) => {
@@ -493,6 +512,14 @@ export function ValidationPageContent() {
                         </button>
                         <button
                           type="button"
+                          title="Edit this schema"
+                          onClick={() => handleEditSchema(schema)}
+                          className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                        >
+                          <IconPencil size={14} stroke={2} />
+                        </button>
+                        <button
+                          type="button"
                           title="Set path in your project"
                           onClick={() => {
                             setEditingPathId(schema.id);
@@ -597,7 +624,7 @@ export function ValidationPageContent() {
         </div>
       )}
 
-      <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+      <section ref={generatorRef} className="rounded-lg border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-5 py-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>

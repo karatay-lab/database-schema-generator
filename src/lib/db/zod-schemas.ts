@@ -15,6 +15,7 @@ type ZodSchemaRow = {
   field_count: number;
   generated_at: string;
   target_path: string | null;
+  selected_field_keys: string | null;
 };
 
 export function upsertZodSchema(opts: {
@@ -25,12 +26,13 @@ export function upsertZodSchema(opts: {
   schemaCount: number;
   enumCount: number;
   fieldCount: number;
+  selectedFieldKeys: string[];
 }) {
   const rel = path.relative(process.cwd(), opts.fsPath);
   db.prepare(`
     INSERT OR REPLACE INTO zod_schemas
-      (project_id, version, model_name, fs_path, schema_count, enum_count, field_count, generated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      (project_id, version, model_name, fs_path, schema_count, enum_count, field_count, selected_field_keys, generated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     opts.projectId,
     opts.version,
@@ -39,6 +41,7 @@ export function upsertZodSchema(opts: {
     opts.schemaCount,
     opts.enumCount,
     opts.fieldCount,
+    JSON.stringify(opts.selectedFieldKeys),
     new Date().toISOString(),
   );
 }
@@ -61,6 +64,7 @@ export function listZodSchemas(opts: { projectId: string; version: string }) {
     fieldCount: number;
     generatedAt: string;
     targetPath: string | null;
+    selectedFieldKeys: string[];
   }[] = [];
 
   const seenModels = new Set<string>();
@@ -81,6 +85,7 @@ export function listZodSchemas(opts: { projectId: string; version: string }) {
       fieldCount: row.field_count,
       generatedAt: row.generated_at,
       targetPath: row.target_path ?? null,
+      selectedFieldKeys: row.selected_field_keys ? (JSON.parse(row.selected_field_keys) as string[]) : [],
     });
   }
 
@@ -121,6 +126,7 @@ export function listZodSchemas(opts: { projectId: string; version: string }) {
         fieldCount: 0,
         generatedAt: seeded.generated_at,
         targetPath: null,
+        selectedFieldKeys: [],
       });
     }
   }
