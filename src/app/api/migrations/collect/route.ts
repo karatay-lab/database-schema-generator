@@ -13,7 +13,7 @@ import { registerFsPath } from "@/lib/db/fs-paths";
 import { db as appDb } from "@/lib/db/client";
 import { insertMigrationSnapshot, upsertMigrationSession } from "@/lib/db/migration-state";
 import { setMigrationState } from "@/lib/db/migration-state";
-import { prepareMigrationPrismaSchema } from "@/lib/migration-schema-artifacts";
+import { renderMigrationPrismaSchema } from "@/lib/migration-schema-artifacts";
 import { readProjectVersionGraph } from "@/lib/schema-db/graph";
 import { computeMigrationOrder, fieldReadName, withMigrationReference } from "@/lib/migrations/rules";
 
@@ -215,7 +215,7 @@ export async function POST(request: Request) {
   let migrationOrder: ReturnType<typeof computeMigrationOrder> = [];
   let referencesByModelName = new Map<string, Array<{ targetTable: string; fields: string[] }>>();
   try {
-    ({ content: syncContent } = await prepareMigrationPrismaSchema(projectName, syncVersion));
+    ({ content: syncContent } = renderMigrationPrismaSchema(projectName, syncVersion));
     const syncGraph = readProjectVersionGraph(projectName, syncVersion);
     migrationOrder = computeMigrationOrder(syncGraph);
 
@@ -251,7 +251,7 @@ export async function POST(request: Request) {
   // Load target Prisma schema for table name resolution (@@map overrides).
   const targetModelTableMap = new Map<string, string>(); // target model name → target table name
   try {
-    const { content: targetContent } = await prepareMigrationPrismaSchema(projectName, targetVersion);
+    const { content: targetContent } = renderMigrationPrismaSchema(projectName, targetVersion);
     for (const { modelName, tableName } of extractModelInfo(targetContent)) {
       targetModelTableMap.set(modelName, tableName);
     }

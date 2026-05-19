@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { execFile } from "node:child_process";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { getSchema } from "@mrleebo/prisma-ast";
@@ -11,14 +12,14 @@ import { getConnection, touchLastUsedAt } from "@/lib/db/migration-connections";
 import { registerFsPath } from "@/lib/db/fs-paths";
 import { db as appDb } from "@/lib/db/client";
 import { upsertMigrationSession } from "@/lib/db/migration-state";
-import { prepareMigrationPrismaSchema } from "@/lib/migration-schema-artifacts";
+import { prepareMigrationPrismaSchema, renderMigrationPrismaSchema } from "@/lib/migration-schema-artifacts";
 import { readProjectVersionGraph } from "@/lib/schema-db/graph";
 import { MIGRATION_REFERENCE_FIELD } from "@/lib/schema-naming";
 import { computeMigrationOrder, generatedUniqueValue } from "@/lib/migrations/rules";
 
 const execFileAsync = promisify(execFile);
 const migrationsDir = path.join(process.cwd(), "src/database/migrations");
-const tmpDir = path.join(process.cwd(), "src/database/schemas/.tmp");
+const tmpDir = path.join(tmpdir(), "database-schema-generator", "migration-runtime");
 
 // ─── canonical types ──────────────────────────────────────────────────────────
 
@@ -581,13 +582,17 @@ export async function POST(request: Request) {
 
   // Load sync + target Prisma schemas
   let schemaPath: string;
+  let schemaCleanupPath = "";
   let syncContent: string;
   let targetContent: string;
   let migrationOrder: ReturnType<typeof computeMigrationOrder> = [];
   try {
-    ({ content: targetContent, schemaPath } = await prepareMigrationPrismaSchema(projectName, targetVersion));
+    const preparedSchema = await prepareMigrationPrismaSchema(projectName, targetVersion);
+    targetContent = preparedSchema.content;
+    schemaPath = preparedSchema.schemaPath;
+    schemaCleanupPath = preparedSchema.cleanupPath;
     ({ content: syncContent } = syncVersion
-      ? await prepareMigrationPrismaSchema(projectName, syncVersion)
+      ? renderMigrationPrismaSchema(projectName, syncVersion)
       : { content: targetContent }
     );
     migrationOrder = computeMigrationOrder(readProjectVersionGraph(projectName, targetVersion));
@@ -895,6 +900,9 @@ export async function POST(request: Request) {
     await Promise.allSettled([
       rm(tmpScriptPath, { force: true }),
       rm(tmpPayloadPath, { force: true }),
+      schemaCleanupPath
+        ? rm(schemaCleanupPath, { force: true, recursive: true })
+        : Promise.resolve(),
     ]);
   }
 }

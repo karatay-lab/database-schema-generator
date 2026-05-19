@@ -6,7 +6,7 @@ import type { Field, Model } from "@mrleebo/prisma-ast";
 import { z } from "zod";
 import type { ValidationIssue } from "@/types/migrations";
 import { db } from "@/lib/db/client";
-import { prepareMigrationPrismaSchema } from "@/lib/migration-schema-artifacts";
+import { renderMigrationPrismaSchema } from "@/lib/migration-schema-artifacts";
 import { checkTypeConversion, generatedUniqueValue } from "@/lib/migrations/rules";
 
 const migrationsDir = path.join(process.cwd(), "src/database/migrations");
@@ -350,8 +350,8 @@ export async function POST(request: Request) {
 
   try {
     const [syncContent, targetContent] = await Promise.all([
-      prepareMigrationPrismaSchema(projectName, syncVersion).then((schema) => schema.content),
-      prepareMigrationPrismaSchema(projectName, targetVersion).then((schema) => schema.content),
+      Promise.resolve(renderMigrationPrismaSchema(projectName, syncVersion).content),
+      Promise.resolve(renderMigrationPrismaSchema(projectName, targetVersion).content),
     ]);
 
     const syncModels = extractSchemaModels(syncContent);

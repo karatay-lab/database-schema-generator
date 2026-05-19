@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
 import { classNames } from "../shared/dashboard-data";
+import { IconCheck, IconPlus, IconTrash } from "@tabler/icons-react";
 import type {
   PrismaField,
   PrismaFieldInput,
@@ -63,46 +64,6 @@ function templateTypeLabel(template: FieldTemplate) {
     : template.type;
 }
 
-function toSnakeCaseName(fieldName: string) {
-  return fieldName
-    .trim()
-    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
-    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
-    .replace(/[\s-]+/g, "_")
-    .replace(/_+/g, "_")
-    .toLowerCase();
-}
-
-function getSnakeCaseSuggestion(fieldName: string) {
-  const suggestion = toSnakeCaseName(fieldName);
-
-  return suggestion && suggestion !== fieldName.trim() ? suggestion : "";
-}
-
-function FieldNameSuggestion({
-  suggestion,
-  onUse,
-}: {
-  suggestion: string;
-  onUse: () => void;
-}) {
-  if (!suggestion) {
-    return null;
-  }
-
-  return (
-    <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs font-semibold normal-case tracking-normal text-amber-800">
-      Use snake_case:{" "}
-      <button
-        type="button"
-        onClick={onUse}
-        className="font-bold underline underline-offset-2"
-      >
-        {suggestion}
-      </button>
-    </div>
-  );
-}
 
 function fieldToInput(field: PrismaField): PrismaFieldInput {
   return {
@@ -142,7 +103,9 @@ export function SchemaPageContent() {
   const [selectedModelName, setSelectedModelName] = useState("");
   const [tableSearch, setTableSearch] = useState("");
   const [fieldDrafts, setFieldDrafts] = useState<Record<string, PrismaFieldInput>>({});
-  const [newField, setNewField] = useState<PrismaFieldInput>(emptyFieldInput);
+  const [newFieldDrafts, setNewFieldDrafts] = useState<Array<{id: string; input: PrismaFieldInput}>>([]);
+  const [savingNewCardId, setSavingNewCardId] = useState("");
+  const savingNewCardIdRef = useRef("");
   const [savingFieldKey, setSavingFieldKey] = useState("");
   const [deletingFieldKey, setDeletingFieldKey] = useState("");
   const [error, setError] = useState("");
@@ -222,8 +185,16 @@ export function SchemaPageContent() {
 
   const createFieldMutation = useMutation({
     ...trpc.fields.create.mutationOptions(),
-    onSuccess: () => { void invalidateFields(); setNewField(emptyFieldInput); setSavingFieldKey(""); },
-    onError: (err) => { setError(err.message); setSavingFieldKey(""); },
+    onSuccess: () => {
+      void invalidateFields();
+      const id = savingNewCardIdRef.current;
+      if (id) {
+        setNewFieldDrafts(prev => prev.filter(d => d.id !== id));
+        savingNewCardIdRef.current = "";
+      }
+      setSavingNewCardId("");
+    },
+    onError: (err) => { setError(err.message); setSavingNewCardId(""); savingNewCardIdRef.current = ""; },
   });
   const updateFieldMutation = useMutation({
     ...trpc.fields.update.mutationOptions(),
@@ -325,6 +296,7 @@ export function SchemaPageContent() {
   useEffect(() => {
     setFieldPage(1);
     setFieldTypeFilter("All");
+    setNewFieldDrafts([]);
   }, [selectedModelName]);
 
   useEffect(() => {
@@ -385,16 +357,6 @@ export function SchemaPageContent() {
     });
   };
 
-  const createField = () => {
-    if (!selectedModelName) return;
-    setError("");
-    createFieldMutation.mutate({
-      projectName, version,
-      modelKey: selectedModelKey, modelName: selectedModelName,
-      ...newField,
-    });
-  };
-
   const filteredModels = models.filter((model) =>
     model.name.toLowerCase().includes(tableSearch.toLowerCase()),
   );
@@ -430,23 +392,42 @@ export function SchemaPageContent() {
       .filter((template) => template.id !== editingTemplateId)
       .map((template) => template.name),
   );
-  const newFieldNameSuggestion = getSnakeCaseSuggestion(newField.name);
-  const templateNameSuggestion = getSnakeCaseSuggestion(templateField.name);
 
   const selectModel = (modelName: string) => {
     setSelectedModelName(modelName);
     setIsTableSelectorOpen(false);
   };
 
-  const updateNewField = (patch: Partial<PrismaFieldInput>) => {
-    setNewField((field) => ({
-      ...field,
-      ...patch,
-      unique:
-        patch.type === "Boolean"
-          ? false
-          : patch.unique ?? field.unique,
-    }));
+  const addNewFieldCard = () => {
+    setNewFieldDrafts(prev => [...prev, { id: crypto.randomUUID(), input: { ...emptyFieldInput } }]);
+  };
+
+  const updateNewFieldDraft = (draftId: string, patch: Partial<PrismaFieldInput>) => {
+    setNewFieldDrafts(prev =>
+      prev.map(d =>
+        d.id === draftId
+          ? { ...d, input: { ...d.input, ...patch, unique: patch.type === "Boolean" ? false : patch.unique ?? d.input.unique } }
+          : d,
+      ),
+    );
+    setError("");
+  };
+
+  const removeNewFieldDraft = (draftId: string) => {
+    setNewFieldDrafts(prev => prev.filter(d => d.id !== draftId));
+  };
+
+  const saveNewFieldDraft = (draftId: string) => {
+    const draft = newFieldDrafts.find(d => d.id === draftId);
+    if (!draft || !selectedModelName) return;
+    setSavingNewCardId(draftId);
+    savingNewCardIdRef.current = draftId;
+    setError("");
+    createFieldMutation.mutate({
+      projectName, version,
+      modelKey: selectedModelKey, modelName: selectedModelName,
+      ...draft.input,
+    });
   };
 
   const updateTemplateField = (patch: Partial<PrismaFieldInput>) => {
@@ -573,6 +554,16 @@ export function SchemaPageContent() {
               >
                 Select Table
               </button>
+              {selectedModelName ? (
+                <button
+                  type="button"
+                  onClick={addNewFieldCard}
+                  className="flex h-9 w-9 items-center justify-center rounded-md border border-cyan-300 bg-white text-cyan-600 transition hover:bg-cyan-50"
+                  title="Add field"
+                >
+                  <IconPlus size={16} stroke={2} />
+                </button>
+              ) : null}
             </div>
           </div>
         </div>
@@ -597,8 +588,7 @@ export function SchemaPageContent() {
             </div>
           ) : (
             <div className="space-y-5">
-              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-                <div>
+              <div>
                   <div className="mb-3 flex flex-col gap-3 2xl:flex-row 2xl:items-center 2xl:justify-between">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
@@ -640,99 +630,150 @@ export function SchemaPageContent() {
                     </div>
                   ) : (
                     <div className="space-y-4">
+                      {newFieldDrafts.length > 0 ? (
+                        <div className="grid gap-3 xl:grid-cols-2 2xl:grid-cols-3">
+                          {newFieldDrafts.map((draft) => {
+                            const hasName = draft.input.name.trim().length > 0;
+                            return (
+                              <div
+                                key={draft.id}
+                                className="rounded-lg border border-cyan-200 bg-white p-3 shadow-sm"
+                              >
+                                <div className="flex gap-3">
+                                  <div className="min-w-0 flex-1 grid gap-2">
+                                    <div className="grid grid-cols-[1fr_minmax(0,140px)_1fr] gap-2">
+                                      <label className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+                                        Name
+                                        <input
+                                          value={draft.input.name}
+                                          onChange={(event) => updateNewFieldDraft(draft.id, { name: event.target.value })}
+                                          className="mt-1 h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium normal-case tracking-normal text-slate-950 outline-none transition focus:border-cyan-600"
+                                          autoFocus
+                                        />
+                                      </label>
+                                      <label className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+                                        Type
+                                        <select
+                                          value={draft.input.type}
+                                          onChange={(event) => updateNewFieldDraft(draft.id, { type: event.target.value })}
+                                          className="mt-1 h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium normal-case tracking-normal text-slate-950 outline-none transition focus:border-cyan-600"
+                                        >
+                                          {fieldTypeOptions.map((type) => (
+                                            <option key={type} value={type}>
+                                              {type}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </label>
+                                      <label className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+                                        Default
+                                        <input
+                                          value={draft.input.defaultValue}
+                                          onChange={(event) => updateNewFieldDraft(draft.id, { defaultValue: event.target.value })}
+                                          className="mt-1 h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium normal-case tracking-normal text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-600"
+                                          placeholder="now()"
+                                        />
+                                      </label>
+                                    </div>
+                                    <label className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+                                      Comment
+                                      <input
+                                        value={draft.input.comment}
+                                        onChange={(event) => updateNewFieldDraft(draft.id, { comment: event.target.value })}
+                                        className="mt-1 h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium normal-case tracking-normal text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-600"
+                                        placeholder="FK companies"
+                                      />
+                                    </label>
+                                  </div>
+                                  <div className="flex w-1/5 min-w-0 flex-col gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => updateNewFieldDraft(draft.id, { nullable: !draft.input.nullable })}
+                                      className={classNames(
+                                        "h-8 rounded-md border px-2.5 text-[11px] font-semibold transition",
+                                        draft.input.nullable
+                                          ? "border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600"
+                                          : "border-amber-400 bg-amber-400 text-white hover:bg-amber-500",
+                                      )}
+                                    >
+                                      {draft.input.nullable ? "Nullable" : "Required"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => updateNewFieldDraft(draft.id, { unique: !draft.input.unique })}
+                                      disabled={draft.input.type === "Boolean"}
+                                      className={classNames(
+                                        "h-8 rounded-md border px-2.5 text-[11px] font-semibold transition",
+                                        draft.input.unique
+                                          ? "border-violet-500 bg-violet-500 text-white hover:bg-violet-600"
+                                          : "border-sky-400 bg-sky-400 text-white hover:bg-sky-500",
+                                        draft.input.type === "Boolean" && "cursor-not-allowed opacity-30",
+                                      )}
+                                    >
+                                      {draft.input.unique ? "Unique" : "Dupes"}
+                                    </button>
+                                    <div className="mt-auto">
+                                      {hasName ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => saveNewFieldDraft(draft.id)}
+                                          disabled={savingNewCardId === draft.id}
+                                          className="flex h-8 w-full items-center justify-center rounded-md border border-cyan-300 bg-white text-cyan-600 transition hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-40"
+                                          title="Save"
+                                        >
+                                          <IconCheck size={15} stroke={2.5} />
+                                        </button>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => removeNewFieldDraft(draft.id)}
+                                          className="flex h-8 w-full items-center justify-center rounded-md border border-rose-200 bg-white text-rose-500 transition hover:bg-rose-50"
+                                          title="Cancel"
+                                        >
+                                          <IconTrash size={15} stroke={2} />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : null}
                       <div className="grid gap-3 xl:grid-cols-2 2xl:grid-cols-3">
                         {paginatedFields.map((field) => {
                           const draft = fieldDrafts[field.key] ?? fieldToInput(field);
-                          const draftNameSuggestion = getSnakeCaseSuggestion(draft.name);
+                          const hasChanges =
+                            draft.name !== field.name ||
+                            draft.type !== field.type ||
+                            draft.nullable !== field.nullable ||
+                            draft.unique !== field.unique ||
+                            (draft.defaultValue ?? "") !== (field.defaultValue ?? "") ||
+                            (draft.comment ?? "") !== (field.comment ?? "");
 
                           return (
                             <div
                               key={field.key}
                               className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm"
                             >
-                              <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
-                                <div className="flex min-w-0 items-center gap-2">
-                                  <p className="truncate text-xs font-semibold text-slate-950">
-                                    {field.name}
-                                  </p>
-                                  <span className={classNames("rounded-md px-2 py-0.5 text-[11px] font-semibold", typeBadgeClass(field.type))}>
-                                    {field.type}
-                                  </span>
-                                  {field.isId ? (
-                                    <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
-                                      @id
-                                    </span>
-                                  ) : null}
-                                </div>
-                                <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
-                                  <button
-                                    type="button"
-                                    onClick={() => updateDraft(field.key, { nullable: !draft.nullable })}
-                                    className={classNames(
-                                      "h-8 rounded-md border px-2.5 text-[11px] font-semibold transition",
-                                      draft.nullable
-                                        ? "border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600"
-                                        : "border-rose-500 bg-rose-500 text-white hover:bg-rose-600",
-                                    )}
-                                  >
-                                    Nullable
-                                  </button>
-                                  {draft.type !== "Boolean" ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => updateDraft(field.key, { unique: !draft.unique })}
-                                      className={classNames(
-                                        "h-8 rounded-md border px-2.5 text-[11px] font-semibold transition",
-                                        draft.unique
-                                          ? "border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600"
-                                          : "border-rose-500 bg-rose-500 text-white hover:bg-rose-600",
-                                      )}
-                                    >
-                                      Unique
-                                    </button>
-                                  ) : null}
-                                  <button
-                                    type="button"
-                                    onClick={() => saveField(field)}
-                                    disabled={savingFieldKey === field.key || deletingFieldKey === field.key}
-                                    className="h-8 rounded-md border border-cyan-300 bg-white px-2.5 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-50 disabled:cursor-not-allowed disabled:text-slate-400"
-                                  >
-                                    {savingFieldKey === field.key ? "Saving..." : "Save"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => deleteField(field)}
-                                    disabled={savingFieldKey === field.key || deletingFieldKey === field.key}
-                                    className="h-8 rounded-md border border-rose-200 bg-white px-2.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:text-slate-400"
-                                  >
-                                    {deletingFieldKey === field.key ? "Deleting..." : "Delete"}
-                                  </button>
-                                </div>
-                              </div>
-
-                              <div className="mt-2 grid gap-2">
-                                <div className="grid gap-2 lg:grid-cols-[minmax(0,0.85fr)_minmax(240px,1.35fr)_minmax(0,1fr)]">
-                                  <label className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
-                                    Name
-                                    <input
-                                      value={draft.name}
-                                      onChange={(event) => updateDraft(field.key, { name: event.target.value })}
-                                      className="mt-1 h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium normal-case tracking-normal text-slate-950 outline-none transition focus:border-cyan-600"
-                                    />
-                                    <FieldNameSuggestion
-                                      suggestion={draftNameSuggestion}
-                                      onUse={() =>
-                                        updateDraft(field.key, { name: draftNameSuggestion })
-                                      }
-                                    />
-                                  </label>
-                                  <label className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
-                                    Type
-                                    <div className="mt-1 flex flex-col gap-1.5 sm:flex-row sm:items-center">
+                              <div className="flex gap-3">
+                                <div className="min-w-0 flex-1 grid gap-2">
+                                  <div className="grid grid-cols-[1fr_minmax(0,140px)_1fr] gap-2">
+                                    <label className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+                                      Name
+                                      <input
+                                        value={draft.name}
+                                        onChange={(event) => updateDraft(field.key, { name: event.target.value })}
+                                        className="mt-1 h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium normal-case tracking-normal text-slate-950 outline-none transition focus:border-cyan-600"
+                                      />
+                                    </label>
+                                    <label className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+                                      Type
                                       <select
                                         value={draft.type}
                                         onChange={(event) => updateDraft(field.key, { type: event.target.value })}
-                                        className="h-8 min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium normal-case tracking-normal text-slate-950 outline-none transition focus:border-cyan-600"
+                                        className="mt-1 h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium normal-case tracking-normal text-slate-950 outline-none transition focus:border-cyan-600"
                                       >
                                         {fieldTypeOptions.map((type) => (
                                           <option key={type} value={type}>
@@ -740,27 +781,78 @@ export function SchemaPageContent() {
                                           </option>
                                         ))}
                                       </select>
-                                    </div>
-                                  </label>
+                                    </label>
+                                    <label className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+                                      Default
+                                      <input
+                                        value={draft.defaultValue}
+                                        onChange={(event) => updateDraft(field.key, { defaultValue: event.target.value })}
+                                        className="mt-1 h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium normal-case tracking-normal text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-600"
+                                        placeholder="now()"
+                                      />
+                                    </label>
+                                  </div>
                                   <label className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
-                                    Default
+                                    Comment
                                     <input
-                                      value={draft.defaultValue}
-                                      onChange={(event) => updateDraft(field.key, { defaultValue: event.target.value })}
+                                      value={draft.comment}
+                                      onChange={(event) => updateDraft(field.key, { comment: event.target.value })}
                                       className="mt-1 h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium normal-case tracking-normal text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-600"
-                                      placeholder="now()"
+                                      placeholder="FK companies"
                                     />
                                   </label>
                                 </div>
-                                <label className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
-                                  Comment
-                                  <input
-                                    value={draft.comment}
-                                    onChange={(event) => updateDraft(field.key, { comment: event.target.value })}
-                                    className="mt-1 h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium normal-case tracking-normal text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-600"
-                                    placeholder="FK companies"
-                                  />
-                                </label>
+                                <div className="flex w-1/5 min-w-0 flex-col gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => updateDraft(field.key, { nullable: !draft.nullable })}
+                                    className={classNames(
+                                      "h-8 rounded-md border px-2.5 text-[11px] font-semibold transition",
+                                      draft.nullable
+                                        ? "border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600"
+                                        : "border-amber-400 bg-amber-400 text-white hover:bg-amber-500",
+                                    )}
+                                  >
+                                    {draft.nullable ? "Nullable" : "Required"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => updateDraft(field.key, { unique: !draft.unique })}
+                                    disabled={draft.type === "Boolean"}
+                                    className={classNames(
+                                      "h-8 rounded-md border px-2.5 text-[11px] font-semibold transition",
+                                      draft.unique
+                                        ? "border-violet-500 bg-violet-500 text-white hover:bg-violet-600"
+                                        : "border-sky-400 bg-sky-400 text-white hover:bg-sky-500",
+                                      draft.type === "Boolean" && "cursor-not-allowed opacity-30",
+                                    )}
+                                  >
+                                    {draft.unique ? "Unique" : "Dupes"}
+                                  </button>
+                                  <div className="mt-auto">
+                                    {hasChanges ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => saveField(field)}
+                                        disabled={savingFieldKey === field.key}
+                                        className="flex h-8 w-full items-center justify-center rounded-md border border-cyan-300 bg-white text-cyan-600 transition hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-40"
+                                        title="Save"
+                                      >
+                                        <IconCheck size={15} stroke={2.5} />
+                                      </button>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => deleteField(field)}
+                                        disabled={deletingFieldKey === field.key}
+                                        className="flex h-8 w-full items-center justify-center rounded-md border border-rose-200 bg-white text-rose-500 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
+                                        title="Delete"
+                                      >
+                                        <IconTrash size={15} stroke={2} />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           );
@@ -791,92 +883,6 @@ export function SchemaPageContent() {
                       ) : null}
                     </div>
                   )}
-                </div>
-
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Add Field
-                  </p>
-                  <div className="mt-4 space-y-3">
-                    <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                      Name
-                      <input
-                        value={newField.name}
-                        onChange={(event) => updateNewField({ name: event.target.value })}
-                        className="mt-2 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium normal-case tracking-normal text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-600"
-                        placeholder="email"
-                      />
-                      <FieldNameSuggestion
-                        suggestion={newFieldNameSuggestion}
-                        onUse={() => updateNewField({ name: newFieldNameSuggestion })}
-                      />
-                    </label>
-                    <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                      Type
-                      <div className="mt-2 space-y-2">
-                        <select
-                          value={newField.type}
-                          onChange={(event) => updateNewField({ type: event.target.value })}
-                          className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium normal-case tracking-normal text-slate-950 outline-none transition focus:border-cyan-600"
-                        >
-                          {fieldTypeOptions.map((type) => (
-                            <option key={type} value={type}>
-                              {type}
-                            </option>
-                          ))}
-                        </select>
-                        <div className="flex flex-wrap gap-4">
-                          <label className="inline-flex items-center gap-2 text-sm font-semibold normal-case tracking-normal text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={newField.nullable}
-                              onChange={(event) => updateNewField({ nullable: event.target.checked })}
-                              className="h-4 w-4 rounded border-slate-300 text-cyan-600"
-                            />
-                            Nullable
-                          </label>
-                          {newField.type !== "Boolean" ? (
-                            <label className="inline-flex items-center gap-2 text-sm font-semibold normal-case tracking-normal text-slate-700">
-                              <input
-                                type="checkbox"
-                                checked={newField.unique}
-                                onChange={(event) => updateNewField({ unique: event.target.checked })}
-                                className="h-4 w-4 rounded border-slate-300 text-cyan-600"
-                              />
-                              Unique
-                            </label>
-                          ) : null}
-                        </div>
-                      </div>
-                    </label>
-                    <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                      Default
-                      <input
-                        value={newField.defaultValue}
-                        onChange={(event) => updateNewField({ defaultValue: event.target.value })}
-                        className="mt-2 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium normal-case tracking-normal text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-600"
-                        placeholder='"draft"'
-                      />
-                    </label>
-                    <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                      Comment
-                      <input
-                        value={newField.comment}
-                        onChange={(event) => updateNewField({ comment: event.target.value })}
-                        className="mt-2 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium normal-case tracking-normal text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-600"
-                        placeholder="Public label"
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      onClick={createField}
-                      disabled={createFieldMutation.isPending}
-                      className="h-10 w-full rounded-md bg-cyan-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                    >
-                      {createFieldMutation.isPending ? "Creating..." : "Add Field"}
-                    </button>
-                  </div>
-                </div>
               </div>
 
               {error ? (
@@ -1084,8 +1090,6 @@ export function SchemaPageContent() {
                           <tbody className="divide-y divide-slate-100">
                             {paginatedTemplates.map((template) => {
                               const overrideName = (templateOverrideNames[template.id] || template.name).trim();
-                              const overrideNameSuggestion =
-                                getSnakeCaseSuggestion(overrideName);
                               const isUsed = selectedModelName
                                 ? usedTemplateNames.has(overrideName)
                                 : false;
@@ -1167,15 +1171,7 @@ export function SchemaPageContent() {
                                       className="h-8 w-64 rounded-md border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-600"
                                       placeholder={template.name}
                                     />
-                                    <FieldNameSuggestion
-                                      suggestion={overrideNameSuggestion}
-                                      onUse={() =>
-                                        setTemplateOverrideNames((currentNames) => ({
-                                          ...currentNames,
-                                          [template.id]: overrideNameSuggestion,
-                                        }))
-                                      }
-                                    />
+
                                   </td>
                                   <td className="px-3 py-3">
                                     <div className="flex flex-wrap gap-1.5">
@@ -1267,10 +1263,6 @@ export function SchemaPageContent() {
                         onChange={(event) => updateTemplateField({ name: event.target.value })}
                         className="mt-2 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium normal-case tracking-normal text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-600"
                         placeholder="email"
-                      />
-                      <FieldNameSuggestion
-                        suggestion={templateNameSuggestion}
-                        onUse={() => updateTemplateField({ name: templateNameSuggestion })}
                       />
                     </label>
 

@@ -10,20 +10,6 @@ import type {
   SchemaImportGroup,
 } from "@/lib/schema-imports-store";
 
-type SchemaImportsResponse = {
-  error?: string;
-  groups?: SchemaImportGroup[];
-  projects?: Project[];
-  result?: {
-    sync?: {
-      fieldCount: number;
-      relationCount: number;
-      tableCount: number;
-    };
-    version?: string;
-  };
-};
-
 type MatchDraft = {
   mode: "existing" | "new";
   projectId: string;
@@ -42,15 +28,6 @@ const emptyDraft: MatchDraft = {
   projectId: "",
   projectName: "",
 };
-
-function syncSummary(data: SchemaImportsResponse) {
-  const sync = data.result?.sync;
-  if (!sync) {
-    return "";
-  }
-
-  return `${sync.tableCount} tables / ${sync.fieldCount} fields / ${sync.relationCount} relations`;
-}
 
 export function ImportsPageContent() {
   const trpc = useTRPC();
@@ -370,7 +347,7 @@ export function ImportsPageContent() {
                   Upload Prisma schemas
                 </p>
                 <p className="mt-1 text-sm text-slate-500">
-                  Uploaded files are queued under schemas/imported until matched.
+                  Uploaded schemas are queued in the database until matched.
                 </p>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">

@@ -3,9 +3,7 @@ import path from "node:path";
 import { db } from "./client";
 
 export type FsFileType =
-  | "prisma_schema"
   | "zod_file"
-  | "imported_schema"
   | "connection_file"
   | "snapshot_dir"
   | "migration_log";

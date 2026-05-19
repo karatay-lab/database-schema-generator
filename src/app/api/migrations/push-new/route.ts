@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { execFile } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { StoredConnection } from "@/types/migrations";
@@ -53,8 +53,11 @@ export async function POST(request: Request) {
 
   const connectionUrl = buildConnectionUrl(stored);
   let schemaPath: string;
+  let schemaCleanupPath = "";
   try {
-    ({ schemaPath } = await prepareMigrationPrismaSchema(projectName, targetVersion));
+    const preparedSchema = await prepareMigrationPrismaSchema(projectName, targetVersion);
+    schemaPath = preparedSchema.schemaPath;
+    schemaCleanupPath = preparedSchema.cleanupPath;
   } catch (err) {
     const message = err instanceof Error ? err.message : "Target schema could not be prepared.";
     return jsonError(message, 404);
@@ -117,5 +120,9 @@ export async function POST(request: Request) {
       error: output || "Push failed.",
     }, null, 2), "utf8").catch(() => { /* best-effort */ });
     return NextResponse.json({ success: false, error: output || "Push failed." }, { status: 400 });
+  } finally {
+    if (schemaCleanupPath) {
+      await rm(schemaCleanupPath, { force: true, recursive: true });
+    }
   }
 }

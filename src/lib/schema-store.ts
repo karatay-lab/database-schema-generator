@@ -10,18 +10,15 @@ import type {
 } from "@mrleebo/prisma-ast";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { db } from "@/lib/db/client";
-import { registerFsPath } from "@/lib/db/fs-paths";
 import { readProjectVersionGraph, replaceNormalizedSchemaFromCanonicalStore } from "@/lib/schema-db/graph";
 import { isInternalMigrationField, normalizeDatabaseIdentifier, toCamelCaseIdentifier } from "@/lib/schema-naming";
 import { renderPrismaSchemaFromGraph } from "@/lib/schema-renderers/prisma";
 
-const databaseDirectory = path.join(process.cwd(), "src/database");
-const schemasDirectory = path.join(databaseDirectory, "schemas");
-const schemaScratchDirectory = path.join(schemasDirectory, ".tmp");
 const execFileAsync = promisify(execFile);
 
 const schemaVersion = 1;
@@ -42,14 +39,6 @@ function toSchemaFilePart(value: string) {
       .toLowerCase()
       .replace(/[^a-z0-9._-]+/g, "-")
       .replace(/^-+|-+$/g, "") || "untitled"
-  );
-}
-
-function getSchemaFilePath(projectName: string, version: string) {
-  return path.join(
-    schemasDirectory,
-    toSchemaFilePart(projectName),
-    `${toSchemaFilePart(version)}.prisma`,
   );
 }
 
@@ -786,7 +775,7 @@ function fieldInputToCanonical(
     type: logicalType,
     nullable: Boolean(input.nullable),
     default: storeDefaultValue(input.defaultValue),
-    comment: input.comment.trim(),
+    comment: input.comment.trim().replace(/[\r\n]+/g, " ").replace(/[[\]]/g, ""),
     constraints,
   };
 }
@@ -1225,10 +1214,6 @@ function blockAttributeExtraArgs(attribute: BlockAttribute) {
 
     return [valueToPrisma(value)];
   });
-}
-
-async function readPrismaSchemaContent(projectName: string, version: string) {
-  return readFile(getSchemaFilePath(projectName, version), "utf8");
 }
 
 function fieldTypeName(field: Field) {
@@ -1791,14 +1776,6 @@ export async function writeModelStoreFromPrismaContent(
   return modelSyncResult(store);
 }
 
-export async function syncModelStoreFromPrismaSchema(
-  projectName: string,
-  version: string,
-): Promise<PrismaModelSyncResult> {
-  const content = await readPrismaSchemaContent(projectName, version);
-  return writeModelStoreFromPrismaContent(projectName, version, content);
-}
-
 export async function getSchemaStore(projectName: string, version: string) {
   return readModelStore(projectName, version);
 }
@@ -1941,60 +1918,94 @@ export async function readModelRelations(
     return `${fieldName} ${targetName}${suffix}${relPart}`;
   }
 
+  // Normalized relation-side row IDs may predate the canonical model field IDs.
+  // Mutations edit the canonical model store, so expose canonical relation keys to the UI.
+  const store = await readModelStore(projectName, version);
+  const modelByTableId = new Map(
+    allTables
+      .map((table) => [table.id, findModel(store, { key: table.model_key, name: table.name })] as const)
+      .filter((entry): entry is readonly [string, CanonicalModel] => Boolean(entry[1])),
+  );
+
+  function findCanonicalRelationField(
+    side: SideRow,
+    otherTable: TableRow | undefined,
+  ) {
+    const sourceModel = modelByTableId.get(side.table_id);
+    const targetModel = otherTable ? modelByTableId.get(otherTable.id) : undefined;
+    const sideIsOwner = side.is_owner === 1;
+
+    return sourceModel?.fields.find((field) => {
+      if (!field.relation || field.name !== side.field_name) return false;
+
+      const fieldTargetModel = findModelByRelationType(field.type, store);
+      if (targetModel && fieldTargetModel?.key !== targetModel.key) return false;
+
+      const fieldIsOwner =
+        (field.relation?.fields ?? []).length > 0 ||
+        (field.relation?.references ?? []).length > 0;
+      return fieldIsOwner === sideIsOwner;
+    });
+  }
+
   // Build PrismaRelation for each side belonging to this table
   const relations: PrismaRelation[] = [];
 
   for (const rel of relationRows) {
     const relSides = sidesByRelation.get(rel.id) ?? [];
-    const thisSide = relSides.find((s) => s.table_id === tableRow!.id);
-    if (!thisSide) continue;
+    const tableSides = relSides.filter((s) => s.table_id === tableRow!.id);
 
-    const otherSide = relSides.find((s) => s.id !== thisSide.id);
-    const otherTable = tableById.get(otherSide?.table_id ?? "");
-    const pairs = pairsByRelation.get(rel.id) ?? [];
+    for (const thisSide of tableSides) {
+      const otherSide = relSides.find((s) => s.id !== thisSide.id);
+      const otherTable = tableById.get(otherSide?.table_id ?? "");
+      const pairs = pairsByRelation.get(rel.id) ?? [];
+      const canonicalField = findCanonicalRelationField(thisSide, otherTable);
+      const canonicalBackReferenceField = otherSide
+        ? findCanonicalRelationField(otherSide, tableRow)
+        : undefined;
 
-    // FK fields and references — only the owner side carries these
-    const fields: string[] = [];
-    const references: string[] = [];
-    if (thisSide.is_owner) {
-      for (const pair of pairs) {
-        const src = fieldById.get(pair.source_field_id);
-        const tgt = fieldById.get(pair.target_field_id);
-        if (src) fields.push(src.name);
-        if (tgt) references.push(tgt.name);
+      // FK fields and references — only the owner side carries these
+      const fields: string[] = [];
+      const references: string[] = [];
+      if (thisSide.is_owner) {
+        for (const pair of pairs) {
+          const src = fieldById.get(pair.source_field_id);
+          const tgt = fieldById.get(pair.target_field_id);
+          if (src) fields.push(src.name);
+          if (tgt) references.push(tgt.name);
+        }
       }
+
+      const isBackReference = thisSide.is_owner === 0;
+      const kind = deriveKind(thisSide.is_list === 1, otherSide ? otherSide.is_list === 1 : false);
+
+      relations.push({
+        key: canonicalField?.key ?? thisSide.id,
+        name: thisSide.field_name,
+        targetModel: otherTable?.name ?? "",
+        targetModelKey: otherTable?.model_key ?? "",
+        backReferenceKey: canonicalBackReferenceField?.key ?? otherSide?.id,
+        backReferenceName: otherSide?.field_name,
+        fields,
+        references,
+        onDelete: rel.on_delete,
+        onUpdate: rel.on_update,
+        isArray: thisSide.is_list === 1,
+        nullable: thisSide.nullable === 1,
+        isBackReference,
+        kind,
+        preview: buildPreview(
+          thisSide.field_name,
+          otherTable?.name ?? "",
+          thisSide.is_list === 1,
+          thisSide.nullable === 1,
+          rel.name,
+        ),
+      });
     }
-
-    const isBackReference = thisSide.is_owner === 0;
-    const kind = deriveKind(thisSide.is_list === 1, otherSide ? otherSide.is_list === 1 : false);
-
-    relations.push({
-      key: thisSide.id,
-      name: thisSide.field_name,
-      targetModel: otherTable?.name ?? "",
-      targetModelKey: otherTable?.model_key ?? "",
-      backReferenceKey: otherSide?.id,
-      backReferenceName: otherSide?.field_name,
-      fields,
-      references,
-      onDelete: rel.on_delete,
-      onUpdate: rel.on_update,
-      isArray: thisSide.is_list === 1,
-      nullable: thisSide.nullable === 1,
-      isBackReference,
-      kind,
-      preview: buildPreview(
-        thisSide.field_name,
-        otherTable?.name ?? "",
-        thisSide.is_list === 1,
-        thisSide.nullable === 1,
-        rel.name,
-      ),
-    });
   }
 
   // Scalar fields still read from model_stores (same SQLite DB)
-  const store = await readModelStore(projectName, version);
   const model = findModel(store, { key: tableRow.model_key, name: tableRow.name });
   const uiFields = model ? modelFieldsToUiFields(store, model) : [];
 
@@ -2253,7 +2264,7 @@ export async function batchUpdateFieldComments(
   for (const { fieldKey, comment } of updates) {
     const field = model.fields.find((f) => f.key === fieldKey);
     if (field) {
-      field.comment = comment.trim();
+      field.comment = comment.trim().replace(/[\r\n]+/g, " ").replace(/[[\]]/g, "");
     }
   }
 
@@ -2476,8 +2487,8 @@ export async function testPrismaSchema(
 ): Promise<PrismaSchemaTestResult> {
   const graph = readProjectVersionGraph(projectName, version);
   const schemaContent = renderPrismaSchemaFromGraph(graph);
-  await mkdir(schemaScratchDirectory, { recursive: true });
-  const tempDirectory = await mkdtemp(path.join(schemaScratchDirectory, "schema-test-"));
+  await mkdir(path.join(tmpdir(), "database-schema-generator"), { recursive: true });
+  const tempDirectory = await mkdtemp(path.join(tmpdir(), "database-schema-generator", "schema-test-"));
   const tempSchemaFile = path.join(tempDirectory, `${toSchemaFilePart(version)}.prisma`);
   const steps: PrismaSchemaTestStep[] = [];
 

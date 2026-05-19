@@ -449,7 +449,7 @@ function migrateLegacyStore(project: DbProject, version: DbVersion, store: Canon
       }
 
       insertRelationSide.run(
-        randomUUID(),
+        field.key,
         relationId,
         tableIdByModelName.get(sourceModel.name)!,
         field.name,
@@ -523,7 +523,7 @@ function migrateLegacyStore(project: DbProject, version: DbVersion, store: Canon
       }
 
       insertRelationSide.run(
-        randomUUID(),
+        field.key,
         relationId,
         tableIdByModelName.get(sourceModel.name)!,
         field.name,

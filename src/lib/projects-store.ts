@@ -18,7 +18,6 @@ import { db } from "@/lib/db/client";
 import { updateFsPathPrefix } from "@/lib/db/fs-paths";
 import { replaceNormalizedSchemaFromCanonicalStore } from "@/lib/schema-db/graph";
 
-const schemasDirectory = path.join(process.cwd(), "src/database/schemas");
 const zodDirectory     = path.join(process.cwd(), "src/database/zod");
 const migrationsDirectory = path.join(process.cwd(), "src/database/migrations");
 const defaultProjectVersion = "1.0111";
@@ -134,11 +133,9 @@ async function moveProjectDirectory(rootDirectory: string, oldName: string, newN
 
 async function moveProjectArtifacts(projectId: string, oldName: string, newName: string) {
   await Promise.all([
-    moveProjectDirectory(schemasDirectory, oldName, newName),
     moveProjectDirectory(zodDirectory, oldName, newName),
   ]);
   // Update all fs_paths entries for this project
-  updateFsPathPrefix(projectId, path.join(schemasDirectory, toSchemaFilePart(oldName)), path.join(schemasDirectory, toSchemaFilePart(newName)));
   updateFsPathPrefix(projectId, path.join(zodDirectory, toSchemaFilePart(oldName)), path.join(zodDirectory, toSchemaFilePart(newName)));
 }
 
@@ -334,7 +331,6 @@ export async function deleteProject(id: string): Promise<Project[]> {
 
   const slug = toSchemaFilePart(row.name);
   await Promise.allSettled([
-    rm(path.join(schemasDirectory, slug), { recursive: true, force: true }),
     rm(path.join(zodDirectory, slug), { recursive: true, force: true }),
     rm(path.join(migrationsDirectory, slug), { recursive: true, force: true }),
   ]);
