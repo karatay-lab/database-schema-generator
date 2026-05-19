@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
@@ -99,8 +100,12 @@ export function SchemaPageContent() {
   const activeProject = hasProject;
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const [selectedModelName, setSelectedModelName] = useState("");
+  const [selectedModelName, setSelectedModelName] = useState(
+    () => searchParams.get("table") ?? "",
+  );
   const [tableSearch, setTableSearch] = useState("");
   const [fieldDrafts, setFieldDrafts] = useState<Record<string, PrismaFieldInput>>({});
   const [newFieldDrafts, setNewFieldDrafts] = useState<Array<{id: string; input: PrismaFieldInput}>>([]);
@@ -292,6 +297,18 @@ export function SchemaPageContent() {
       setSelectedModelName("");
     }
   }, [models, selectedModelName]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (selectedModelName) {
+      params.set("table", selectedModelName);
+    } else {
+      params.delete("table");
+    }
+    if (params.toString() !== searchParams.toString()) {
+      router.replace(`?${params.toString()}`, { scroll: false });
+    }
+  }, [selectedModelName]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setFieldPage(1);

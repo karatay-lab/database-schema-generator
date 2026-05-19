@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
 import { classNames } from "../shared/dashboard-data";
@@ -21,8 +22,12 @@ export function CommentaryPageContent() {
   const { projectName, version, hasProject } = useProjectInfo();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const [selectedModelName, setSelectedModelName] = useState("");
+  const [selectedModelName, setSelectedModelName] = useState(
+    () => searchParams.get("table") ?? "",
+  );
   const [tableSearch, setTableSearch] = useState("");
   const [isTableSelectorOpen, setIsTableSelectorOpen] = useState(false);
   const [tablePage, setTablePage] = useState(1);
@@ -125,6 +130,18 @@ export function CommentaryPageContent() {
       setSelectedModelName("");
     }
   }, [models, selectedModelName]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (selectedModelName) {
+      params.set("table", selectedModelName);
+    } else {
+      params.delete("table");
+    }
+    if (params.toString() !== searchParams.toString()) {
+      router.replace(`?${params.toString()}`, { scroll: false });
+    }
+  }, [selectedModelName]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { setFieldPage(1); setSaveError(""); }, [selectedModelName]);
 
