@@ -359,23 +359,33 @@ export function RestrictionsPageContent() {
                           No fields available for this type.
                         </p>
                       ) : (
-                        <div className="grid max-h-40 grid-cols-2 gap-1 overflow-y-auto lg:grid-cols-3 xl:grid-cols-4">
-                          {selectableFields.map((field) => (
-                            <label
-                              key={field.key}
-                              className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 transition hover:bg-white/80"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={draft.fields.includes(field.name)}
-                                onChange={() => toggleDraftField(field.name)}
-                                className="h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-violet-600"
-                              />
-                              <span className="min-w-0 truncate text-sm font-medium text-slate-950">
-                                {field.name}
-                              </span>
-                            </label>
-                          ))}
+                        <div className="grid grid-cols-2 gap-1.5 lg:grid-cols-3 xl:grid-cols-4">
+                          {selectableFields.map((field) => {
+                            const isSelected = draft.fields.includes(field.name);
+                            return (
+                              <button
+                                key={field.key}
+                                type="button"
+                                onClick={() => toggleDraftField(field.name)}
+                                className={classNames(
+                                  "flex items-center justify-between rounded-lg border px-2.5 py-2 text-left transition",
+                                  isSelected
+                                    ? "border-violet-400 bg-violet-50 shadow-sm"
+                                    : "border-slate-200 bg-white hover:border-violet-300",
+                                )}
+                              >
+                                <span className={classNames("truncate text-sm font-semibold", isSelected ? "text-violet-900" : "text-slate-800")}>
+                                  {field.name}
+                                </span>
+                                <span className={classNames(
+                                  "ml-2 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold",
+                                  isSelected ? "bg-violet-100 text-violet-700" : "bg-slate-100 text-slate-500",
+                                )}>
+                                  {field.type}
+                                </span>
+                              </button>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -466,31 +476,33 @@ export function RestrictionsPageContent() {
                             <p className="mb-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
                               Fields
                             </p>
-                            <div className="max-h-40 space-y-1 overflow-y-auto">
-                              {selectableFields.map((field) => (
-                                <label
-                                  key={field.key}
-                                  className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition hover:bg-slate-50"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={draft.fields.includes(field.name)}
-                                    onChange={() => toggleDraftField(field.name)}
-                                    className="h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-violet-600"
-                                  />
-                                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-950">
-                                    {field.name}
-                                  </span>
-                                  <span
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {selectableFields.map((field) => {
+                                const isSelected = draft.fields.includes(field.name);
+                                return (
+                                  <button
+                                    key={field.key}
+                                    type="button"
+                                    onClick={() => toggleDraftField(field.name)}
                                     className={classNames(
-                                      "rounded px-1.5 py-0.5 text-[11px] font-semibold",
-                                      fieldTypeBadgeClass(field.type),
+                                      "flex items-center justify-between rounded-lg border px-2.5 py-2 text-left transition",
+                                      isSelected
+                                        ? "border-violet-400 bg-violet-50 shadow-sm"
+                                        : "border-slate-200 bg-white hover:border-violet-300",
                                     )}
                                   >
-                                    {field.type}
-                                  </span>
-                                </label>
-                              ))}
+                                    <span className={classNames("truncate text-sm font-semibold", isSelected ? "text-violet-900" : "text-slate-800")}>
+                                      {field.name}
+                                    </span>
+                                    <span className={classNames(
+                                      "ml-2 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold",
+                                      isSelected ? "bg-violet-100 text-violet-700" : "bg-slate-100 text-slate-500",
+                                    )}>
+                                      {field.type}
+                                    </span>
+                                  </button>
+                                );
+                              })}
                             </div>
                           </div>
 
