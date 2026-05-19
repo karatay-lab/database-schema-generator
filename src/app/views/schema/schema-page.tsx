@@ -1167,12 +1167,12 @@ export function SchemaPageContent() {
                                 <td className="px-2 py-2">
                                   <input value={templateField.defaultValue} onChange={(e) => updateTemplateField({ defaultValue: e.target.value })} placeholder="now()" className="h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-cyan-600" />
                                 </td>
-                                <td className="px-2 py-2 text-center">
+                                <td className="px-2 py-2">
                                   <button type="button" onClick={() => updateTemplateField({ nullable: !templateField.nullable })} className={classNames("h-8 w-20 rounded-md border text-xs font-semibold transition", templateField.nullable ? "border-emerald-500 bg-emerald-500 text-white" : "border-amber-400 bg-amber-400 text-white")}>
                                     {templateField.nullable ? "Yes" : "No"}
                                   </button>
                                 </td>
-                                <td className="px-2 py-2 text-center">
+                                <td className="px-2 py-2">
                                   {templateField.type === "Boolean" ? (
                                     <span className="text-xs font-semibold text-slate-400">N/A</span>
                                   ) : (
