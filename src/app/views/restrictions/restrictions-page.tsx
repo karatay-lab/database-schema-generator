@@ -38,6 +38,7 @@ function restrictionTypeClass(type: PrismaRestrictionType) {
 
 
 function getDbNameSuggestion(fieldNames: string[]) {
+  const seen = new Set<string>();
   const fieldParts = fieldNames
     .map((fieldName) =>
       fieldName
@@ -47,7 +48,11 @@ function getDbNameSuggestion(fieldNames: string[]) {
         .replace(/^_+|_+$/g, "")
         .slice(0, 3),
     )
-    .filter(Boolean);
+    .filter((part) => {
+      if (!part || seen.has(part)) return false;
+      seen.add(part);
+      return true;
+    });
 
   return fieldParts.length ? `${fieldParts.join("_")}_ix` : "";
 }
@@ -66,6 +71,8 @@ export function RestrictionsPageContent() {
   const [isTableSelectorOpen, setIsTableSelectorOpen] = useState(false);
   const [draft, setDraft] = useState<RestrictionDraft>(emptyRestrictionDraft);
   const [editingRestrictionKey, setEditingRestrictionKey] = useState("");
+  const [isAddingRestriction, setIsAddingRestriction] = useState(false);
+  const [isGuideOpen, setIsGuideOpen] = useState(true);
   const [deletingRestrictionKey, setDeletingRestrictionKey] = useState("");
   const [error, setError] = useState("");
 
@@ -146,6 +153,7 @@ export function RestrictionsPageContent() {
   useEffect(() => {
     setDraft(emptyRestrictionDraft);
     setEditingRestrictionKey("");
+    setIsAddingRestriction(false);
   }, [selectedModelName]);
 
   const selectModel = (modelName: string) => {
@@ -183,10 +191,12 @@ export function RestrictionsPageContent() {
   const resetDraft = () => {
     setDraft(emptyRestrictionDraft);
     setEditingRestrictionKey("");
+    setIsAddingRestriction(false);
     setError("");
   };
 
   const editRestriction = (restriction: PrismaRestriction) => {
+    setIsAddingRestriction(false);
     setDraft({
       type: restriction.type,
       fields: restriction.fields,
@@ -243,7 +253,7 @@ export function RestrictionsPageContent() {
                 Main Window
               </p>
               <h3 className="mt-1 text-xl font-semibold text-slate-950">
-                Relations workspace
+                Restrictions workspace
               </h3>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -283,29 +293,308 @@ export function RestrictionsPageContent() {
               Loading restrictions...
             </div>
           ) : (
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-              <div>
-                <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                      Selected Table
-                    </p>
-                    <h4 className="mt-1 text-lg font-semibold text-slate-950">
-                      {selectedModelName}
-                    </h4>
-                  </div>
+            <div>
+              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    Selected Table
+                  </p>
+                  <h4 className="mt-1 text-lg font-semibold text-slate-950">
+                    {selectedModelName}
+                  </h4>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
                   <span className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">
                     {restrictions.length} restrictions / {fields.length} fields
                   </span>
+                  {!isAddingRestriction && !editingRestrictionKey ? (
+                    <button
+                      type="button"
+                      onClick={() => { resetDraft(); setIsAddingRestriction(true); }}
+                      className="h-9 rounded-md border border-violet-300 bg-white px-4 text-xs font-semibold text-violet-700 transition hover:bg-violet-50"
+                    >
+                      + Add Restriction
+                    </button>
+                  ) : null}
                 </div>
+              </div>
 
-                {restrictions.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm font-medium text-slate-500">
-                    No unique or index restrictions found for this table.
+              <div className="mb-4 rounded-lg border border-violet-100 bg-violet-50/40">
+                <button
+                  type="button"
+                  onClick={() => setIsGuideOpen((o) => !o)}
+                  className="flex w-full items-center justify-between px-4 py-2.5 text-left"
+                >
+                  <span className="text-xs font-bold uppercase tracking-[0.12em] text-violet-600">
+                    When &amp; why to add a restriction
+                  </span>
+                  <span className="text-xs font-semibold text-violet-400">
+                    {isGuideOpen ? "Hide" : "Show"}
+                  </span>
+                </button>
+                {isGuideOpen ? (
+                  <div className="grid gap-4 border-t border-violet-100 px-4 py-3 sm:grid-cols-2">
+                    <div>
+                      <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.1em] text-emerald-700">
+                        Unique constraint
+                      </p>
+                      <p className="text-[12px] leading-relaxed text-slate-600">
+                        Prevents two rows from sharing the same value(s) in the selected columns. The database rejects any insert or update that would create a duplicate.
+                      </p>
+                      <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Add when</p>
+                      <ul className="mt-1 space-y-0.5 text-[12px] leading-relaxed text-slate-600">
+                        <li>• A column must be a business identifier — email, username, slug, phone number.</li>
+                        <li>• A <span className="font-semibold">combination</span> of columns must be unique — e.g. <code className="rounded bg-slate-100 px-1 text-[11px]">(userId, projectId)</code> in a membership table.</li>
+                        <li>• You want the database to enforce uniqueness without relying on application code.</li>
+                      </ul>
+                      <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                        A unique constraint also creates an implicit index, so no separate Index is needed on the same column(s).
+                      </p>
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.1em] text-violet-700">
+                        Index
+                      </p>
+                      <p className="text-[12px] leading-relaxed text-slate-600">
+                        Builds an internal lookup structure so the database can find rows quickly without scanning the whole table. Does not enforce uniqueness.
+                      </p>
+                      <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Add when</p>
+                      <ul className="mt-1 space-y-0.5 text-[12px] leading-relaxed text-slate-600">
+                        <li>• A column appears in <code className="rounded bg-slate-100 px-1 text-[11px]">WHERE</code>, <code className="rounded bg-slate-100 px-1 text-[11px]">JOIN ON</code>, or <code className="rounded bg-slate-100 px-1 text-[11px]">ORDER BY</code> in frequent queries.</li>
+                        <li>• A foreign key column — without an index, cascade deletes and joins are slow.</li>
+                        <li>• A column used for dashboard filters, search, or pagination at scale.</li>
+                      </ul>
+                      <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                        Trade-off: indexes consume extra storage and slightly slow down writes. Add them where query speed matters, not by default on every column.
+                      </p>
+                    </div>
                   </div>
-                ) : (
-                  <div className="grid gap-3 lg:grid-cols-2">
-                    {restrictions.map((restriction) => (
+                ) : null}
+              </div>
+
+              {error ? (
+                <p className="mb-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
+                  {error}
+                </p>
+              ) : null}
+
+              {isAddingRestriction ? (
+                <div className="mb-4 rounded-lg border-2 border-dashed border-violet-300 bg-violet-50/30 p-4">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-violet-600">
+                    New Restriction
+                  </p>
+                  <div className="flex flex-wrap gap-5">
+                    <div className="shrink-0">
+                      <p className="mb-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                        Type
+                      </p>
+                      <div className="flex gap-1.5">
+                        {(["UNIQUE", "INDEX"] as PrismaRestrictionType[]).map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => updateDraft({ type: t })}
+                            className={classNames(
+                              "h-8 rounded-md border px-3 text-xs font-semibold transition",
+                              draft.type === t
+                                ? t === "UNIQUE"
+                                  ? "border-emerald-400 bg-emerald-50 text-emerald-700"
+                                  : "border-violet-400 bg-violet-50 text-violet-700"
+                                : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+                            )}
+                          >
+                            {restrictionTypeLabel(t)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="min-w-48 flex-1">
+                      <p className="mb-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                        Fields
+                      </p>
+                      {selectableFields.length === 0 ? (
+                        <p className="text-xs text-slate-500">
+                          No fields available for this type.
+                        </p>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-1.5 lg:grid-cols-3 xl:grid-cols-4">
+                          {selectableFields.map((field) => {
+                            const isSelected = draft.fields.includes(field.name);
+                            return (
+                              <button
+                                key={field.key}
+                                type="button"
+                                onClick={() => toggleDraftField(field.name)}
+                                className={classNames(
+                                  "flex items-center justify-between rounded-lg border px-2.5 py-2 text-left transition",
+                                  isSelected
+                                    ? "border-violet-400 bg-violet-50 shadow-sm"
+                                    : "border-slate-200 bg-white hover:border-violet-300",
+                                )}
+                              >
+                                <span className={classNames("truncate text-sm font-semibold", isSelected ? "text-violet-900" : "text-slate-800")}>
+                                  {field.name}
+                                </span>
+                                <span className={classNames(
+                                  "ml-2 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold",
+                                  isSelected ? "bg-violet-100 text-violet-700" : "bg-slate-100 text-slate-500",
+                                )}>
+                                  {field.type}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex shrink-0 min-w-44 flex-col justify-between gap-3">
+                      <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                        Database Name
+                        <input
+                          value={draft.dbName}
+                          onChange={(e) => updateDraft({ dbName: e.target.value })}
+                          className="mt-1.5 h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium normal-case tracking-normal text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-violet-600"
+                          placeholder="users_email_ix"
+                        />
+                      </label>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={saveRestriction}
+                          disabled={savingRestriction || draft.fields.length === 0}
+                          className="h-9 flex-1 rounded-md bg-violet-600 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                        >
+                          {savingRestriction ? "Saving..." : "Add Restriction"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={resetDraft}
+                          className="h-9 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {restrictions.length === 0 && !isAddingRestriction ? (
+                <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
+                  <p className="text-sm font-medium text-slate-500">
+                    No unique or index restrictions found for this table.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => { resetDraft(); setIsAddingRestriction(true); }}
+                    className="mt-4 h-10 min-w-44 rounded-md bg-violet-600 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700"
+                  >
+                    Add Restriction
+                  </button>
+                </div>
+              ) : (
+                <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+                  {restrictions.map((restriction) =>
+                    editingRestrictionKey === restriction.key ? (
+                      <div
+                        key={restriction.key}
+                        className="rounded-lg border-2 border-violet-400 bg-white p-4 shadow-sm"
+                      >
+                        <p className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-violet-600">
+                          Edit Restriction
+                        </p>
+                        <div className="space-y-3">
+                          <div>
+                            <p className="mb-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                              Type
+                            </p>
+                            <div className="flex gap-1.5">
+                              {(["UNIQUE", "INDEX"] as PrismaRestrictionType[]).map((t) => (
+                                <button
+                                  key={t}
+                                  type="button"
+                                  onClick={() => updateDraft({ type: t })}
+                                  className={classNames(
+                                    "h-8 rounded-md border px-3 text-xs font-semibold transition",
+                                    draft.type === t
+                                      ? t === "UNIQUE"
+                                        ? "border-emerald-400 bg-emerald-50 text-emerald-700"
+                                        : "border-violet-400 bg-violet-50 text-violet-700"
+                                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+                                  )}
+                                >
+                                  {restrictionTypeLabel(t)}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div>
+                            <p className="mb-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                              Fields
+                            </p>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {selectableFields.map((field) => {
+                                const isSelected = draft.fields.includes(field.name);
+                                return (
+                                  <button
+                                    key={field.key}
+                                    type="button"
+                                    onClick={() => toggleDraftField(field.name)}
+                                    className={classNames(
+                                      "flex items-center justify-between rounded-lg border px-2.5 py-2 text-left transition",
+                                      isSelected
+                                        ? "border-violet-400 bg-violet-50 shadow-sm"
+                                        : "border-slate-200 bg-white hover:border-violet-300",
+                                    )}
+                                  >
+                                    <span className={classNames("truncate text-sm font-semibold", isSelected ? "text-violet-900" : "text-slate-800")}>
+                                      {field.name}
+                                    </span>
+                                    <span className={classNames(
+                                      "ml-2 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold",
+                                      isSelected ? "bg-violet-100 text-violet-700" : "bg-slate-100 text-slate-500",
+                                    )}>
+                                      {field.type}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                            Database Name
+                            <input
+                              value={draft.dbName}
+                              onChange={(e) => updateDraft({ dbName: e.target.value })}
+                              className="mt-1.5 h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium normal-case tracking-normal text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-violet-600"
+                              placeholder="users_email_ix"
+                            />
+                          </label>
+
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={saveRestriction}
+                              disabled={savingRestriction || draft.fields.length === 0}
+                              className="h-9 flex-1 rounded-md bg-violet-600 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                            >
+                              {savingRestriction ? "Saving..." : "Save Restriction"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={resetDraft}
+                              className="h-9 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
                       <div
                         key={restriction.key}
                         className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
@@ -322,9 +611,7 @@ export function RestrictionsPageContent() {
                                 {restrictionTypeLabel(restriction.type)}
                               </span>
                               <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">
-                                {restriction.source === "field"
-                                  ? "Field"
-                                  : "Model"}
+                                {restriction.source === "field" ? "Field" : "Model"}
                               </span>
                             </div>
                             <div className="mt-3 flex flex-wrap gap-1.5">
@@ -362,124 +649,17 @@ export function RestrictionsPageContent() {
                         {restriction.dbName ? (
                           <p className="mt-3 text-xs font-semibold text-slate-500">
                             DB name:{" "}
-                            <span className="text-slate-800">
-                              {restriction.dbName}
-                            </span>
+                            <span className="text-slate-800">{restriction.dbName}</span>
                           </p>
                         ) : null}
                         <code className="mt-3 block overflow-x-auto rounded-md bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-50">
                           {restriction.preview}
                         </code>
                       </div>
-                    ))}
-                  </div>
-                )}
-
-                {error ? (
-                  <p className="mt-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
-                    {error}
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                  {editingRestrictionKey ? "Edit Restriction" : "Add Restriction"}
-                </p>
-                <div className="mt-4 space-y-4">
-                  <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                    Type
-                    <select
-                      value={draft.type}
-                      onChange={(event) =>
-                        updateDraft({
-                          type: event.target.value as PrismaRestrictionType,
-                        })
-                      }
-                      className="mt-2 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium normal-case tracking-normal text-slate-950 outline-none transition focus:border-violet-600"
-                    >
-                      <option value="UNIQUE">Unique</option>
-                      <option value="INDEX">Index</option>
-                    </select>
-                  </label>
-
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                      Fields
-                    </p>
-                    <div className="mt-2 max-h-72 space-y-2 overflow-y-auto rounded-md border border-slate-200 bg-white p-2">
-                      {selectableFields.length === 0 ? (
-                        <p className="px-2 py-4 text-center text-sm font-medium text-slate-500">
-                          No fields available for this restriction type.
-                        </p>
-                      ) : (
-                        selectableFields.map((field) => (
-                          <label
-                            key={field.key}
-                            className="flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-2 transition hover:bg-slate-50"
-                          >
-                            <span className="min-w-0">
-                              <span className="block truncate text-sm font-semibold text-slate-950">
-                                {field.name}
-                              </span>
-                              <span
-                                className={classNames(
-                                  "mt-1 inline-flex rounded-md px-2 py-0.5 text-[11px] font-semibold",
-                                  fieldTypeBadgeClass(field.type),
-                                )}
-                              >
-                                {field.type}
-                              </span>
-                            </span>
-                            <input
-                              type="checkbox"
-                              checked={draft.fields.includes(field.name)}
-                              onChange={() => toggleDraftField(field.name)}
-                              className="h-4 w-4 rounded border-slate-300 text-violet-600"
-                            />
-                          </label>
-                        ))
-                      )}
-                    </div>
-                  </div>
-
-                  <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                    Database Name
-                    <input
-                      value={draft.dbName}
-                      onChange={(event) =>
-                        updateDraft({ dbName: event.target.value })
-                      }
-                      className="mt-2 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium normal-case tracking-normal text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-violet-600"
-                      placeholder="users_email_nx"
-                    />
-                  </label>
-
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => saveRestriction()}
-                      disabled={savingRestriction || draft.fields.length === 0}
-                      className="h-10 flex-1 rounded-md bg-violet-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                    >
-                      {savingRestriction
-                        ? "Saving..."
-                        : editingRestrictionKey
-                          ? "Save Restriction"
-                          : "Add Restriction"}
-                    </button>
-                    {editingRestrictionKey ? (
-                      <button
-                        type="button"
-                        onClick={resetDraft}
-                        className="h-10 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                      >
-                        Cancel
-                      </button>
-                    ) : null}
-                  </div>
+                    ),
+                  )}
                 </div>
-              </div>
+              )}
             </div>
           )}
         </div>
