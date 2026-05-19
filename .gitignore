@@ -11,11 +11,7 @@
 !.yarn/versions
 
 # mechs
-/app-mech/node_modules
-/app-mech/dist
-/app-mech/package-lock.json
-/app-mech/pnpm-lock.yaml
-/app-mech/yarn.lock
+/app-mech/
 
 # testing
 /coverage
@@ -69,5 +65,5 @@ CLAUDE.md
 **/docs/
 .claude/
 
-# Migration logs (may contain connection strings)
-app-mech/logs/
+# Generated Zod validators (runtime artifacts)
+/src/database/zod/
