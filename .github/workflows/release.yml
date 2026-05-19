@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+        env:
+          POSTGRES_URL: ""
+          MYSQL_URL: ""
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          # Strip leading 'v' for CHANGELOG lookup
+          VER="${VERSION#v}"
+          # Extract the section between this version header and the next
+          NOTES=$(awk "/^## \[${VER}\]/{found=1; next} found && /^## \[/{exit} found{print}" CHANGELOG.md)
+          # Write to a temp file to preserve newlines
+          echo "$NOTES" > /tmp/release_notes.md
+          echo "NOTES_FILE=/tmp/release_notes.md" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          name: Schema Studio ${{ steps.version.outputs.VERSION }}
+          body_path: ${{ steps.changelog.outputs.NOTES_FILE }}
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.VERSION, '-') }}
