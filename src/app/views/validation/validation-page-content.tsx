@@ -7,7 +7,7 @@ import { useTRPC } from "@/trpc/client";
 import { classNames } from "../shared/dashboard-data";
 import { fieldTypeBadgeClass } from "@/lib/badge-utils";
 import { useProjectInfo } from "../shared/project-info-context";
-import { IconCheck, IconCopy, IconEye } from "@tabler/icons-react";
+import { IconCheck, IconCopy, IconEye, IconFolderOpen } from "@tabler/icons-react";
 import type { PrismaField, PrismaModel } from "@/lib/schema-store";
 import type { GenerateResponse } from "@/types/validation";
 
@@ -160,11 +160,12 @@ export function ValidationPageContent() {
   const [dialogWarnings, setDialogWarnings] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
 
-  const [targetPath, setTargetPath] = useState(() =>
-    typeof window !== "undefined" ? (localStorage.getItem("zod-target-path") ?? "") : "",
-  );
   const [viewingModel, setViewingModel] = useState<string | null>(null);
   const [copiedRowPath, setCopiedRowPath] = useState<string | null>(null);
+  const [editingPathId, setEditingPathId] = useState<number | null>(null);
+  const [editingPathValue, setEditingPathValue] = useState("");
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [clearConfirmInput, setClearConfirmInput] = useState("");
 
   const listZodQuery = useQuery(
     trpc.schema.listZodFiles.queryOptions(
@@ -253,7 +254,7 @@ export function ValidationPageContent() {
   useEffect(() => {
     if (!readFileQuery.data || !viewingModel) return;
     const schema = zodSchemas.find((s) => s.modelName === viewingModel);
-    const displayPath = resolvedPath(viewingModel, schema?.relativePath ?? "");
+    const displayPath = schema ? resolvedPath(schema) : (viewingModel ?? "");
     setDialogCode(readFileQuery.data.code);
     setDialogFilePath(displayPath);
     setDialogSchemaCount(schema?.schemaCount ?? 0);
@@ -263,18 +264,14 @@ export function ValidationPageContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readFileQuery.data]);
 
-  function resolvedPath(modelName: string, relativePath: string) {
-    const filename = relativePath.split("/").pop() ?? `${modelName.toLowerCase()}.ts`;
-    return targetPath.trim() ? `${targetPath.trim().replace(/\/+$/, "")}/${filename}` : relativePath;
+  function resolvedPath(schema: { modelName: string; relativePath: string; targetPath: string | null }) {
+    const filename = schema.relativePath.split("/").pop() ?? `${schema.modelName.toLowerCase()}.ts`;
+    const base = schema.targetPath?.trim().replace(/\/+$/, "");
+    return base ? `${base}/${filename}` : schema.relativePath;
   }
 
-  const handleTargetPathChange = (value: string) => {
-    setTargetPath(value);
-    localStorage.setItem("zod-target-path", value);
-  };
-
-  const handleCopyRowPath = async (modelName: string, relativePath: string) => {
-    const text = resolvedPath(modelName, relativePath);
+  const handleCopyRowPath = async (schema: { modelName: string; relativePath: string; targetPath: string | null }) => {
+    const text = resolvedPath(schema);
     try {
       await navigator.clipboard.writeText(text);
     } catch {
@@ -286,7 +283,7 @@ export function ValidationPageContent() {
       document.execCommand("copy");
       document.body.removeChild(ta);
     }
-    setCopiedRowPath(relativePath);
+    setCopiedRowPath(schema.relativePath);
     setTimeout(() => setCopiedRowPath(null), 1500);
   };
 
@@ -321,6 +318,24 @@ export function ValidationPageContent() {
     setSelectedFieldKeys(new Set());
     setGenerateError("");
   };
+
+  const setPathMutation = useMutation({
+    ...trpc.schema.setZodFilePath.mutationOptions(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: trpc.schema.listZodFiles.queryKey({ projectName, version }) });
+      setEditingPathId(null);
+      setEditingPathValue("");
+    },
+  });
+
+  const clearMutation = useMutation({
+    ...trpc.schema.clearZodFiles.mutationOptions(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: trpc.schema.listZodFiles.queryKey({ projectName, version }) });
+      setClearConfirmOpen(false);
+      setClearConfirmInput("");
+    },
+  });
 
   const generateMutation = useMutation({
     ...trpc.schema.generateZod.mutationOptions(),
@@ -396,26 +411,24 @@ export function ValidationPageContent() {
                 Generated Schemas
               </h3>
             </div>
-            <span className="self-start rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 lg:self-auto">
-              {zodSchemas.length} {zodSchemas.length === 1 ? "schema" : "schemas"}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700">
+                {zodSchemas.length} {zodSchemas.length === 1 ? "schema" : "schemas"}
+              </span>
+              {zodSchemas.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => { setClearConfirmOpen(true); setClearConfirmInput(""); }}
+                  className="h-9 rounded-md border border-rose-200 bg-white px-4 text-xs font-semibold text-rose-600 transition hover:bg-rose-50"
+                >
+                  Clear All
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
-        <div className="p-5 space-y-4">
-          <div>
-            <label className="mb-1.5 block text-xs font-semibold text-slate-600">
-              Target path in your project
-            </label>
-            <input
-              type="text"
-              value={targetPath}
-              onChange={(e) => handleTargetPathChange(e.target.value)}
-              placeholder="e.g. /home/user/myapp/src/validators"
-              className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-amber-600 lg:max-w-lg"
-            />
-          </div>
-
+        <div className="p-5 space-y-3">
           {listZodQuery.isLoading ? (
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-6 text-center text-sm font-medium text-slate-500">
               Loading...
@@ -429,57 +442,100 @@ export function ValidationPageContent() {
           ) : (
             <div className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
               {zodSchemas.map((schema) => {
-                const display = resolvedPath(schema.modelName, schema.relativePath);
+                const display = resolvedPath(schema);
                 const isCopied = copiedRowPath === schema.relativePath;
                 const isViewing = viewingModel === schema.modelName && readFileQuery.isFetching;
+                const isEditingPath = editingPathId === schema.id;
 
                 return (
-                  <div
-                    key={schema.id}
-                    className="flex items-center gap-3 px-4 py-3"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-semibold text-slate-950">
-                          {schema.modelName}
-                        </span>
-                        <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
-                          v{schema.generatedAt.slice(0, 10)}
-                        </span>
-                        {schema.schemaCount > 0 && (
-                          <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">
-                            {schema.schemaCount} schema{schema.schemaCount !== 1 ? "s" : ""}
-                            {schema.enumCount > 0 ? ` · ${schema.enumCount} enum${schema.enumCount !== 1 ? "s" : ""}` : ""}
+                  <div key={schema.id} className="px-4 py-3 space-y-2">
+                    <div className="flex items-center gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-slate-950">
+                            {schema.modelName}
                           </span>
-                        )}
+                          <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                            v{schema.generatedAt.slice(0, 10)}
+                          </span>
+                          {schema.schemaCount > 0 && (
+                            <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">
+                              {schema.schemaCount} schema{schema.schemaCount !== 1 ? "s" : ""}
+                              {schema.enumCount > 0 ? ` · ${schema.enumCount} enum${schema.enumCount !== 1 ? "s" : ""}` : ""}
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-0.5 truncate text-xs font-medium text-slate-500" title={display}>
+                          {display}
+                        </p>
                       </div>
-                      <p className="mt-0.5 truncate text-xs font-medium text-slate-500" title={display}>
-                        {display}
-                      </p>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleCopyRowPath(schema)}
+                          title="Copy path"
+                          className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                        >
+                          {isCopied ? (
+                            <IconCheck size={14} stroke={2.5} className="text-emerald-600" />
+                          ) : (
+                            <IconCopy size={14} stroke={2} />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setViewingModel(schema.modelName)}
+                          disabled={isViewing}
+                          title="View code"
+                          className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 disabled:cursor-wait"
+                        >
+                          <IconEye size={14} stroke={2} />
+                        </button>
+                        <button
+                          type="button"
+                          title="Set path in your project"
+                          onClick={() => {
+                            setEditingPathId(schema.id);
+                            setEditingPathValue(schema.targetPath ?? "");
+                          }}
+                          className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                        >
+                          <IconFolderOpen size={14} stroke={2} />
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex shrink-0 items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => handleCopyRowPath(schema.modelName, schema.relativePath)}
-                        title="Copy path"
-                        className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
-                      >
-                        {isCopied ? (
-                          <IconCheck size={14} stroke={2.5} className="text-emerald-600" />
-                        ) : (
-                          <IconCopy size={14} stroke={2} />
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setViewingModel(schema.modelName)}
-                        disabled={isViewing}
-                        title="View code"
-                        className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 disabled:cursor-wait"
-                      >
-                        <IconEye size={14} stroke={2} />
-                      </button>
-                    </div>
+
+                    {isEditingPath && (
+                      <div className="flex items-center gap-2">
+                        <input
+                          autoFocus
+                          type="text"
+                          value={editingPathValue}
+                          onChange={(e) => setEditingPathValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") setPathMutation.mutate({ id: schema.id, targetPath: editingPathValue.trim() || null });
+                            if (e.key === "Escape") { setEditingPathId(null); setEditingPathValue(""); }
+                          }}
+                          placeholder="e.g. /home/user/myapp/src/validators"
+                          className="h-9 flex-1 rounded-md border border-amber-300 bg-white px-3 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-amber-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setPathMutation.mutate({ id: schema.id, targetPath: editingPathValue.trim() || null })}
+                          disabled={setPathMutation.isPending}
+                          className="h-9 rounded-md bg-amber-600 px-4 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:opacity-60"
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setEditingPathId(null); setEditingPathValue(""); }}
+                          className="h-9 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -487,6 +543,59 @@ export function ValidationPageContent() {
           )}
         </div>
       </section>
+
+      {clearConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
+          <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white shadow-2xl">
+            <div className="border-b border-slate-200 px-5 py-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">
+                Destructive Action
+              </p>
+              <h3 className="mt-1 text-lg font-semibold text-slate-950">
+                Clear All Generated Schemas
+              </h3>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <p className="text-sm text-slate-600">
+                This will permanently delete all <span className="font-semibold">{zodSchemas.length} Zod schema {zodSchemas.length === 1 ? "file" : "files"}</span> from disk for version <span className="font-semibold">{version}</span>. This cannot be undone.
+              </p>
+              <p className="text-sm text-slate-600">
+                To confirm, type the project name: <span className="font-mono font-semibold text-slate-950">{projectName}</span>
+              </p>
+              <input
+                autoFocus
+                type="text"
+                value={clearConfirmInput}
+                onChange={(e) => setClearConfirmInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && clearConfirmInput === projectName) {
+                    clearMutation.mutate({ projectName, version });
+                  }
+                }}
+                placeholder={projectName}
+                className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-rose-400"
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-4">
+              <button
+                type="button"
+                onClick={() => { setClearConfirmOpen(false); setClearConfirmInput(""); }}
+                className="h-9 rounded-md border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => clearMutation.mutate({ projectName, version })}
+                disabled={clearConfirmInput !== projectName || clearMutation.isPending}
+                className="h-9 rounded-md bg-rose-600 px-5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {clearMutation.isPending ? "Deleting..." : "Delete All Files"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-5 py-4">

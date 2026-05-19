@@ -14,6 +14,7 @@ type ZodSchemaRow = {
   enum_count: number;
   field_count: number;
   generated_at: string;
+  target_path: string | null;
 };
 
 export function upsertZodSchema(opts: {
@@ -59,6 +60,7 @@ export function listZodSchemas(opts: { projectId: string; version: string }) {
     enumCount: number;
     fieldCount: number;
     generatedAt: string;
+    targetPath: string | null;
   }[] = [];
 
   const seenModels = new Set<string>();
@@ -78,6 +80,7 @@ export function listZodSchemas(opts: { projectId: string; version: string }) {
       enumCount: row.enum_count,
       fieldCount: row.field_count,
       generatedAt: row.generated_at,
+      targetPath: row.target_path ?? null,
     });
   }
 
@@ -117,11 +120,39 @@ export function listZodSchemas(opts: { projectId: string; version: string }) {
         enumCount: 0,
         fieldCount: 0,
         generatedAt: seeded.generated_at,
+        targetPath: null,
       });
     }
   }
 
   return results;
+}
+
+export function updateZodSchemaTargetPath(opts: { id: number; targetPath: string | null }) {
+  db.prepare(`UPDATE zod_schemas SET target_path = ? WHERE id = ?`).run(
+    opts.targetPath ?? null,
+    opts.id,
+  );
+}
+
+export function deleteAllZodSchemas(opts: { projectId: string; version: string }) {
+  const rows = db
+    .prepare(`SELECT fs_path FROM zod_schemas WHERE project_id = ? AND version = ?`)
+    .all(opts.projectId, opts.version) as { fs_path: string }[];
+
+  const { unlinkSync } = require("node:fs") as typeof import("node:fs");
+  const cwd = process.cwd();
+  for (const row of rows) {
+    try { unlinkSync(path.join(cwd, row.fs_path)); } catch { /* already gone */ }
+  }
+
+  db.prepare(`DELETE FROM zod_schemas WHERE project_id = ? AND version = ?`).run(
+    opts.projectId,
+    opts.version,
+  );
+  db.prepare(
+    `DELETE FROM fs_paths WHERE project_id = ? AND version = ? AND file_type = 'zod_file'`,
+  ).run(opts.projectId, opts.version);
 }
 
 export async function readZodSchemaFile(opts: {

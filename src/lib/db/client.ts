@@ -448,6 +448,14 @@ if (!global._appDb) {
     sqlite.exec("ALTER TABLE field_templates ADD COLUMN provider TEXT NOT NULL DEFAULT 'All';");
   }
 
+  // One-time schema upgrade: add target_path to zod_schemas.
+  const zodSchemaCols = sqlite
+    .prepare("PRAGMA table_info(zod_schemas)")
+    .all() as { name: string }[];
+  if (zodSchemaCols.length > 0 && !zodSchemaCols.some((c) => c.name === "target_path")) {
+    sqlite.exec("ALTER TABLE zod_schemas ADD COLUMN target_path TEXT;");
+  }
+
   seedFieldTemplates(sqlite);
   global._appDb = sqlite;
 }
