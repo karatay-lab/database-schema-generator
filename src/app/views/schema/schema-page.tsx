@@ -475,8 +475,12 @@ export function SchemaPageContent() {
   const updateTemplateField = (patch: Partial<FieldTemplateInput>) => {
     setTemplateField((field) => {
       const next = { ...field, ...patch, unique: patch.type === "Boolean" ? false : patch.unique ?? field.unique };
-      if (patch.type !== undefined && patch.type !== field.type && !field.defaultValue.trim()) {
-        next.defaultValue = suggestDefault(patch.type, next.provider);
+      if (patch.type !== undefined && patch.type !== field.type) {
+        if (["String", "Json", "Bytes"].includes(patch.type)) {
+          next.defaultValue = "";
+        } else if (!field.defaultValue.trim()) {
+          next.defaultValue = suggestDefault(patch.type, next.provider);
+        }
       } else if (patch.provider !== undefined && patch.provider !== field.provider) {
         const oldSuggestion = suggestDefault(field.type, field.provider);
         if (!field.defaultValue.trim() || field.defaultValue === oldSuggestion) {
@@ -501,8 +505,12 @@ export function SchemaPageContent() {
     setEditDraft((d) => {
       if (!d) return d;
       const next = { ...d, ...patch, unique: patch.type === "Boolean" ? false : patch.unique ?? d.unique };
-      if (patch.type !== undefined && patch.type !== d.type && !d.defaultValue.trim()) {
-        next.defaultValue = suggestDefault(patch.type, next.provider);
+      if (patch.type !== undefined && patch.type !== d.type) {
+        if (["String", "Json", "Bytes"].includes(patch.type)) {
+          next.defaultValue = "";
+        } else if (!d.defaultValue.trim()) {
+          next.defaultValue = suggestDefault(patch.type, next.provider);
+        }
       }
       return next;
     });
