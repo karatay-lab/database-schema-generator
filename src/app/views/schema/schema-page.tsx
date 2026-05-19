@@ -145,6 +145,7 @@ export function SchemaPageContent() {
   const [savingNewCardId, setSavingNewCardId] = useState("");
   const savingNewCardIdRef = useRef("");
   const [savingFieldKey, setSavingFieldKey] = useState("");
+  const [isFieldLegendOpen, setIsFieldLegendOpen] = useState(false);
   const [deletingFieldKey, setDeletingFieldKey] = useState("");
   const [error, setError] = useState("");
   const [fieldTypeFilter, setFieldTypeFilter] = useState("All");
@@ -778,8 +779,43 @@ export function SchemaPageContent() {
                       <span className="text-xs font-semibold text-slate-500">
                         {filteredFields.length} shown / {editableFields.length} editable / {preservedFieldCount} preserved
                       </span>
+                      <button
+                        type="button"
+                        onClick={() => setIsFieldLegendOpen((o) => !o)}
+                        className={classNames(
+                          "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-bold transition",
+                          isFieldLegendOpen
+                            ? "border-cyan-300 bg-cyan-50 text-cyan-700"
+                            : "border-slate-300 bg-white text-slate-500 hover:border-cyan-200 hover:text-cyan-600",
+                        )}
+                        title="Field legend"
+                      >
+                        ?
+                      </button>
                     </div>
                   </div>
+
+                  {isFieldLegendOpen ? (
+                    <div className="mb-4 grid grid-cols-2 gap-x-6 gap-y-2 rounded-lg border border-cyan-100 bg-cyan-50/60 px-4 py-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                      {[
+                        { label: "Name", desc: "Prisma field name — camelCase, used in generated code and queries." },
+                        { label: "Type", desc: "Scalar type written into the Prisma schema (String, Int, Boolean…)." },
+                        { label: "Default", desc: "Default value expression in the schema, e.g. now(), false, 0." },
+                        { label: "Comment", desc: "Free-text note stored as a Prisma comment (/// …) above the field." },
+                        { label: "Nullable (green)", desc: "Field is optional — Prisma adds ? suffix, column accepts NULL." },
+                        { label: "Required (amber)", desc: "Field is required — column cannot be NULL, Prisma enforces presence." },
+                        { label: "Unique (violet)", desc: "Adds @unique — no two rows can share this value." },
+                        { label: "Multiple (sky)", desc: "No unique constraint — duplicate values across rows are allowed." },
+                        { label: "✓ Save", desc: "Persist unsaved edits to this field into the schema." },
+                        { label: "🗑 Delete", desc: "Remove this field from the table entirely (shown when no edits are pending)." },
+                      ].map(({ label, desc }) => (
+                        <div key={label}>
+                          <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-cyan-700">{label}</p>
+                          <p className="mt-0.5 text-[11px] leading-relaxed text-slate-600">{desc}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
 
                   {editableFields.length === 0 ? (
                     <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm font-medium text-slate-500">
@@ -871,7 +907,7 @@ export function SchemaPageContent() {
                                         draft.input.type === "Boolean" && "cursor-not-allowed opacity-30",
                                       )}
                                     >
-                                      {draft.input.unique ? "Unique" : "Dupes"}
+                                      {draft.input.unique ? "Unique" : "Multiple"}
                                     </button>
                                     <div className="mt-auto">
                                       {hasName ? (
@@ -988,7 +1024,7 @@ export function SchemaPageContent() {
                                       draft.type === "Boolean" && "cursor-not-allowed opacity-30",
                                     )}
                                   >
-                                    {draft.unique ? "Unique" : "Dupes"}
+                                    {draft.unique ? "Unique" : "Multiple"}
                                   </button>
                                   <div className="mt-auto">
                                     {hasChanges ? (
