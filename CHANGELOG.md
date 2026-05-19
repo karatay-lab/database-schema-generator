@@ -11,6 +11,28 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.0] — 2026-05-19
+
+### Added
+- **Field templates modal** — converted from full-screen takeover to a proper `96vh` modal with dimmed backdrop and click-outside-to-close
+- **Provider column on field templates** — templates are tagged by database provider (`Postgres`, `MySQL`, `SQLite`, `All`); modal filter defaults to "Relevant" (current project provider + universal)
+- **Inline add / edit rows in templates table** — replaced the separate Add Template side panel with an inline row at the top of the table; editing a template transforms that row in-place
+- **Type → default value mapping** — selecting a field type auto-fills the Default input: `Int`/`BigInt`/`Float`/`Decimal` → `0`, `Boolean` → `false`, `DateTime` → `now()`, `Timestamp` → `dbgenerated("now()")` (provider-aware); `String`/`Json`/`Bytes` clears the input
+- **Quick-apply template dropdown** — `+ New Field` is now a split button; the `▼` half opens a searchable dropdown showing only unused, provider-relevant templates for one-click apply
+- **Color-coded type dropdowns** — field type selects are tinted by type (green for String, blue for Int, amber for Boolean, orange for DateTime, etc.) across field cards and template rows
+- **Field legend panel** — collapsible `?` panel below the field filter row explains every input and button (Name, Type, Default, Comment, Nullable, Required, Unique, Multiple, Save, Delete); open by default
+- **Pagination icons** — replaced `<` / `>` text arrows with `IconChevronLeft` / `IconChevronRight` throughout
+
+### Changed
+- "Dupes" label renamed to "Multiple" on the unique constraint toggle
+- Default value input placeholder changed from `now()` to `Default value`
+- Templates table add row moved to top (above data rows) for faster access
+
+### Fixed
+- Nullable / Unique toggle buttons in add and edit rows now align with column headers
+
+---
+
 ## [0.2.0] — 2026-05-19
 
 ### Added
