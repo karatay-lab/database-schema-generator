@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
 import { classNames } from "../shared/dashboard-data";
-import { IconCheck, IconPlus, IconTrash } from "@tabler/icons-react";
+import { IconCheck, IconChevronLeft, IconChevronRight, IconPlus, IconTrash } from "@tabler/icons-react";
 import type {
   PrismaField,
   PrismaFieldInput,
@@ -881,9 +881,9 @@ export function SchemaPageContent() {
                             type="button"
                             onClick={() => setFieldPage((page) => Math.max(1, page - 1))}
                             disabled={fieldPage === 1}
-                            className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-sm font-semibold text-slate-600 transition hover:border-cyan-200 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-cyan-200 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            {"<"}
+                            <IconChevronLeft size={15} stroke={2} />
                           </button>
                           <span className="text-sm font-semibold text-slate-600">
                             {fieldPage} / {fieldPageCount}
@@ -892,9 +892,9 @@ export function SchemaPageContent() {
                             type="button"
                             onClick={() => setFieldPage((page) => Math.min(fieldPageCount, page + 1))}
                             disabled={fieldPage === fieldPageCount}
-                            className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-sm font-semibold text-slate-600 transition hover:border-cyan-200 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-cyan-200 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            {">"}
+                            <IconChevronRight size={15} stroke={2} />
                           </button>
                         </div>
                       ) : null}
@@ -996,8 +996,14 @@ export function SchemaPageContent() {
       ) : null}
 
       {isTemplatesOpen ? (
-        <div className="fixed inset-0 z-50 bg-white">
-          <div className="flex h-screen w-screen flex-col overflow-hidden bg-white">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-3"
+          onClick={() => setIsTemplatesOpen(false)}
+        >
+          <div
+            className="flex h-[96vh] w-[98vw] max-w-[1500px] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="shrink-0 border-b border-slate-200 px-5 py-4">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
@@ -1089,7 +1095,7 @@ export function SchemaPageContent() {
                     </div>
                   ) : (
                     <div className="overflow-hidden rounded-lg border border-slate-200 bg-white xl:flex xl:min-h-0 xl:flex-1 xl:flex-col">
-                      <div className="max-h-[64vh] overflow-auto xl:min-h-0 xl:flex-1 xl:max-h-none">
+                      <div className="max-h-[55vh] overflow-auto xl:min-h-0 xl:flex-1 xl:max-h-none">
                         <table className="min-w-[1160px] border-collapse text-left text-sm">
                           <thead className="sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
                             <tr>
@@ -1236,9 +1242,9 @@ export function SchemaPageContent() {
                             type="button"
                             onClick={() => setTemplatePage((page) => Math.max(1, page - 1))}
                             disabled={templatePage === 1}
-                            className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-sm font-semibold text-slate-600 transition hover:border-cyan-200 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-cyan-200 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            {"<"}
+                            <IconChevronLeft size={15} stroke={2} />
                           </button>
                           <span className="text-sm font-semibold text-slate-600">
                             {templatePage} / {templatePageCount}
@@ -1247,9 +1253,9 @@ export function SchemaPageContent() {
                             type="button"
                             onClick={() => setTemplatePage((page) => Math.min(templatePageCount, page + 1))}
                             disabled={templatePage === templatePageCount}
-                            className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-sm font-semibold text-slate-600 transition hover:border-cyan-200 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-cyan-200 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            {">"}
+                            <IconChevronRight size={15} stroke={2} />
                           </button>
                         </div>
                       ) : null}
