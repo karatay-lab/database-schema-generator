@@ -145,7 +145,7 @@ export function SchemaPageContent() {
   const [savingNewCardId, setSavingNewCardId] = useState("");
   const savingNewCardIdRef = useRef("");
   const [savingFieldKey, setSavingFieldKey] = useState("");
-  const [isFieldLegendOpen, setIsFieldLegendOpen] = useState(false);
+  const [isFieldLegendOpen, setIsFieldLegendOpen] = useState(true);
   const [deletingFieldKey, setDeletingFieldKey] = useState("");
   const [error, setError] = useState("");
   const [fieldTypeFilter, setFieldTypeFilter] = useState("All");
