@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
 import { classNames } from "../shared/dashboard-data";
-import { IconCheck, IconChevronLeft, IconChevronRight, IconPlus, IconTrash } from "@tabler/icons-react";
+import { IconCheck, IconChevronDown, IconChevronLeft, IconChevronRight, IconPlus, IconTrash } from "@tabler/icons-react";
 import type {
   PrismaField,
   PrismaFieldInput,
@@ -137,6 +137,9 @@ export function SchemaPageContent() {
   const [fieldPage, setFieldPage] = useState(1);
   const [isTableSelectorOpen, setIsTableSelectorOpen] = useState(false);
   const [isTemplatesOpen, setIsTemplatesOpen] = useState(false);
+  const [isTemplateDropdownOpen, setIsTemplateDropdownOpen] = useState(false);
+  const [templateDropdownSearch, setTemplateDropdownSearch] = useState("");
+  const templateDropdownRef = useRef<HTMLDivElement>(null);
   const [templateTypeFilter, setTemplateTypeFilter] = useState("All");
   const [templatePage, setTemplatePage] = useState(1);
   const [templateOverrideNames, setTemplateOverrideNames] = useState<Record<string, string>>({});
@@ -297,6 +300,15 @@ export function SchemaPageContent() {
 
   const preservedFieldCount = fields.length - editableFields.length;
 
+  const relevantDropdownTemplates = useMemo(() => {
+    const search = templateDropdownSearch.toLowerCase();
+    return templates.filter(
+      (t) =>
+        (t.provider === "All" || t.provider === projectProvider) &&
+        (!search || t.name.toLowerCase().includes(search)),
+    );
+  }, [templates, projectProvider, templateDropdownSearch]);
+
   const fieldFilterOptions = useMemo(
     () => Array.from(new Set(editableFields.map((field) => field.type))).sort(),
     [editableFields],
@@ -356,6 +368,22 @@ export function SchemaPageContent() {
   useEffect(() => {
     setTemplatePage((page) => Math.min(page, templatePageCount));
   }, [templatePageCount]);
+
+  useEffect(() => {
+    if (!isTemplateDropdownOpen) return;
+    const onMouse = (e: MouseEvent) => {
+      if (templateDropdownRef.current && !templateDropdownRef.current.contains(e.target as Node)) {
+        setIsTemplateDropdownOpen(false);
+        setTemplateDropdownSearch("");
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setIsTemplateDropdownOpen(false); setTemplateDropdownSearch(""); }
+    };
+    document.addEventListener("mousedown", onMouse);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onMouse); document.removeEventListener("keydown", onKey); };
+  }, [isTemplateDropdownOpen]);
 
   const updateDraft = (
     fieldKey: string,
@@ -608,14 +636,89 @@ export function SchemaPageContent() {
                 Select Table
               </button>
               {selectedModelName ? (
-                <button
-                  type="button"
-                  onClick={addNewFieldCard}
-                  className="flex h-9 w-9 items-center justify-center rounded-md border border-cyan-300 bg-white text-cyan-600 transition hover:bg-cyan-50"
-                  title="Add field"
-                >
-                  <IconPlus size={16} stroke={2} />
-                </button>
+                <div className="relative flex" ref={templateDropdownRef}>
+                  <button
+                    type="button"
+                    onClick={addNewFieldCard}
+                    className="flex h-9 items-center gap-1.5 rounded-l-md border border-r-0 border-cyan-300 bg-white px-3 text-xs font-semibold text-cyan-600 transition hover:bg-cyan-50"
+                  >
+                    <IconPlus size={14} stroke={2} />
+                    New Field
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setIsTemplateDropdownOpen((o) => !o); setTemplateDropdownSearch(""); }}
+                    className="flex h-9 items-center rounded-r-md border border-cyan-300 bg-white px-2 text-cyan-600 transition hover:bg-cyan-50"
+                    title="Add from template"
+                  >
+                    <IconChevronDown size={14} stroke={2} />
+                  </button>
+
+                  {isTemplateDropdownOpen ? (
+                    <div className="absolute right-0 top-full z-30 mt-1 w-72 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+                      <div className="border-b border-slate-100 p-2">
+                        <input
+                          type="text"
+                          value={templateDropdownSearch}
+                          onChange={(e) => setTemplateDropdownSearch(e.target.value)}
+                          placeholder="Search templates..."
+                          autoFocus
+                          className="h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-cyan-600"
+                        />
+                      </div>
+                      <div className="max-h-64 overflow-y-auto">
+                        {relevantDropdownTemplates.length === 0 ? (
+                          <div className="px-3 py-5 text-center text-xs font-medium text-slate-500">
+                            {templates.length === 0 ? "No templates yet." : "No matches."}
+                          </div>
+                        ) : (
+                          relevantDropdownTemplates.map((template) => {
+                            const isUsed = usedTemplateNames.has(template.name);
+                            const isBusy = addingTemplateToTable === template.id;
+                            return (
+                              <button
+                                key={template.id}
+                                type="button"
+                                onClick={() => {
+                                  if (isUsed) return;
+                                  setIsTemplateDropdownOpen(false);
+                                  setTemplateDropdownSearch("");
+                                  addTemplateToTable(template)();
+                                }}
+                                disabled={isUsed || isBusy}
+                                className={classNames(
+                                  "flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left transition",
+                                  isUsed ? "cursor-not-allowed opacity-40" : "hover:bg-slate-50",
+                                )}
+                              >
+                                <span className="min-w-0 truncate text-xs font-semibold text-slate-950">
+                                  {template.name}
+                                </span>
+                                <div className="flex shrink-0 items-center gap-1.5">
+                                  <span className={classNames("rounded px-1.5 py-0.5 text-[10px] font-semibold", typeBadgeClass(template.type))}>
+                                    {template.type}
+                                  </span>
+                                  {isUsed ? (
+                                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">Used</span>
+                                  ) : null}
+                                </div>
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                      <div className="border-t border-slate-100 px-3 py-2">
+                        <button
+                          type="button"
+                          onClick={() => { setIsTemplateDropdownOpen(false); setIsTemplatesOpen(true); }}
+                          className="text-xs font-semibold text-emerald-600 transition hover:underline"
+                        >
+                          Open full Templates →
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           </div>
