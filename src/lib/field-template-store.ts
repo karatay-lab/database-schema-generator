@@ -4,11 +4,12 @@ import type { PrismaFieldInput, PrismaNativeAttribute } from "@/lib/schema-store
 
 export type FieldTemplate = PrismaFieldInput & {
   id: string;
+  provider: string;
   createdAt: string;
   updatedAt: string;
 };
 
-export type FieldTemplateInput = PrismaFieldInput;
+export type FieldTemplateInput = PrismaFieldInput & { provider: string };
 
 export type FieldTemplateUpdateInput = FieldTemplateInput & {
   id: string;
@@ -20,6 +21,7 @@ type DbFieldTemplate = {
   default_value: string; comment: string;
   native_attribute: string | null;
   updated_at_attribute: number; is_id: number;
+  provider: string;
   created_at: string; updated_at: string;
 };
 
@@ -35,6 +37,7 @@ function dbRowToTemplate(row: DbFieldTemplate): FieldTemplate {
     nativeAttribute: row.native_attribute ? (JSON.parse(row.native_attribute) as PrismaNativeAttribute) : undefined,
     updatedAtAttribute: row.updated_at_attribute === 1,
     isId: row.is_id === 1,
+    provider: row.provider ?? "All",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -52,6 +55,7 @@ function normalizeTemplateInput(input: FieldTemplateInput): FieldTemplateInput {
     nativeAttribute: input.nativeAttribute,
     updatedAtAttribute: Boolean(input.updatedAtAttribute),
     isId: Boolean(input.isId),
+    provider: (input.provider ?? "All").trim() || "All",
   };
 }
 
@@ -79,8 +83,8 @@ export async function createFieldTemplate(input: FieldTemplateInput) {
   const id = randomUUID();
 
   db.prepare(`
-    INSERT INTO field_templates (id, name, type, nullable, unique_field, default_value, comment, native_attribute, updated_at_attribute, is_id, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO field_templates (id, name, type, nullable, unique_field, default_value, comment, native_attribute, updated_at_attribute, is_id, provider, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id, normalized.name, normalized.type,
     normalized.nullable ? 1 : 0,
@@ -89,6 +93,7 @@ export async function createFieldTemplate(input: FieldTemplateInput) {
     normalized.nativeAttribute ? JSON.stringify(normalized.nativeAttribute) : null,
     normalized.updatedAtAttribute ? 1 : 0,
     normalized.isId ? 1 : 0,
+    normalized.provider,
     now, now,
   );
 
@@ -110,7 +115,7 @@ export async function updateFieldTemplate(input: FieldTemplateUpdateInput) {
   const now = new Date().toISOString();
   db.prepare(`
     UPDATE field_templates
-    SET name = ?, type = ?, nullable = ?, unique_field = ?, default_value = ?, comment = ?, native_attribute = ?, updated_at_attribute = ?, is_id = ?, updated_at = ?
+    SET name = ?, type = ?, nullable = ?, unique_field = ?, default_value = ?, comment = ?, native_attribute = ?, updated_at_attribute = ?, is_id = ?, provider = ?, updated_at = ?
     WHERE id = ?
   `).run(
     normalized.name, normalized.type,
@@ -120,6 +125,7 @@ export async function updateFieldTemplate(input: FieldTemplateUpdateInput) {
     normalized.nativeAttribute ? JSON.stringify(normalized.nativeAttribute) : null,
     normalized.updatedAtAttribute ? 1 : 0,
     normalized.isId ? 1 : 0,
+    normalized.provider,
     now, templateId,
   );
 

@@ -33,6 +33,7 @@ const templateInputSchema = z.object({
   nativeAttribute: nativeAttributeSchema,
   updatedAtAttribute: z.boolean().default(false),
   isId: z.boolean().default(false),
+  provider: z.string().default("All"),
 });
 
 export const fieldTemplatesRouter = createTRPCRouter({

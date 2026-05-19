@@ -12,7 +12,8 @@ import type {
   PrismaFieldInput,
   PrismaModel,
 } from "@/lib/schema-store";
-import type { FieldTemplate } from "@/lib/field-template-store";
+import type { FieldTemplate, FieldTemplateInput } from "@/lib/field-template-store";
+import { providers as allProviders } from "../shared/dashboard-data";
 
 type FieldsResponse = {
   fields?: PrismaField[];
@@ -49,6 +50,10 @@ const emptyFieldInput: PrismaFieldInput = {
   comment: "",
 };
 
+function makeEmptyTemplateInput(provider: string): FieldTemplateInput {
+  return { name: "", type: "String", nullable: false, unique: false, defaultValue: "", comment: "", provider };
+}
+
 function typeBadgeClass(type: string) {
   if (type === "Int") return "bg-blue-50 text-blue-700";
   if (type === "String") return "bg-green-50 text-green-700";
@@ -81,7 +86,7 @@ function fieldToInput(field: PrismaField): PrismaFieldInput {
   };
 }
 
-function templateToInput(template: FieldTemplate): PrismaFieldInput {
+function templateToInput(template: FieldTemplate): FieldTemplateInput {
   return {
     name: template.name,
     type: template.type,
@@ -92,11 +97,12 @@ function templateToInput(template: FieldTemplate): PrismaFieldInput {
     nativeAttribute: template.nativeAttribute,
     updatedAtAttribute: template.updatedAtAttribute,
     isId: template.isId,
+    provider: template.provider ?? "All",
   };
 }
 
 export function SchemaPageContent() {
-  const { projectName, version, hasProject } = useProjectInfo();
+  const { projectName, version, hasProject, provider: projectProvider } = useProjectInfo();
   const activeProject = hasProject;
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -121,7 +127,8 @@ export function SchemaPageContent() {
   const [templateTypeFilter, setTemplateTypeFilter] = useState("All");
   const [templatePage, setTemplatePage] = useState(1);
   const [templateOverrideNames, setTemplateOverrideNames] = useState<Record<string, string>>({});
-  const [templateField, setTemplateField] = useState<PrismaFieldInput>(emptyFieldInput);
+  const [templateField, setTemplateField] = useState<FieldTemplateInput>(() => makeEmptyTemplateInput(projectProvider || "All"));
+  const [templateProviderFilter, setTemplateProviderFilter] = useState("relevant");
   const [editingTemplateId, setEditingTemplateId] = useState("");
   const [addingTemplateToTable, setAddingTemplateToTable] = useState("");
   const [savingTemplateFieldId, setSavingTemplateFieldId] = useState("");
@@ -213,12 +220,12 @@ export function SchemaPageContent() {
   });
   const createTemplateMutation = useMutation({
     ...trpc.fieldTemplates.create.mutationOptions(),
-    onSuccess: () => { void invalidateTemplates(); setTemplateField(emptyFieldInput); setEditingTemplateId(""); setSavingTemplateFieldId(""); },
+    onSuccess: () => { void invalidateTemplates(); setTemplateField(makeEmptyTemplateInput(projectProvider || "All")); setEditingTemplateId(""); setSavingTemplateFieldId(""); },
     onError: (err) => { setTemplateError(err.message); setSavingTemplateFieldId(""); },
   });
   const updateTemplateMutation = useMutation({
     ...trpc.fieldTemplates.update.mutationOptions(),
-    onSuccess: () => { void invalidateTemplates(); setEditingTemplateId(""); setTemplateField(emptyFieldInput); setSavingTemplateFieldId(""); },
+    onSuccess: () => { void invalidateTemplates(); setEditingTemplateId(""); setTemplateField(makeEmptyTemplateInput(projectProvider || "All")); setSavingTemplateFieldId(""); },
     onError: (err) => { setTemplateError(err.message); setSavingTemplateFieldId(""); },
   });
   const deleteTemplateMutation = useMutation({
@@ -250,11 +257,15 @@ export function SchemaPageContent() {
   );
 
   const filteredTemplates = useMemo(() => {
-    return templates.filter(
-      (template) =>
-        templateTypeFilter === "All" || template.type === templateTypeFilter,
-    );
-  }, [templateTypeFilter, templates]);
+    return templates.filter((template) => {
+      const typeMatch = templateTypeFilter === "All" || template.type === templateTypeFilter;
+      const providerMatch =
+        templateProviderFilter === "all" ||
+        template.provider === "All" ||
+        template.provider === projectProvider;
+      return typeMatch && providerMatch;
+    });
+  }, [templateTypeFilter, templateProviderFilter, templates, projectProvider]);
 
   const templateTypeOptions = useMemo(
     () => Array.from(new Set(templates.map((template) => template.type))).sort(),
@@ -447,7 +458,7 @@ export function SchemaPageContent() {
     });
   };
 
-  const updateTemplateField = (patch: Partial<PrismaFieldInput>) => {
+  const updateTemplateField = (patch: Partial<FieldTemplateInput>) => {
     setTemplateField((field) => ({
       ...field,
       ...patch,
@@ -476,7 +487,7 @@ export function SchemaPageContent() {
 
   const cancelTemplateEdit = () => {
     setEditingTemplateId("");
-    setTemplateField(emptyFieldInput);
+    setTemplateField(makeEmptyTemplateInput(projectProvider || "All"));
     setTemplateError("");
   };
 
@@ -498,7 +509,7 @@ export function SchemaPageContent() {
     deleteTemplateMutation.mutate({ id: template.id });
     if (editingTemplateId === template.id) {
       setEditingTemplateId("");
-      setTemplateField(emptyFieldInput);
+      setTemplateField(makeEmptyTemplateInput(projectProvider || "All"));
     }
   };
 
@@ -1001,7 +1012,7 @@ export function SchemaPageContent() {
           onClick={() => setIsTemplatesOpen(false)}
         >
           <div
-            className="flex h-[96vh] w-[98vw] max-w-[1500px] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl"
+            className="flex h-[96vh] w-[98vw] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="shrink-0 border-b border-slate-200 px-5 py-4">
@@ -1030,7 +1041,7 @@ export function SchemaPageContent() {
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto p-5 xl:overflow-hidden">
-              <div className="grid min-h-full gap-5 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(0,1fr)_380px]">
+              <div className="grid min-h-full gap-5 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(0,1fr)_480px]">
                 <div className="min-w-0 xl:flex xl:min-h-0 xl:flex-col">
                   <div className="mb-4 shrink-0 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
@@ -1042,6 +1053,17 @@ export function SchemaPageContent() {
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
+                      <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                        Provider
+                        <select
+                          value={templateProviderFilter}
+                          onChange={(event) => setTemplateProviderFilter(event.target.value)}
+                          className="h-8 min-w-36 rounded-md border border-slate-300 bg-white px-2.5 text-xs font-semibold normal-case tracking-normal text-slate-700 outline-none transition focus:border-cyan-600"
+                        >
+                          <option value="relevant">Relevant ({projectProvider || "—"})</option>
+                          <option value="all">All providers</option>
+                        </select>
+                      </label>
                       <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
                         Type
                         <select
@@ -1100,6 +1122,7 @@ export function SchemaPageContent() {
                           <thead className="sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
                             <tr>
                               <th className="border-b border-slate-200 px-3 py-3">Name</th>
+                              <th className="border-b border-slate-200 px-3 py-3">Provider</th>
                               <th className="border-b border-slate-200 px-3 py-3">Type</th>
                               <th className="border-b border-slate-200 px-3 py-3">Default</th>
                               <th className="border-b border-slate-200 px-3 py-3">Nullable</th>
@@ -1126,6 +1149,18 @@ export function SchemaPageContent() {
                                 <tr key={template.id} className="align-top">
                                   <td className="px-3 py-3 font-semibold text-slate-950">
                                     {template.name}
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    <span className={classNames(
+                                      "rounded-md px-2 py-1 text-xs font-semibold",
+                                      template.provider === "All"
+                                        ? "bg-slate-100 text-slate-600"
+                                        : template.provider === projectProvider
+                                          ? "bg-violet-100 text-violet-700"
+                                          : "bg-amber-100 text-amber-700",
+                                    )}>
+                                      {template.provider}
+                                    </span>
                                   </td>
                                   <td className="px-3 py-3">
                                     <span className={classNames("rounded-md px-2 py-1 text-xs font-semibold", typeBadgeClass(template.type))}>
@@ -1287,6 +1322,20 @@ export function SchemaPageContent() {
                         className="mt-2 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium normal-case tracking-normal text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-600"
                         placeholder="email"
                       />
+                    </label>
+
+                    <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                      Provider
+                      <select
+                        value={templateField.provider}
+                        onChange={(event) => updateTemplateField({ provider: event.target.value })}
+                        className="mt-2 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium normal-case tracking-normal text-slate-950 outline-none transition focus:border-cyan-600"
+                      >
+                        <option value="All">All (universal)</option>
+                        {allProviders.map((p) => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
                     </label>
 
                     {templateDuplicateSuggestion ? (
