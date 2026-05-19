@@ -66,6 +66,7 @@ export function RestrictionsPageContent() {
   const [isTableSelectorOpen, setIsTableSelectorOpen] = useState(false);
   const [draft, setDraft] = useState<RestrictionDraft>(emptyRestrictionDraft);
   const [editingRestrictionKey, setEditingRestrictionKey] = useState("");
+  const [isAddingRestriction, setIsAddingRestriction] = useState(false);
   const [deletingRestrictionKey, setDeletingRestrictionKey] = useState("");
   const [error, setError] = useState("");
 
@@ -146,6 +147,7 @@ export function RestrictionsPageContent() {
   useEffect(() => {
     setDraft(emptyRestrictionDraft);
     setEditingRestrictionKey("");
+    setIsAddingRestriction(false);
   }, [selectedModelName]);
 
   const selectModel = (modelName: string) => {
@@ -183,10 +185,12 @@ export function RestrictionsPageContent() {
   const resetDraft = () => {
     setDraft(emptyRestrictionDraft);
     setEditingRestrictionKey("");
+    setIsAddingRestriction(false);
     setError("");
   };
 
   const editRestriction = (restriction: PrismaRestriction) => {
+    setIsAddingRestriction(false);
     setDraft({
       type: restriction.type,
       fields: restriction.fields,
@@ -243,7 +247,7 @@ export function RestrictionsPageContent() {
                 Main Window
               </p>
               <h3 className="mt-1 text-xl font-semibold text-slate-950">
-                Relations workspace
+                Restrictions workspace
               </h3>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -283,29 +287,243 @@ export function RestrictionsPageContent() {
               Loading restrictions...
             </div>
           ) : (
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-              <div>
-                <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                      Selected Table
-                    </p>
-                    <h4 className="mt-1 text-lg font-semibold text-slate-950">
-                      {selectedModelName}
-                    </h4>
-                  </div>
+            <div>
+              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    Selected Table
+                  </p>
+                  <h4 className="mt-1 text-lg font-semibold text-slate-950">
+                    {selectedModelName}
+                  </h4>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
                   <span className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">
                     {restrictions.length} restrictions / {fields.length} fields
                   </span>
+                  {!isAddingRestriction && !editingRestrictionKey ? (
+                    <button
+                      type="button"
+                      onClick={() => { resetDraft(); setIsAddingRestriction(true); }}
+                      className="h-9 rounded-md border border-violet-300 bg-white px-4 text-xs font-semibold text-violet-700 transition hover:bg-violet-50"
+                    >
+                      + Add Restriction
+                    </button>
+                  ) : null}
                 </div>
+              </div>
 
-                {restrictions.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm font-medium text-slate-500">
-                    No unique or index restrictions found for this table.
+              {error ? (
+                <p className="mb-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
+                  {error}
+                </p>
+              ) : null}
+
+              {isAddingRestriction ? (
+                <div className="mb-4 rounded-lg border-2 border-dashed border-violet-300 bg-violet-50/30 p-4">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-violet-600">
+                    New Restriction
+                  </p>
+                  <div className="flex flex-wrap gap-5">
+                    <div className="shrink-0">
+                      <p className="mb-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                        Type
+                      </p>
+                      <div className="flex gap-1.5">
+                        {(["UNIQUE", "INDEX"] as PrismaRestrictionType[]).map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => updateDraft({ type: t })}
+                            className={classNames(
+                              "h-8 rounded-md border px-3 text-xs font-semibold transition",
+                              draft.type === t
+                                ? t === "UNIQUE"
+                                  ? "border-emerald-400 bg-emerald-50 text-emerald-700"
+                                  : "border-violet-400 bg-violet-50 text-violet-700"
+                                : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+                            )}
+                          >
+                            {restrictionTypeLabel(t)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="min-w-48 flex-1">
+                      <p className="mb-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                        Fields
+                      </p>
+                      {selectableFields.length === 0 ? (
+                        <p className="text-xs text-slate-500">
+                          No fields available for this type.
+                        </p>
+                      ) : (
+                        <div className="grid max-h-40 grid-cols-2 gap-1 overflow-y-auto lg:grid-cols-3 xl:grid-cols-4">
+                          {selectableFields.map((field) => (
+                            <label
+                              key={field.key}
+                              className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 transition hover:bg-white/80"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={draft.fields.includes(field.name)}
+                                onChange={() => toggleDraftField(field.name)}
+                                className="h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-violet-600"
+                              />
+                              <span className="min-w-0 truncate text-sm font-medium text-slate-950">
+                                {field.name}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex shrink-0 min-w-44 flex-col justify-between gap-3">
+                      <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                        Database Name
+                        <input
+                          value={draft.dbName}
+                          onChange={(e) => updateDraft({ dbName: e.target.value })}
+                          className="mt-1.5 h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium normal-case tracking-normal text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-violet-600"
+                          placeholder="users_email_ix"
+                        />
+                      </label>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={saveRestriction}
+                          disabled={savingRestriction || draft.fields.length === 0}
+                          className="h-9 flex-1 rounded-md bg-violet-600 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                        >
+                          {savingRestriction ? "Saving..." : "Add Restriction"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={resetDraft}
+                          className="h-9 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                ) : (
-                  <div className="grid gap-3 lg:grid-cols-2">
-                    {restrictions.map((restriction) => (
+                </div>
+              ) : null}
+
+              {restrictions.length === 0 && !isAddingRestriction ? (
+                <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
+                  <p className="text-sm font-medium text-slate-500">
+                    No unique or index restrictions found for this table.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => { resetDraft(); setIsAddingRestriction(true); }}
+                    className="mt-4 h-10 min-w-44 rounded-md bg-violet-600 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700"
+                  >
+                    Add Restriction
+                  </button>
+                </div>
+              ) : (
+                <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+                  {restrictions.map((restriction) =>
+                    editingRestrictionKey === restriction.key ? (
+                      <div
+                        key={restriction.key}
+                        className="rounded-lg border-2 border-violet-400 bg-white p-4 shadow-sm"
+                      >
+                        <p className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-violet-600">
+                          Edit Restriction
+                        </p>
+                        <div className="space-y-3">
+                          <div>
+                            <p className="mb-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                              Type
+                            </p>
+                            <div className="flex gap-1.5">
+                              {(["UNIQUE", "INDEX"] as PrismaRestrictionType[]).map((t) => (
+                                <button
+                                  key={t}
+                                  type="button"
+                                  onClick={() => updateDraft({ type: t })}
+                                  className={classNames(
+                                    "h-8 rounded-md border px-3 text-xs font-semibold transition",
+                                    draft.type === t
+                                      ? t === "UNIQUE"
+                                        ? "border-emerald-400 bg-emerald-50 text-emerald-700"
+                                        : "border-violet-400 bg-violet-50 text-violet-700"
+                                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+                                  )}
+                                >
+                                  {restrictionTypeLabel(t)}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div>
+                            <p className="mb-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                              Fields
+                            </p>
+                            <div className="max-h-40 space-y-1 overflow-y-auto">
+                              {selectableFields.map((field) => (
+                                <label
+                                  key={field.key}
+                                  className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition hover:bg-slate-50"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={draft.fields.includes(field.name)}
+                                    onChange={() => toggleDraftField(field.name)}
+                                    className="h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-violet-600"
+                                  />
+                                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-950">
+                                    {field.name}
+                                  </span>
+                                  <span
+                                    className={classNames(
+                                      "rounded px-1.5 py-0.5 text-[11px] font-semibold",
+                                      fieldTypeBadgeClass(field.type),
+                                    )}
+                                  >
+                                    {field.type}
+                                  </span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+
+                          <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                            Database Name
+                            <input
+                              value={draft.dbName}
+                              onChange={(e) => updateDraft({ dbName: e.target.value })}
+                              className="mt-1.5 h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium normal-case tracking-normal text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-violet-600"
+                              placeholder="users_email_ix"
+                            />
+                          </label>
+
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={saveRestriction}
+                              disabled={savingRestriction || draft.fields.length === 0}
+                              className="h-9 flex-1 rounded-md bg-violet-600 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                            >
+                              {savingRestriction ? "Saving..." : "Save Restriction"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={resetDraft}
+                              className="h-9 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
                       <div
                         key={restriction.key}
                         className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
@@ -322,9 +540,7 @@ export function RestrictionsPageContent() {
                                 {restrictionTypeLabel(restriction.type)}
                               </span>
                               <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">
-                                {restriction.source === "field"
-                                  ? "Field"
-                                  : "Model"}
+                                {restriction.source === "field" ? "Field" : "Model"}
                               </span>
                             </div>
                             <div className="mt-3 flex flex-wrap gap-1.5">
@@ -362,124 +578,17 @@ export function RestrictionsPageContent() {
                         {restriction.dbName ? (
                           <p className="mt-3 text-xs font-semibold text-slate-500">
                             DB name:{" "}
-                            <span className="text-slate-800">
-                              {restriction.dbName}
-                            </span>
+                            <span className="text-slate-800">{restriction.dbName}</span>
                           </p>
                         ) : null}
                         <code className="mt-3 block overflow-x-auto rounded-md bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-50">
                           {restriction.preview}
                         </code>
                       </div>
-                    ))}
-                  </div>
-                )}
-
-                {error ? (
-                  <p className="mt-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
-                    {error}
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                  {editingRestrictionKey ? "Edit Restriction" : "Add Restriction"}
-                </p>
-                <div className="mt-4 space-y-4">
-                  <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                    Type
-                    <select
-                      value={draft.type}
-                      onChange={(event) =>
-                        updateDraft({
-                          type: event.target.value as PrismaRestrictionType,
-                        })
-                      }
-                      className="mt-2 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium normal-case tracking-normal text-slate-950 outline-none transition focus:border-violet-600"
-                    >
-                      <option value="UNIQUE">Unique</option>
-                      <option value="INDEX">Index</option>
-                    </select>
-                  </label>
-
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                      Fields
-                    </p>
-                    <div className="mt-2 max-h-72 space-y-2 overflow-y-auto rounded-md border border-slate-200 bg-white p-2">
-                      {selectableFields.length === 0 ? (
-                        <p className="px-2 py-4 text-center text-sm font-medium text-slate-500">
-                          No fields available for this restriction type.
-                        </p>
-                      ) : (
-                        selectableFields.map((field) => (
-                          <label
-                            key={field.key}
-                            className="flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-2 transition hover:bg-slate-50"
-                          >
-                            <span className="min-w-0">
-                              <span className="block truncate text-sm font-semibold text-slate-950">
-                                {field.name}
-                              </span>
-                              <span
-                                className={classNames(
-                                  "mt-1 inline-flex rounded-md px-2 py-0.5 text-[11px] font-semibold",
-                                  fieldTypeBadgeClass(field.type),
-                                )}
-                              >
-                                {field.type}
-                              </span>
-                            </span>
-                            <input
-                              type="checkbox"
-                              checked={draft.fields.includes(field.name)}
-                              onChange={() => toggleDraftField(field.name)}
-                              className="h-4 w-4 rounded border-slate-300 text-violet-600"
-                            />
-                          </label>
-                        ))
-                      )}
-                    </div>
-                  </div>
-
-                  <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                    Database Name
-                    <input
-                      value={draft.dbName}
-                      onChange={(event) =>
-                        updateDraft({ dbName: event.target.value })
-                      }
-                      className="mt-2 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium normal-case tracking-normal text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-violet-600"
-                      placeholder="users_email_nx"
-                    />
-                  </label>
-
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => saveRestriction()}
-                      disabled={savingRestriction || draft.fields.length === 0}
-                      className="h-10 flex-1 rounded-md bg-violet-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                    >
-                      {savingRestriction
-                        ? "Saving..."
-                        : editingRestrictionKey
-                          ? "Save Restriction"
-                          : "Add Restriction"}
-                    </button>
-                    {editingRestrictionKey ? (
-                      <button
-                        type="button"
-                        onClick={resetDraft}
-                        className="h-10 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                      >
-                        Cancel
-                      </button>
-                    ) : null}
-                  </div>
+                    ),
+                  )}
                 </div>
-              </div>
+              )}
             </div>
           )}
         </div>
