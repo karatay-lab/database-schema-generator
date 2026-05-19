@@ -54,6 +54,19 @@ function makeEmptyTemplateInput(provider: string): FieldTemplateInput {
   return { name: "", type: "String", nullable: false, unique: false, defaultValue: "", comment: "", provider };
 }
 
+function suggestDefault(type: string, provider: string): string {
+  if (type === "Int" || type === "BigInt" || type === "Float" || type === "Decimal") return "0";
+  if (type === "Boolean") return "false";
+  if (type === "DateTime") return "now()";
+  if (type === "Timestamp") {
+    if (provider === "Postgres") return 'dbgenerated("now()")';
+    if (provider === "MySQL") return "CURRENT_TIMESTAMP";
+    if (provider === "SQLite") return "CURRENT_TIMESTAMP";
+    return 'dbgenerated("now()")';
+  }
+  return "";
+}
+
 function typeBadgeClass(type: string) {
   if (type === "Int") return "bg-blue-50 text-blue-700";
   if (type === "String") return "bg-green-50 text-green-700";
@@ -460,14 +473,18 @@ export function SchemaPageContent() {
   };
 
   const updateTemplateField = (patch: Partial<FieldTemplateInput>) => {
-    setTemplateField((field) => ({
-      ...field,
-      ...patch,
-      unique:
-        patch.type === "Boolean"
-          ? false
-          : patch.unique ?? field.unique,
-    }));
+    setTemplateField((field) => {
+      const next = { ...field, ...patch, unique: patch.type === "Boolean" ? false : patch.unique ?? field.unique };
+      if (patch.type !== undefined && patch.type !== field.type && !field.defaultValue.trim()) {
+        next.defaultValue = suggestDefault(patch.type, next.provider);
+      } else if (patch.provider !== undefined && patch.provider !== field.provider) {
+        const oldSuggestion = suggestDefault(field.type, field.provider);
+        if (!field.defaultValue.trim() || field.defaultValue === oldSuggestion) {
+          next.defaultValue = suggestDefault(field.type, patch.provider);
+        }
+      }
+      return next;
+    });
     setTemplateError("");
   };
 
@@ -481,11 +498,14 @@ export function SchemaPageContent() {
   };
 
   const updateEditDraft = (patch: Partial<FieldTemplateInput>) => {
-    setEditDraft((d) => d ? {
-      ...d,
-      ...patch,
-      unique: patch.type === "Boolean" ? false : patch.unique ?? d.unique,
-    } : d);
+    setEditDraft((d) => {
+      if (!d) return d;
+      const next = { ...d, ...patch, unique: patch.type === "Boolean" ? false : patch.unique ?? d.unique };
+      if (patch.type !== undefined && patch.type !== d.type && !d.defaultValue.trim()) {
+        next.defaultValue = suggestDefault(patch.type, next.provider);
+      }
+      return next;
+    });
     setTemplateError("");
   };
 
