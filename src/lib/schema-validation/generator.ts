@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getSchemaStore } from "@/lib/schema-store";
 import { registerFsPath } from "@/lib/db/fs-paths";
+import { upsertZodSchema } from "@/lib/db/zod-schemas";
 import { db } from "@/lib/db/client";
 
 const databaseDirectory = path.join(process.cwd(), "src/database");
@@ -242,7 +243,18 @@ export async function generateZodSchema(
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, code, "utf8");
   const pidRow = db.prepare("SELECT id FROM projects WHERE name = ?").get(input.projectName) as { id: string } | undefined;
-  if (pidRow) registerFsPath({ projectId: pidRow.id, version: input.version, fileType: "zod_file", label: model.name, fsPath: filePath });
+  if (pidRow) {
+    registerFsPath({ projectId: pidRow.id, version: input.version, fileType: "zod_file", label: model.name, fsPath: filePath });
+    upsertZodSchema({
+      projectId: pidRow.id,
+      version: input.version,
+      modelName: model.name,
+      fsPath: filePath,
+      schemaCount: nestedEntries.length + 1,
+      enumCount: enumEntries.length,
+      fieldCount: selectedCanonicalFields.length,
+    });
+  }
 
   return {
     code,

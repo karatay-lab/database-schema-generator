@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
 import { classNames } from "../shared/dashboard-data";
 import { fieldTypeBadgeClass } from "@/lib/badge-utils";
 import { useProjectInfo } from "../shared/project-info-context";
+import { IconCheck, IconCopy, IconEye } from "@tabler/icons-react";
 import type { PrismaField, PrismaModel } from "@/lib/schema-store";
-import type { GenerateRequest, GenerateResponse } from "@/types/validation";
+import type { GenerateResponse } from "@/types/validation";
 
 function highlightCode(code: string): React.ReactNode {
   const lines = code.split("\n");
@@ -108,6 +109,7 @@ export function ValidationPageContent() {
   const { projectName, version: selectedVersion, hasProject } = useProjectInfo();
   const version = selectedVersion;
   const trpc = useTRPC();
+  const queryClient = useQueryClient();
 
   const [selectedModelName, setSelectedModelName] = useState("");
   const [tableSearch, setTableSearch] = useState("");
@@ -152,6 +154,27 @@ export function ValidationPageContent() {
   const [dialogEnumCount, setDialogEnumCount] = useState(0);
   const [dialogWarnings, setDialogWarnings] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
+
+  const [targetPath, setTargetPath] = useState(() =>
+    typeof window !== "undefined" ? (localStorage.getItem("zod-target-path") ?? "") : "",
+  );
+  const [viewingModel, setViewingModel] = useState<string | null>(null);
+  const [copiedRowPath, setCopiedRowPath] = useState<string | null>(null);
+
+  const listZodQuery = useQuery(
+    trpc.schema.listZodFiles.queryOptions(
+      { projectName, version },
+      { enabled: !!projectName && !!version },
+    ),
+  );
+  const zodSchemas = listZodQuery.data ?? [];
+
+  const readFileQuery = useQuery(
+    trpc.schema.readZodFile.queryOptions(
+      { projectName, version, modelName: viewingModel ?? "" },
+      { enabled: !!viewingModel },
+    ),
+  );
 
   const filteredModels = useMemo(
     () =>
@@ -210,6 +233,46 @@ export function ValidationPageContent() {
     setSelectedFieldKeys(new Set());
   }, [selectedModelName]);
 
+  useEffect(() => {
+    if (!readFileQuery.data || !viewingModel) return;
+    const schema = zodSchemas.find((s) => s.modelName === viewingModel);
+    const displayPath = resolvedPath(viewingModel, schema?.relativePath ?? "");
+    setDialogCode(readFileQuery.data.code);
+    setDialogFilePath(displayPath);
+    setDialogSchemaCount(schema?.schemaCount ?? 0);
+    setDialogEnumCount(schema?.enumCount ?? 0);
+    setDialogWarnings([]);
+    setDialogOpen(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readFileQuery.data]);
+
+  function resolvedPath(modelName: string, relativePath: string) {
+    const filename = relativePath.split("/").pop() ?? `${modelName.toLowerCase()}.ts`;
+    return targetPath.trim() ? `${targetPath.trim().replace(/\/+$/, "")}/${filename}` : relativePath;
+  }
+
+  const handleTargetPathChange = (value: string) => {
+    setTargetPath(value);
+    localStorage.setItem("zod-target-path", value);
+  };
+
+  const handleCopyRowPath = async (modelName: string, relativePath: string) => {
+    const text = resolvedPath(modelName, relativePath);
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.cssText = "position:fixed;opacity:0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    setCopiedRowPath(relativePath);
+    setTimeout(() => setCopiedRowPath(null), 1500);
+  };
+
   const selectModel = (modelName: string) => {
     setSelectedModelName(modelName);
     setTableSearch("");
@@ -251,7 +314,9 @@ export function ValidationPageContent() {
       setDialogSchemaCount(d?.schemaCount ?? 0);
       setDialogEnumCount(d?.enumCount ?? 0);
       setDialogWarnings(d?.warnings ?? []);
+      setViewingModel(null);
       setDialogOpen(true);
+      queryClient.invalidateQueries({ queryKey: trpc.schema.listZodFiles.queryKey({ projectName, version }) });
     },
     onError: (err) => setGenerateError(err.message),
   });
@@ -290,6 +355,7 @@ export function ValidationPageContent() {
   const closeDialog = () => {
     setDialogOpen(false);
     setCopied(false);
+    setViewingModel(null);
   };
 
   if (!hasProject) {
@@ -510,6 +576,107 @@ export function ValidationPageContent() {
                   {generateMutation.isPending ? "Generating..." : "Convert"}
                 </button>
               </div>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 px-5 py-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Saved Schemas
+              </p>
+              <h3 className="mt-1 text-xl font-semibold text-slate-950">
+                Generated Schemas
+              </h3>
+            </div>
+            <span className="self-start rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 lg:self-auto">
+              {zodSchemas.length} {zodSchemas.length === 1 ? "schema" : "schemas"}
+            </span>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-slate-600">
+              Target path in your project
+            </label>
+            <input
+              type="text"
+              value={targetPath}
+              onChange={(e) => handleTargetPathChange(e.target.value)}
+              placeholder="e.g. /home/user/myapp/src/validators"
+              className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-amber-600 lg:max-w-lg"
+            />
+          </div>
+
+          {listZodQuery.isLoading ? (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-6 text-center text-sm font-medium text-slate-500">
+              Loading...
+            </div>
+          ) : zodSchemas.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
+              <p className="text-sm font-medium text-slate-500">
+                No schemas generated yet for this version.
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+              {zodSchemas.map((schema) => {
+                const display = resolvedPath(schema.modelName, schema.relativePath);
+                const isCopied = copiedRowPath === schema.relativePath;
+                const isViewing = viewingModel === schema.modelName && readFileQuery.isFetching;
+
+                return (
+                  <div
+                    key={schema.id}
+                    className="flex items-center gap-3 px-4 py-3"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-semibold text-slate-950">
+                          {schema.modelName}
+                        </span>
+                        <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                          v{schema.generatedAt.slice(0, 10)}
+                        </span>
+                        <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">
+                          {schema.schemaCount} schema{schema.schemaCount !== 1 ? "s" : ""}
+                          {schema.enumCount > 0 ? ` · ${schema.enumCount} enum${schema.enumCount !== 1 ? "s" : ""}` : ""}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 truncate text-xs font-medium text-slate-500" title={display}>
+                        {display}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => handleCopyRowPath(schema.modelName, schema.relativePath)}
+                        title="Copy path"
+                        className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                      >
+                        {isCopied ? (
+                          <IconCheck size={14} stroke={2.5} className="text-emerald-600" />
+                        ) : (
+                          <IconCopy size={14} stroke={2} />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setViewingModel(schema.modelName)}
+                        disabled={isViewing}
+                        title="View code"
+                        className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 disabled:cursor-wait"
+                      >
+                        <IconEye size={14} stroke={2} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

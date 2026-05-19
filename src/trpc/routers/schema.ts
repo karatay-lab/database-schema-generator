@@ -4,6 +4,8 @@ import { z } from "zod";
 import { getSchemaStats, testPrismaSchema } from "@/lib/schema-store";
 import { listSchemaImports } from "@/lib/schema-imports-store";
 import { generateZodSchema } from "@/lib/schema-validation/generator";
+import { listZodSchemas, readZodSchemaFile } from "@/lib/db/zod-schemas";
+import { db } from "@/lib/db/client";
 import { baseProcedure, createTRPCRouter } from "../init";
 
 function trpcError(err: unknown, fallback = "Operation failed."): never {
@@ -58,6 +60,38 @@ export const schemaRouter = createTRPCRouter({
         });
       } catch (err) {
         trpcError(err, "Zod schema generation failed.");
+      }
+    }),
+
+  listZodFiles: baseProcedure
+    .input(z.object({ projectName: z.string(), version: z.string() }))
+    .query(({ input }) => {
+      try {
+        const project = db
+          .prepare("SELECT id FROM projects WHERE name = ?")
+          .get(input.projectName) as { id: string } | undefined;
+        if (!project) return [];
+        return listZodSchemas({ projectId: project.id, version: input.version });
+      } catch (err) {
+        trpcError(err, "Could not list generated schemas.");
+      }
+    }),
+
+  readZodFile: baseProcedure
+    .input(z.object({ projectName: z.string(), version: z.string(), modelName: z.string() }))
+    .query(async ({ input }) => {
+      try {
+        const project = db
+          .prepare("SELECT id FROM projects WHERE name = ?")
+          .get(input.projectName) as { id: string } | undefined;
+        if (!project) throw new Error("Project not found.");
+        return await readZodSchemaFile({
+          projectId: project.id,
+          version: input.version,
+          modelName: input.modelName,
+        });
+      } catch (err) {
+        trpcError(err, "Could not read schema file.");
       }
     }),
 });

@@ -305,6 +305,19 @@ if (!global._appDb) {
       uploaded_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS zod_schemas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      version TEXT NOT NULL,
+      model_name TEXT NOT NULL,
+      fs_path TEXT NOT NULL,
+      schema_count INTEGER NOT NULL DEFAULT 0,
+      enum_count INTEGER NOT NULL DEFAULT 0,
+      field_count INTEGER NOT NULL DEFAULT 0,
+      generated_at TEXT NOT NULL,
+      UNIQUE(project_id, version, model_name)
+    );
+
     CREATE TABLE IF NOT EXISTS migration_sessions (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

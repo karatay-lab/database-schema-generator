@@ -400,7 +400,6 @@ export function RelationsPageContent() {
         projectName, version,
         modelKey: selectedModelKey, modelName: selectedModelName,
         name: draft.fields.trim(),
-        dbName: fkFieldDbName.trim() || undefined,
         type: fkFieldType,
         nullable: draft.nullable,
         unique: false,
