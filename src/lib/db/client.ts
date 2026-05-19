@@ -226,6 +226,7 @@ if (!global._appDb) {
       native_attribute TEXT,
       updated_at_attribute INTEGER NOT NULL DEFAULT 0,
       is_id INTEGER NOT NULL DEFAULT 0,
+      provider TEXT NOT NULL DEFAULT 'All',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -424,6 +425,14 @@ if (!global._appDb) {
       "  last_used_at TEXT NOT NULL" +
       ");"
     );
+  }
+
+  // One-time schema upgrade: add provider to field_templates (default 'All' for existing rows).
+  const fieldTemplateCols = sqlite
+    .prepare("PRAGMA table_info(field_templates)")
+    .all() as { name: string }[];
+  if (!fieldTemplateCols.some((c) => c.name === "provider")) {
+    sqlite.exec("ALTER TABLE field_templates ADD COLUMN provider TEXT NOT NULL DEFAULT 'All';");
   }
 
   seedFieldTemplates(sqlite);
