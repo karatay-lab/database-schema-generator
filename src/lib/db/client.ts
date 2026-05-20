@@ -574,6 +574,16 @@ db.exec(`
     updated_at TEXT NOT NULL,
     UNIQUE(project_id, from_version, to_version, connection_id)
   );
+
+  CREATE TABLE IF NOT EXISTS schema_exports (
+    id TEXT PRIMARY KEY,
+    project_name TEXT NOT NULL,
+    version TEXT NOT NULL,
+    export_type TEXT NOT NULL,
+    file_name TEXT NOT NULL,
+    exported_at TEXT NOT NULL,
+    is_downloaded INTEGER NOT NULL DEFAULT 0
+  );
 `);
 
 // One-time column upgrades for tables that pre-date these columns.
@@ -611,5 +621,10 @@ db.exec(`
       }
     }
     db.exec("UPDATE schema_tables SET table_id = model_key WHERE table_id = '';");
+  }
+
+  const exportCols = db.prepare("PRAGMA table_info(schema_exports)").all() as { name: string }[];
+  if (exportCols.length > 0 && !exportCols.some((c) => c.name === "is_downloaded")) {
+    db.exec("ALTER TABLE schema_exports ADD COLUMN is_downloaded INTEGER NOT NULL DEFAULT 0;");
   }
 }
