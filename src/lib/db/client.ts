@@ -458,6 +458,30 @@ if (!global._appDb) {
   if (zodSchemaCols.length > 0 && !zodSchemaCols.some((c) => c.name === "selected_field_keys")) {
     sqlite.exec("ALTER TABLE zod_schemas ADD COLUMN selected_field_keys TEXT;");
   }
+  if (zodSchemaCols.length > 0 && !zodSchemaCols.some((c) => c.name === "code")) {
+    sqlite.exec("ALTER TABLE zod_schemas ADD COLUMN code TEXT NOT NULL DEFAULT '';");
+    // One-time backfill: read previously-written .ts files from disk into the new column
+    const staleRows = sqlite
+      .prepare("SELECT id, fs_path FROM zod_schemas WHERE code = '' AND fs_path IS NOT NULL AND fs_path != ''")
+      .all() as { id: number; fs_path: string }[];
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { existsSync: fsExists, readFileSync } = require("node:fs") as typeof import("node:fs");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const nodePath = require("node:path") as typeof import("node:path");
+    for (const row of staleRows) {
+      try {
+        const abs = nodePath.join(process.cwd(), row.fs_path);
+        if (fsExists(abs)) {
+          const fileCode = readFileSync(abs, "utf8");
+          sqlite.prepare("UPDATE zod_schemas SET code = ? WHERE id = ?").run(fileCode, row.id);
+        }
+      } catch { /* skip — user can regenerate */ }
+    }
+  }
+  if (zodSchemaCols.length > 0 && !zodSchemaCols.some((c) => c.name === "schema_name")) {
+    sqlite.exec("ALTER TABLE zod_schemas ADD COLUMN schema_name TEXT;");
+    sqlite.exec("UPDATE zod_schemas SET schema_name = model_name WHERE schema_name IS NULL;");
+  }
 
   seedFieldTemplates(sqlite);
   global._appDb = sqlite;

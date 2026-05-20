@@ -1,12 +1,6 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { getSchemaStore } from "@/lib/schema-store";
-import { registerFsPath } from "@/lib/db/fs-paths";
 import { upsertZodSchema } from "@/lib/db/zod-schemas";
 import { db } from "@/lib/db/client";
-
-const databaseDirectory = path.join(process.cwd(), "src/database");
-const zodDirectory = path.join(databaseDirectory, "zod");
 
 export type ZodGeneratorInput = {
   projectName: string;
@@ -18,30 +12,10 @@ export type ZodGeneratorInput = {
 
 export type ZodGeneratorOutput = {
   code: string;
-  filePath: string;
   schemaCount: number;
   enumCount: number;
   warnings: string[];
 };
-
-function toSchemaFilePart(value: string) {
-  return (
-    value
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9._-]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "untitled"
-  );
-}
-
-function getZodFilePath(projectName: string, version: string, tableName: string) {
-  return path.join(
-    zodDirectory,
-    toSchemaFilePart(projectName),
-    toSchemaFilePart(version),
-    `${toSchemaFilePart(tableName)}.ts`,
-  );
-}
 
 function logicalToZodType(
   logicalType: string,
@@ -234,22 +208,13 @@ export async function generateZodSchema(
   lines.push(`export type ${primaryInterfaceName} = z.infer<typeof ${primarySchemaName}>;`);
 
   const code = lines.join("\n");
-  const filePath = getZodFilePath(
-    input.projectName,
-    input.version,
-    model.name,
-  );
-
-  await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, code, "utf8");
   const pidRow = db.prepare("SELECT id FROM projects WHERE name = ?").get(input.projectName) as { id: string } | undefined;
   if (pidRow) {
-    registerFsPath({ projectId: pidRow.id, version: input.version, fileType: "zod_file", label: model.name, fsPath: filePath });
     upsertZodSchema({
       projectId: pidRow.id,
       version: input.version,
       modelName: model.name,
-      fsPath: filePath,
+      code,
       schemaCount: nestedEntries.length + 1,
       enumCount: enumEntries.length,
       fieldCount: selectedCanonicalFields.length,
@@ -259,7 +224,6 @@ export async function generateZodSchema(
 
   return {
     code,
-    filePath: path.relative(process.cwd(), filePath),
     schemaCount: nestedEntries.length + 1,
     enumCount: enumEntries.length,
     warnings: [],

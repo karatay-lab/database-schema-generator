@@ -7,7 +7,7 @@ import { useTRPC } from "@/trpc/client";
 import { classNames } from "../shared/dashboard-data";
 import { fieldTypeBadgeClass } from "@/lib/badge-utils";
 import { useProjectInfo } from "../shared/project-info-context";
-import { IconCheck, IconCopy, IconEye, IconFolderOpen, IconPencil } from "@tabler/icons-react";
+import { IconCheck, IconCopy, IconEye, IconPencil, IconSettings2 } from "@tabler/icons-react";
 import type { PrismaField, PrismaModel } from "@/lib/schema-store";
 import type { GenerateResponse } from "@/types/validation";
 
@@ -114,7 +114,6 @@ export function ValidationPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const generatorRef = useRef<HTMLElement>(null);
-  const folderInputRef = useRef<HTMLInputElement>(null);
   const [pendingFieldKeys, setPendingFieldKeys] = useState<string[] | null>(null);
 
   const [selectedModelName, setSelectedModelName] = useState(
@@ -165,8 +164,9 @@ export function ValidationPageContent() {
 
   const [viewingModel, setViewingModel] = useState<string | null>(null);
   const [copiedRowPath, setCopiedRowPath] = useState<string | null>(null);
-  const [editingPathId, setEditingPathId] = useState<number | null>(null);
-  const [editingPathValue, setEditingPathValue] = useState("");
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingName, setEditingName] = useState("");
+  const [editingPath, setEditingPath] = useState("");
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [clearConfirmInput, setClearConfirmInput] = useState("");
 
@@ -265,7 +265,7 @@ export function ValidationPageContent() {
   useEffect(() => {
     if (!readFileQuery.data || !viewingModel) return;
     const schema = zodSchemas.find((s) => s.modelName === viewingModel);
-    const displayPath = (schema ? (resolvedPath(schema) ?? schema.relativePath) : null) ?? (viewingModel ?? "");
+    const displayPath = resolvedPath(schema ?? { modelName: viewingModel, targetPath: null }) ?? `${viewingModel.toLowerCase()}.ts`;
     setDialogCode(readFileQuery.data.code);
     setDialogFilePath(displayPath);
     setDialogSchemaCount(schema?.schemaCount ?? 0);
@@ -275,13 +275,12 @@ export function ValidationPageContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readFileQuery.data]);
 
-  function resolvedPath(schema: { modelName: string; relativePath: string; targetPath: string | null }) {
-    const filename = schema.relativePath.split("/").pop() ?? `${schema.modelName.toLowerCase()}.ts`;
+  function resolvedPath(schema: { modelName: string; targetPath: string | null }) {
     const base = schema.targetPath?.trim().replace(/\/+$/, "");
-    return base ? `${base}/${filename}` : null;
+    return base ? `${base}/${schema.modelName.toLowerCase()}.ts` : null;
   }
 
-  const handleCopyRowPath = async (schema: { modelName: string; relativePath: string; targetPath: string | null }) => {
+  const handleCopyRowPath = async (schema: { modelName: string; targetPath: string | null }) => {
     const text = resolvedPath(schema);
     if (!text) return;
     try {
@@ -295,24 +294,8 @@ export function ValidationPageContent() {
       document.execCommand("copy");
       document.body.removeChild(ta);
     }
-    setCopiedRowPath(schema.relativePath);
+    setCopiedRowPath(schema.modelName);
     setTimeout(() => setCopiedRowPath(null), 1500);
-  };
-
-  const handleFolderSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    const folderName = files[0].webkitRelativePath.split("/")[0];
-    setEditingPathValue((prev) => {
-      // If user already has a typed path, replace only the last segment
-      const trimmed = prev.trim().replace(/\/+$/, "");
-      if (trimmed && !trimmed.endsWith(folderName)) {
-        // Append the folder name — user may have typed a parent already
-        return `${trimmed}/${folderName}`;
-      }
-      return folderName;
-    });
-    e.target.value = "";
   };
 
   const handleEditSchema = (schema: { modelName: string; selectedFieldKeys: string[] }) => {
@@ -360,8 +343,13 @@ export function ValidationPageContent() {
     ...trpc.schema.setZodFilePath.mutationOptions(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: trpc.schema.listZodFiles.queryKey({ projectName, version }) });
-      setEditingPathId(null);
-      setEditingPathValue("");
+    },
+  });
+
+  const renameMutation = useMutation({
+    ...trpc.schema.renameZodSchema.mutationOptions(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: trpc.schema.listZodFiles.queryKey({ projectName, version }) });
     },
   });
 
@@ -379,7 +367,7 @@ export function ValidationPageContent() {
     onSuccess: (data) => {
       const d = data as GenerateResponse | undefined;
       setDialogCode(d?.code ?? "");
-      setDialogFilePath(d?.filePath ?? "");
+      setDialogFilePath("");
       setDialogSchemaCount(d?.schemaCount ?? 0);
       setDialogEnumCount(d?.enumCount ?? 0);
       setDialogWarnings(d?.warnings ?? []);
@@ -477,32 +465,26 @@ export function ValidationPageContent() {
               </p>
             </div>
           ) : (
-            <>
-            <input
-              ref={folderInputRef}
-              type="file"
-              // @ts-expect-error webkitdirectory is not in React's types
-              webkitdirectory=""
-              className="hidden"
-              onChange={handleFolderSelect}
-            />
-
             <div className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
               {zodSchemas.map((schema) => {
                 const fullPath = resolvedPath(schema);
-                const isCopied = copiedRowPath === schema.relativePath;
+                const isCopied = copiedRowPath === schema.modelName;
                 const isViewing = viewingModel === schema.modelName && readFileQuery.isFetching;
-                const isEditingPath = editingPathId === schema.id;
+                const isEditing = editingId === schema.id;
 
                 return (
                   <div key={schema.id} className="px-4 py-3 space-y-2">
-                    {/* Row header */}
                     <div className="flex items-center gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-semibold text-slate-950">
-                            {schema.modelName}
+                            {schema.schemaName}
                           </span>
+                          {schema.schemaName !== schema.modelName && (
+                            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-500">
+                              {schema.modelName}
+                            </span>
+                          )}
                           <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
                             v{schema.generatedAt.slice(0, 10)}
                           </span>
@@ -513,14 +495,13 @@ export function ValidationPageContent() {
                             </span>
                           )}
                         </div>
-                        {/* Target path display */}
                         {fullPath ? (
                           <p className="mt-0.5 truncate text-xs font-medium text-slate-500" title={fullPath}>
                             {fullPath}
                           </p>
                         ) : (
                           <p className="mt-0.5 text-xs font-medium text-slate-400 italic">
-                            No project path set — click 📂 to set
+                            No project path set — click ⚙ to set
                           </p>
                         )}
                       </div>
@@ -530,7 +511,7 @@ export function ValidationPageContent() {
                           type="button"
                           onClick={() => handleCopyRowPath(schema)}
                           disabled={!fullPath}
-                          title={fullPath ? "Copy path" : "Set a project path first"}
+                          title={fullPath ? "Copy resolved path" : "Set a project path first"}
                           className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           {isCopied ? (
@@ -550,7 +531,7 @@ export function ValidationPageContent() {
                         </button>
                         <button
                           type="button"
-                          title="Edit this schema"
+                          title="Re-generate this schema"
                           onClick={() => handleEditSchema(schema)}
                           className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
                         >
@@ -558,69 +539,85 @@ export function ValidationPageContent() {
                         </button>
                         <button
                           type="button"
-                          title="Set project path"
+                          title="Schema settings"
                           onClick={() => {
-                            setEditingPathId(schema.id);
-                            setEditingPathValue(schema.targetPath ?? "");
+                            if (isEditing) {
+                              setEditingId(null);
+                            } else {
+                              setEditingId(schema.id);
+                              setEditingName(schema.schemaName);
+                              setEditingPath(schema.targetPath ?? "");
+                            }
                           }}
                           className={classNames(
                             "flex h-7 w-7 items-center justify-center rounded border bg-white transition",
-                            schema.targetPath
-                              ? "border-emerald-200 text-emerald-600 hover:bg-emerald-50"
+                            isEditing || schema.targetPath
+                              ? "border-amber-300 text-amber-600 hover:bg-amber-50"
                               : "border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700",
                           )}
                         >
-                          <IconFolderOpen size={14} stroke={2} />
+                          <IconSettings2 size={14} stroke={2} />
                         </button>
                       </div>
                     </div>
 
-                    {/* Inline path picker */}
-                    {isEditingPath && (
-                      <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-3 space-y-2">
-                        <p className="text-xs font-semibold text-slate-600">
-                          Where is this schema used in your project?
-                        </p>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => folderInputRef.current?.click()}
-                            className="flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                          >
-                            <IconFolderOpen size={13} stroke={2} />
-                            Browse folder
-                          </button>
-                          <input
-                            autoFocus
-                            type="text"
-                            value={editingPathValue}
-                            onChange={(e) => setEditingPathValue(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") setPathMutation.mutate({ id: schema.id, targetPath: editingPathValue.trim() || null });
-                              if (e.key === "Escape") { setEditingPathId(null); setEditingPathValue(""); }
-                            }}
-                            placeholder="/home/user/myapp/src/validators"
-                            className="h-9 flex-1 rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-amber-500"
-                          />
+                    {isEditing && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50/30 p-3 space-y-3">
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                              Schema label
+                            </label>
+                            <input
+                              autoFocus
+                              type="text"
+                              value={editingName}
+                              onChange={(e) => setEditingName(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === "Escape") setEditingId(null); }}
+                              placeholder={schema.modelName}
+                              className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-amber-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                              Path in your project
+                            </label>
+                            <input
+                              type="text"
+                              value={editingPath}
+                              onChange={(e) => setEditingPath(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === "Escape") setEditingId(null); }}
+                              placeholder="/home/user/myapp/src/validators"
+                              className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-amber-500"
+                            />
+                          </div>
                         </div>
-                        <p className="text-[11px] text-slate-400">
-                          Browse selects the folder name · type the full path for precision
-                        </p>
-                        <div className="flex items-center justify-end gap-2 pt-0.5">
+                        {editingPath.trim() && (
+                          <p className="text-[11px] text-slate-500">
+                            Resolves to: <span className="font-medium text-slate-700">{editingPath.trim().replace(/\/+$/, "")}/{schema.modelName.toLowerCase()}.ts</span>
+                          </p>
+                        )}
+                        <div className="flex items-center justify-end gap-2">
                           <button
                             type="button"
-                            onClick={() => { setEditingPathId(null); setEditingPathValue(""); }}
+                            onClick={() => setEditingId(null)}
                             className="h-8 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
                           >
                             Cancel
                           </button>
                           <button
                             type="button"
-                            onClick={() => setPathMutation.mutate({ id: schema.id, targetPath: editingPathValue.trim() || null })}
-                            disabled={setPathMutation.isPending}
+                            onClick={() => {
+                              const name = editingName.trim() || schema.modelName;
+                              const targetPath = editingPath.trim() || null;
+                              if (name !== schema.schemaName) renameMutation.mutate({ id: schema.id, schemaName: name });
+                              if (targetPath !== schema.targetPath) setPathMutation.mutate({ id: schema.id, targetPath });
+                              setEditingId(null);
+                            }}
+                            disabled={setPathMutation.isPending || renameMutation.isPending}
                             className="h-8 rounded-md bg-amber-600 px-4 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:opacity-60"
                           >
-                            {setPathMutation.isPending ? "Saving..." : "Save path"}
+                            Save
                           </button>
                         </div>
                       </div>
@@ -629,7 +626,6 @@ export function ValidationPageContent() {
                 );
               })}
             </div>
-            </>
           )}
         </div>
       </section>
@@ -647,7 +643,7 @@ export function ValidationPageContent() {
             </div>
             <div className="px-5 py-4 space-y-3">
               <p className="text-sm text-slate-600">
-                This will permanently delete all <span className="font-semibold">{zodSchemas.length} Zod schema {zodSchemas.length === 1 ? "file" : "files"}</span> from disk for version <span className="font-semibold">{version}</span>. This cannot be undone.
+                This will permanently remove all <span className="font-semibold">{zodSchemas.length} Zod schema{zodSchemas.length !== 1 ? "s" : ""}</span> for version <span className="font-semibold">{version}</span> from the database. This cannot be undone.
               </p>
               <p className="text-sm text-slate-600">
                 To confirm, type the project name: <span className="font-mono font-semibold text-slate-950">{projectName}</span>
@@ -680,7 +676,7 @@ export function ValidationPageContent() {
                 disabled={clearConfirmInput !== projectName || clearMutation.isPending}
                 className="h-9 rounded-md bg-rose-600 px-5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
-                {clearMutation.isPending ? "Deleting..." : "Delete All Files"}
+                {clearMutation.isPending ? "Removing..." : "Remove All"}
               </button>
             </div>
           </div>

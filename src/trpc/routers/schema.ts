@@ -4,7 +4,7 @@ import { z } from "zod";
 import { getSchemaStats, testPrismaSchema } from "@/lib/schema-store";
 import { listSchemaImports } from "@/lib/schema-imports-store";
 import { generateZodSchema } from "@/lib/schema-validation/generator";
-import { listZodSchemas, readZodSchemaFile, updateZodSchemaTargetPath, deleteAllZodSchemas } from "@/lib/db/zod-schemas";
+import { listZodSchemas, readZodSchema, updateZodSchemaTargetPath, updateZodSchemaName, deleteAllZodSchemas } from "@/lib/db/zod-schemas";
 import { db } from "@/lib/db/client";
 import { baseProcedure, createTRPCRouter } from "../init";
 
@@ -79,19 +79,19 @@ export const schemaRouter = createTRPCRouter({
 
   readZodFile: baseProcedure
     .input(z.object({ projectName: z.string(), version: z.string(), modelName: z.string() }))
-    .query(async ({ input }) => {
+    .query(({ input }) => {
       try {
         const project = db
           .prepare("SELECT id FROM projects WHERE name = ?")
           .get(input.projectName) as { id: string } | undefined;
         if (!project) throw new Error("Project not found.");
-        return await readZodSchemaFile({
+        return readZodSchema({
           projectId: project.id,
           version: input.version,
           modelName: input.modelName,
         });
       } catch (err) {
-        trpcError(err, "Could not read schema file.");
+        trpcError(err, "Could not read schema.");
       }
     }),
 
@@ -102,6 +102,16 @@ export const schemaRouter = createTRPCRouter({
         updateZodSchemaTargetPath({ id: input.id, targetPath: input.targetPath });
       } catch (err) {
         trpcError(err, "Could not update target path.");
+      }
+    }),
+
+  renameZodSchema: baseProcedure
+    .input(z.object({ id: z.number(), schemaName: z.string().min(1) }))
+    .mutation(({ input }) => {
+      try {
+        updateZodSchemaName({ id: input.id, schemaName: input.schemaName });
+      } catch (err) {
+        trpcError(err, "Could not rename schema.");
       }
     }),
 
