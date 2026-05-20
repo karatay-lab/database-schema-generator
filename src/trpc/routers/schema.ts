@@ -48,6 +48,7 @@ export const schemaRouter = createTRPCRouter({
         modelKey: z.string().optional(),
         selectedFieldKeys: z.array(z.string()).min(1, "At least one field must be selected."),
         schemaId: z.number().optional(),
+        defaultPath: z.string().optional(),
       })
     )
     .mutation(async ({ input }) => {
@@ -59,6 +60,7 @@ export const schemaRouter = createTRPCRouter({
           modelKey: input.modelKey ?? "",
           selectedFieldKeys: input.selectedFieldKeys,
           schemaId: input.schemaId,
+          defaultPath: input.defaultPath,
         });
       } catch (err) {
         trpcError(err, "Zod schema generation failed.");

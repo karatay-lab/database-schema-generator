@@ -28,6 +28,7 @@ export function upsertZodSchema(opts: {
   fieldCount: number;
   selectedFieldKeys: string[];
   schemaId?: number;
+  defaultPath?: string;
 }) {
   const now = new Date().toISOString();
 
@@ -55,10 +56,11 @@ export function upsertZodSchema(opts: {
       .get(opts.projectId, opts.version, opts.modelName) as { cnt: number };
     const shortId = randomUUID().slice(0, 8);
     const schemaName = existing.cnt > 0 ? `${opts.modelName}-${shortId}` : opts.modelName;
+    const targetPath = opts.defaultPath?.trim().replace(/\/+$/, "") || null;
     db.prepare(`
       INSERT INTO zod_schemas
-        (project_id, version, model_name, fs_path, code, schema_count, enum_count, field_count, selected_field_keys, schema_name, generated_at)
-      VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?)
+        (project_id, version, model_name, fs_path, code, schema_count, enum_count, field_count, selected_field_keys, schema_name, target_path, generated_at)
+      VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       opts.projectId,
       opts.version,
@@ -69,6 +71,7 @@ export function upsertZodSchema(opts: {
       opts.fieldCount,
       JSON.stringify(opts.selectedFieldKeys),
       schemaName,
+      targetPath,
       now,
     );
   }
