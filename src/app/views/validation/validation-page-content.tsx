@@ -273,7 +273,7 @@ export function ValidationPageContent() {
     if (!readFileQuery.data || viewingSchemaId === null) return;
     const schema = zodSchemas.find((s) => s.id === viewingSchemaId);
     const displayPath = schema
-      ? (resolvedPath(schema) ?? `${schema.modelName.toLowerCase()}.ts`)
+      ? (resolvedPath(schema) ?? `${schema.schemaName.toLowerCase()}.ts`)
       : "schema.ts";
     setDialogCode(readFileQuery.data.code);
     setDialogFilePath(displayPath);
@@ -284,9 +284,10 @@ export function ValidationPageContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readFileQuery.data]);
 
-  function resolvedPath(schema: { modelName: string; targetPath: string | null }) {
+  function resolvedPath(schema: { schemaName?: string; modelName: string; targetPath: string | null }) {
     const base = schema.targetPath?.trim().replace(/\/+$/, "");
-    return base ? `${base}/${schema.modelName.toLowerCase()}.ts` : null;
+    const filename = (schema.schemaName ?? schema.modelName).toLowerCase().replace(/\s+/g, "-");
+    return base ? `${base}/${filename}.ts` : null;
   }
 
   const handleCopyRowPath = async (schema: { modelName: string; targetPath: string | null }) => {
@@ -641,7 +642,7 @@ export function ValidationPageContent() {
                         </div>
                         {editingPath.trim() && (
                           <p className="text-[11px] text-slate-500">
-                            Resolves to: <span className="font-medium text-slate-700">{editingPath.trim().replace(/\/+$/, "")}/{schema.modelName.toLowerCase()}.ts</span>
+                            Resolves to: <span className="font-medium text-slate-700">{editingPath.trim().replace(/\/+$/, "")}/{(editingName.trim() || schema.schemaName).toLowerCase().replace(/\s+/g, "-")}.ts</span>
                           </p>
                         )}
                         <div className="flex items-center justify-end gap-2">
