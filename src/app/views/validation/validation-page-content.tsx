@@ -993,7 +993,7 @@ export function ValidationPageContent() {
                   }
                   className="h-10 min-w-36 rounded-md bg-amber-600 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
-                  {generateMutation.isPending ? "Generating..." : "Convert"}
+                  {generateMutation.isPending ? "Generating..." : "Generate Schema"}
                 </button>
               </div>
             </div>
