@@ -114,6 +114,7 @@ export function ValidationPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const generatorRef = useRef<HTMLElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const [pendingFieldKeys, setPendingFieldKeys] = useState<string[] | null>(null);
 
   const [selectedModelName, setSelectedModelName] = useState(
@@ -264,7 +265,7 @@ export function ValidationPageContent() {
   useEffect(() => {
     if (!readFileQuery.data || !viewingModel) return;
     const schema = zodSchemas.find((s) => s.modelName === viewingModel);
-    const displayPath = schema ? resolvedPath(schema) : (viewingModel ?? "");
+    const displayPath = (schema ? (resolvedPath(schema) ?? schema.relativePath) : null) ?? (viewingModel ?? "");
     setDialogCode(readFileQuery.data.code);
     setDialogFilePath(displayPath);
     setDialogSchemaCount(schema?.schemaCount ?? 0);
@@ -277,11 +278,12 @@ export function ValidationPageContent() {
   function resolvedPath(schema: { modelName: string; relativePath: string; targetPath: string | null }) {
     const filename = schema.relativePath.split("/").pop() ?? `${schema.modelName.toLowerCase()}.ts`;
     const base = schema.targetPath?.trim().replace(/\/+$/, "");
-    return base ? `${base}/${filename}` : schema.relativePath;
+    return base ? `${base}/${filename}` : null;
   }
 
   const handleCopyRowPath = async (schema: { modelName: string; relativePath: string; targetPath: string | null }) => {
     const text = resolvedPath(schema);
+    if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
     } catch {
@@ -295,6 +297,22 @@ export function ValidationPageContent() {
     }
     setCopiedRowPath(schema.relativePath);
     setTimeout(() => setCopiedRowPath(null), 1500);
+  };
+
+  const handleFolderSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const folderName = files[0].webkitRelativePath.split("/")[0];
+    setEditingPathValue((prev) => {
+      // If user already has a typed path, replace only the last segment
+      const trimmed = prev.trim().replace(/\/+$/, "");
+      if (trimmed && !trimmed.endsWith(folderName)) {
+        // Append the folder name — user may have typed a parent already
+        return `${trimmed}/${folderName}`;
+      }
+      return folderName;
+    });
+    e.target.value = "";
   };
 
   const handleEditSchema = (schema: { modelName: string; selectedFieldKeys: string[] }) => {
@@ -459,15 +477,26 @@ export function ValidationPageContent() {
               </p>
             </div>
           ) : (
+            <>
+            <input
+              ref={folderInputRef}
+              type="file"
+              // @ts-expect-error webkitdirectory is not in React's types
+              webkitdirectory=""
+              className="hidden"
+              onChange={handleFolderSelect}
+            />
+
             <div className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
               {zodSchemas.map((schema) => {
-                const display = resolvedPath(schema);
+                const fullPath = resolvedPath(schema);
                 const isCopied = copiedRowPath === schema.relativePath;
                 const isViewing = viewingModel === schema.modelName && readFileQuery.isFetching;
                 const isEditingPath = editingPathId === schema.id;
 
                 return (
                   <div key={schema.id} className="px-4 py-3 space-y-2">
+                    {/* Row header */}
                     <div className="flex items-center gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
@@ -484,16 +513,25 @@ export function ValidationPageContent() {
                             </span>
                           )}
                         </div>
-                        <p className="mt-0.5 truncate text-xs font-medium text-slate-500" title={display}>
-                          {display}
-                        </p>
+                        {/* Target path display */}
+                        {fullPath ? (
+                          <p className="mt-0.5 truncate text-xs font-medium text-slate-500" title={fullPath}>
+                            {fullPath}
+                          </p>
+                        ) : (
+                          <p className="mt-0.5 text-xs font-medium text-slate-400 italic">
+                            No project path set — click 📂 to set
+                          </p>
+                        )}
                       </div>
+
                       <div className="flex shrink-0 items-center gap-1">
                         <button
                           type="button"
                           onClick={() => handleCopyRowPath(schema)}
-                          title="Copy path"
-                          className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                          disabled={!fullPath}
+                          title={fullPath ? "Copy path" : "Set a project path first"}
+                          className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           {isCopied ? (
                             <IconCheck size={14} stroke={2.5} className="text-emerald-600" />
@@ -520,53 +558,78 @@ export function ValidationPageContent() {
                         </button>
                         <button
                           type="button"
-                          title="Set path in your project"
+                          title="Set project path"
                           onClick={() => {
                             setEditingPathId(schema.id);
                             setEditingPathValue(schema.targetPath ?? "");
                           }}
-                          className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                          className={classNames(
+                            "flex h-7 w-7 items-center justify-center rounded border bg-white transition",
+                            schema.targetPath
+                              ? "border-emerald-200 text-emerald-600 hover:bg-emerald-50"
+                              : "border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700",
+                          )}
                         >
                           <IconFolderOpen size={14} stroke={2} />
                         </button>
                       </div>
                     </div>
 
+                    {/* Inline path picker */}
                     {isEditingPath && (
-                      <div className="flex items-center gap-2">
-                        <input
-                          autoFocus
-                          type="text"
-                          value={editingPathValue}
-                          onChange={(e) => setEditingPathValue(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") setPathMutation.mutate({ id: schema.id, targetPath: editingPathValue.trim() || null });
-                            if (e.key === "Escape") { setEditingPathId(null); setEditingPathValue(""); }
-                          }}
-                          placeholder="e.g. /home/user/myapp/src/validators"
-                          className="h-9 flex-1 rounded-md border border-amber-300 bg-white px-3 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-amber-500"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setPathMutation.mutate({ id: schema.id, targetPath: editingPathValue.trim() || null })}
-                          disabled={setPathMutation.isPending}
-                          className="h-9 rounded-md bg-amber-600 px-4 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:opacity-60"
-                        >
-                          Save
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => { setEditingPathId(null); setEditingPathValue(""); }}
-                          className="h-9 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                        >
-                          Cancel
-                        </button>
+                      <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-3 space-y-2">
+                        <p className="text-xs font-semibold text-slate-600">
+                          Where is this schema used in your project?
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => folderInputRef.current?.click()}
+                            className="flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                          >
+                            <IconFolderOpen size={13} stroke={2} />
+                            Browse folder
+                          </button>
+                          <input
+                            autoFocus
+                            type="text"
+                            value={editingPathValue}
+                            onChange={(e) => setEditingPathValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") setPathMutation.mutate({ id: schema.id, targetPath: editingPathValue.trim() || null });
+                              if (e.key === "Escape") { setEditingPathId(null); setEditingPathValue(""); }
+                            }}
+                            placeholder="/home/user/myapp/src/validators"
+                            className="h-9 flex-1 rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-amber-500"
+                          />
+                        </div>
+                        <p className="text-[11px] text-slate-400">
+                          Browse selects the folder name · type the full path for precision
+                        </p>
+                        <div className="flex items-center justify-end gap-2 pt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => { setEditingPathId(null); setEditingPathValue(""); }}
+                            className="h-8 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPathMutation.mutate({ id: schema.id, targetPath: editingPathValue.trim() || null })}
+                            disabled={setPathMutation.isPending}
+                            className="h-8 rounded-md bg-amber-600 px-4 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:opacity-60"
+                          >
+                            {setPathMutation.isPending ? "Saving..." : "Save path"}
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
                 );
               })}
             </div>
+            </>
           )}
         </div>
       </section>

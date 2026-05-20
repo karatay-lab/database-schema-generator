@@ -30,9 +30,16 @@ export function upsertZodSchema(opts: {
 }) {
   const rel = path.relative(process.cwd(), opts.fsPath);
   db.prepare(`
-    INSERT OR REPLACE INTO zod_schemas
+    INSERT INTO zod_schemas
       (project_id, version, model_name, fs_path, schema_count, enum_count, field_count, selected_field_keys, generated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(project_id, version, model_name) DO UPDATE SET
+      fs_path = excluded.fs_path,
+      schema_count = excluded.schema_count,
+      enum_count = excluded.enum_count,
+      field_count = excluded.field_count,
+      selected_field_keys = excluded.selected_field_keys,
+      generated_at = excluded.generated_at
   `).run(
     opts.projectId,
     opts.version,
