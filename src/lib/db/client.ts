@@ -305,6 +305,19 @@ if (!global._appDb) {
       uploaded_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS zod_schemas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      version TEXT NOT NULL,
+      model_name TEXT NOT NULL,
+      fs_path TEXT NOT NULL,
+      schema_count INTEGER NOT NULL DEFAULT 0,
+      enum_count INTEGER NOT NULL DEFAULT 0,
+      field_count INTEGER NOT NULL DEFAULT 0,
+      generated_at TEXT NOT NULL,
+      UNIQUE(project_id, version, model_name)
+    );
+
     CREATE TABLE IF NOT EXISTS migration_sessions (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -433,6 +446,77 @@ if (!global._appDb) {
     .all() as { name: string }[];
   if (!fieldTemplateCols.some((c) => c.name === "provider")) {
     sqlite.exec("ALTER TABLE field_templates ADD COLUMN provider TEXT NOT NULL DEFAULT 'All';");
+  }
+
+  // One-time schema upgrade: add target_path and selected_field_keys to zod_schemas.
+  const zodSchemaCols = sqlite
+    .prepare("PRAGMA table_info(zod_schemas)")
+    .all() as { name: string }[];
+  if (zodSchemaCols.length > 0 && !zodSchemaCols.some((c) => c.name === "target_path")) {
+    sqlite.exec("ALTER TABLE zod_schemas ADD COLUMN target_path TEXT;");
+  }
+  if (zodSchemaCols.length > 0 && !zodSchemaCols.some((c) => c.name === "selected_field_keys")) {
+    sqlite.exec("ALTER TABLE zod_schemas ADD COLUMN selected_field_keys TEXT;");
+  }
+  if (zodSchemaCols.length > 0 && !zodSchemaCols.some((c) => c.name === "code")) {
+    sqlite.exec("ALTER TABLE zod_schemas ADD COLUMN code TEXT NOT NULL DEFAULT '';");
+    // One-time backfill: read previously-written .ts files from disk into the new column
+    const staleRows = sqlite
+      .prepare("SELECT id, fs_path FROM zod_schemas WHERE code = '' AND fs_path IS NOT NULL AND fs_path != ''")
+      .all() as { id: number; fs_path: string }[];
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { existsSync: fsExists, readFileSync } = require("node:fs") as typeof import("node:fs");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const nodePath = require("node:path") as typeof import("node:path");
+    for (const row of staleRows) {
+      try {
+        const abs = nodePath.join(process.cwd(), row.fs_path);
+        if (fsExists(abs)) {
+          const fileCode = readFileSync(abs, "utf8");
+          sqlite.prepare("UPDATE zod_schemas SET code = ? WHERE id = ?").run(fileCode, row.id);
+        }
+      } catch { /* skip — user can regenerate */ }
+    }
+  }
+  if (zodSchemaCols.length > 0 && !zodSchemaCols.some((c) => c.name === "schema_name")) {
+    sqlite.exec("ALTER TABLE zod_schemas ADD COLUMN schema_name TEXT;");
+    sqlite.exec("UPDATE zod_schemas SET schema_name = model_name WHERE schema_name IS NULL;");
+  }
+  if (zodSchemaCols.length > 0 && !zodSchemaCols.some((c) => c.name === "field_hash")) {
+    sqlite.exec("ALTER TABLE zod_schemas ADD COLUMN field_hash TEXT;");
+  }
+
+  // Drop UNIQUE(project_id, version, model_name) so multiple schemas per model are allowed.
+  const zodTableDef = (sqlite
+    .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='zod_schemas'")
+    .get() as { sql: string } | undefined)?.sql ?? "";
+  if (zodTableDef.includes("UNIQUE(project_id, version, model_name)")) {
+    sqlite.transaction(() => {
+      sqlite.exec(`
+        CREATE TABLE zod_schemas_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          version TEXT NOT NULL,
+          model_name TEXT NOT NULL,
+          fs_path TEXT NOT NULL DEFAULT '',
+          schema_count INTEGER NOT NULL DEFAULT 0,
+          enum_count INTEGER NOT NULL DEFAULT 0,
+          field_count INTEGER NOT NULL DEFAULT 0,
+          generated_at TEXT NOT NULL,
+          target_path TEXT,
+          selected_field_keys TEXT,
+          code TEXT NOT NULL DEFAULT '',
+          schema_name TEXT
+        )
+      `);
+      sqlite.exec(`
+        INSERT INTO zod_schemas_new (id, project_id, version, model_name, fs_path, schema_count, enum_count, field_count, generated_at, target_path, selected_field_keys, code, schema_name)
+        SELECT id, project_id, version, model_name, COALESCE(fs_path,''), schema_count, enum_count, field_count, generated_at, target_path, selected_field_keys, COALESCE(code,''), schema_name
+        FROM zod_schemas
+      `);
+      sqlite.exec("DROP TABLE zod_schemas");
+      sqlite.exec("ALTER TABLE zod_schemas_new RENAME TO zod_schemas");
+    })();
   }
 
   seedFieldTemplates(sqlite);

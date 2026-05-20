@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
 import { classNames } from "../shared/dashboard-data";
 import { fieldTypeBadgeClass } from "@/lib/badge-utils";
 import { useProjectInfo } from "../shared/project-info-context";
+import { IconCheck, IconCopy, IconEye, IconPencil, IconSettings2, IconTrash, IconX } from "@tabler/icons-react";
 import type { PrismaField, PrismaModel } from "@/lib/schema-store";
-import type { GenerateRequest, GenerateResponse } from "@/types/validation";
+import type { GenerateResponse } from "@/types/validation";
 
 function highlightCode(code: string): React.ReactNode {
   const lines = code.split("\n");
@@ -108,8 +110,15 @@ export function ValidationPageContent() {
   const { projectName, version: selectedVersion, hasProject } = useProjectInfo();
   const version = selectedVersion;
   const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const generatorRef = useRef<HTMLElement>(null);
+  const [pendingFieldKeys, setPendingFieldKeys] = useState<string[] | null>(null);
 
-  const [selectedModelName, setSelectedModelName] = useState("");
+  const [selectedModelName, setSelectedModelName] = useState(
+    () => searchParams.get("table") ?? "",
+  );
   const [tableSearch, setTableSearch] = useState("");
   const [isTableSelectorOpen, setIsTableSelectorOpen] = useState(false);
   const [tablePage, setTablePage] = useState(1);
@@ -144,6 +153,8 @@ export function ValidationPageContent() {
   const fields: PrismaField[] = fieldsQuery.data?.fields ?? [];
   const enumTypes: string[] = fieldsQuery.data?.enumTypes ?? [];
 
+  const [selectionHash, setSelectionHash] = useState<string | null>(null);
+  const [dismissedHash, setDismissedHash] = useState<string | null>(null);
   const [generateError, setGenerateError] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogCode, setDialogCode] = useState("");
@@ -151,7 +162,59 @@ export function ValidationPageContent() {
   const [dialogSchemaCount, setDialogSchemaCount] = useState(0);
   const [dialogEnumCount, setDialogEnumCount] = useState(0);
   const [dialogWarnings, setDialogWarnings] = useState<string[]>([]);
+  const [dialogSchemaName, setDialogSchemaName] = useState("");
+  const [dialogModelName, setDialogModelName] = useState("");
+  const [dialogDate, setDialogDate] = useState("");
   const [copied, setCopied] = useState(false);
+
+  const [viewingSchemaId, setViewingSchemaId] = useState<number | null>(null);
+  const [editingSchemaId, setEditingSchemaId] = useState<number | null>(null);
+  const [copiedRowPath, setCopiedRowPath] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingName, setEditingName] = useState("");
+  const [editingPath, setEditingPath] = useState("");
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [clearConfirmInput, setClearConfirmInput] = useState("");
+  const [defaultPath, setDefaultPath] = useState(() =>
+    typeof window !== "undefined" ? (localStorage.getItem("zod-default-path") ?? "") : ""
+  );
+
+  const listZodQuery = useQuery(
+    trpc.schema.listZodFiles.queryOptions(
+      { projectName, version },
+      { enabled: !!projectName && !!version },
+    ),
+  );
+  const zodSchemas = listZodQuery.data ?? [];
+
+  // Respects dismiss — used for banner + row blink
+  const duplicateSchema = useMemo(
+    () =>
+      selectionHash && selectionHash !== dismissedHash && selectedModelName
+        ? zodSchemas.find(
+            (s) => s.fieldHash === selectionHash && s.modelName === selectedModelName && s.id !== editingSchemaId,
+          ) ?? null
+        : null,
+    [selectionHash, dismissedHash, zodSchemas, selectedModelName, editingSchemaId],
+  );
+
+  // Ignores dismiss — used to block Convert regardless of whether banner was closed
+  const hasDuplicate = useMemo(
+    () =>
+      selectionHash && selectedModelName
+        ? zodSchemas.some(
+            (s) => s.fieldHash === selectionHash && s.modelName === selectedModelName && s.id !== editingSchemaId,
+          )
+        : false,
+    [selectionHash, zodSchemas, selectedModelName, editingSchemaId],
+  );
+
+  const readFileQuery = useQuery(
+    trpc.schema.readZodFile.queryOptions(
+      { id: viewingSchemaId ?? 0 },
+      { enabled: viewingSchemaId !== null },
+    ),
+  );
 
   const filteredModels = useMemo(
     () =>
@@ -205,10 +268,97 @@ export function ValidationPageContent() {
     }
   }, [models, selectedModelName]);
 
-  // Reset field selection when model changes
   useEffect(() => {
-    setSelectedFieldKeys(new Set());
-  }, [selectedModelName]);
+    const params = new URLSearchParams(searchParams.toString());
+    if (selectedModelName) {
+      params.set("table", selectedModelName);
+    } else {
+      params.delete("table");
+    }
+    if (params.toString() !== searchParams.toString()) {
+      router.replace(`?${params.toString()}`, { scroll: false });
+    }
+  }, [selectedModelName]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reset field selection and editing context when model changes (unless restoring from edit)
+  useEffect(() => {
+    if (pendingFieldKeys === null) {
+      setSelectedFieldKeys(new Set());
+      setEditingSchemaId(null);
+    }
+  }, [selectedModelName]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Compute SHA-256 of sorted field UUIDs for duplicate detection
+  useEffect(() => {
+    if (selectedFieldKeys.size === 0) { setSelectionHash(null); return; }
+    const sorted = Array.from(selectedFieldKeys).sort().join(",");
+    setDismissedHash(null);
+    crypto.subtle
+      .digest("SHA-256", new TextEncoder().encode(sorted))
+      .then((buf) => {
+        setSelectionHash(Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join(""));
+      });
+  }, [selectedFieldKeys]);
+
+  // Restore field selection after fields load (triggered by Edit button)
+  useEffect(() => {
+    if (!pendingFieldKeys || fieldsQuery.isLoading || fields.length === 0) return;
+    const validKeys = new Set(fields.map((f) => f.key));
+    setSelectedFieldKeys(new Set(pendingFieldKeys.filter((k) => validKeys.has(k))));
+    setPendingFieldKeys(null);
+  }, [fields, fieldsQuery.isLoading, pendingFieldKeys]);
+
+  useEffect(() => {
+    if (!readFileQuery.data || viewingSchemaId === null) return;
+    const schema = zodSchemas.find((s) => s.id === viewingSchemaId);
+    const displayPath = schema
+      ? (resolvedPath(schema) ?? `${schema.schemaName.toLowerCase()}.ts`)
+      : "schema.ts";
+    setDialogCode(readFileQuery.data.code);
+    setDialogFilePath(displayPath);
+    setDialogSchemaCount(schema?.schemaCount ?? 0);
+    setDialogEnumCount(schema?.enumCount ?? 0);
+    setDialogWarnings([]);
+    setDialogSchemaName(schema?.schemaName ?? schema?.modelName ?? "");
+    setDialogModelName(schema?.modelName ?? "");
+    setDialogDate(schema?.generatedAt.slice(0, 10) ?? "");
+    setDialogOpen(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readFileQuery.data]);
+
+  function resolvedPath(schema: { schemaName?: string; modelName: string; targetPath: string | null }) {
+    const base = schema.targetPath?.trim().replace(/\/+$/, "");
+    const filename = (schema.schemaName ?? schema.modelName).toLowerCase().replace(/\s+/g, "-");
+    return base ? `${base}/${filename}.ts` : null;
+  }
+
+  const handleCopyRowPath = async (schema: { modelName: string; targetPath: string | null }) => {
+    const text = resolvedPath(schema);
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.cssText = "position:fixed;opacity:0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    setCopiedRowPath(schema.modelName);
+    setTimeout(() => setCopiedRowPath(null), 1500);
+  };
+
+  const handleEditSchema = (schema: { id: number; modelName: string; selectedFieldKeys: string[] }) => {
+    setPendingFieldKeys(schema.selectedFieldKeys);
+    setSelectedModelName(schema.modelName);
+    setEditingSchemaId(schema.id);
+    setFieldSearch("");
+    setFieldTypeFilter("all");
+    setGenerateError("");
+    setTimeout(() => generatorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  };
 
   const selectModel = (modelName: string) => {
     setSelectedModelName(modelName);
@@ -242,16 +392,55 @@ export function ValidationPageContent() {
     setGenerateError("");
   };
 
+  const setPathMutation = useMutation({
+    ...trpc.schema.setZodFilePath.mutationOptions(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: trpc.schema.listZodFiles.queryKey({ projectName, version }) });
+    },
+  });
+
+  const renameMutation = useMutation({
+    ...trpc.schema.renameZodSchema.mutationOptions(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: trpc.schema.listZodFiles.queryKey({ projectName, version }) });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    ...trpc.schema.deleteZodFile.mutationOptions(),
+    onSuccess: (_, vars) => {
+      queryClient.invalidateQueries({ queryKey: trpc.schema.listZodFiles.queryKey({ projectName, version }) });
+      if (editingSchemaId === vars.id) setEditingSchemaId(null);
+      if (viewingSchemaId === vars.id) setViewingSchemaId(null);
+    },
+  });
+
+  const clearMutation = useMutation({
+    ...trpc.schema.clearZodFiles.mutationOptions(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: trpc.schema.listZodFiles.queryKey({ projectName, version }) });
+      setClearConfirmOpen(false);
+      setClearConfirmInput("");
+    },
+  });
+
   const generateMutation = useMutation({
     ...trpc.schema.generateZod.mutationOptions(),
     onSuccess: (data) => {
       const d = data as GenerateResponse | undefined;
+      const existingSchema = editingSchemaId ? zodSchemas.find((s) => s.id === editingSchemaId) : null;
       setDialogCode(d?.code ?? "");
-      setDialogFilePath(d?.filePath ?? "");
+      setDialogFilePath("");
       setDialogSchemaCount(d?.schemaCount ?? 0);
       setDialogEnumCount(d?.enumCount ?? 0);
       setDialogWarnings(d?.warnings ?? []);
+      setDialogSchemaName(existingSchema?.schemaName ?? selectedModelName);
+      setDialogModelName(selectedModelName);
+      setDialogDate(new Date().toISOString().slice(0, 10));
+      setViewingSchemaId(null);
+      setEditingSchemaId(null);
       setDialogOpen(true);
+      queryClient.invalidateQueries({ queryKey: trpc.schema.listZodFiles.queryKey({ projectName, version }) });
     },
     onError: (err) => setGenerateError(err.message),
   });
@@ -264,6 +453,8 @@ export function ValidationPageContent() {
       modelName: selectedModelName,
       modelKey: selectedModelKey,
       selectedFieldKeys: Array.from(selectedFieldKeys),
+      schemaId: editingSchemaId ?? undefined,
+      defaultPath: editingSchemaId ? undefined : (defaultPath.trim() || undefined),
     });
   };
 
@@ -290,6 +481,7 @@ export function ValidationPageContent() {
   const closeDialog = () => {
     setDialogOpen(false);
     setCopied(false);
+    setViewingSchemaId(null);
   };
 
   if (!hasProject) {
@@ -302,7 +494,291 @@ export function ValidationPageContent() {
 
   return (
     <div className="space-y-5">
-      <section className="rounded-lg border border-slate-200 bg-white shadow-sm min-h-[calc(100vh-140px)]">
+      <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 px-5 py-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-4">
+            <div className="shrink-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Saved Schemas
+              </p>
+              <h3 className="mt-1 text-xl font-semibold text-slate-950">
+                Generated Schemas
+              </h3>
+            </div>
+            <input
+              type="text"
+              value={defaultPath}
+              onChange={(e) => {
+                setDefaultPath(e.target.value);
+                localStorage.setItem("zod-default-path", e.target.value);
+              }}
+              placeholder="Default project path (e.g. /home/user/myapp/src/validators)"
+              className="h-10 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-amber-500"
+            />
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700">
+                {selectedModelName
+                  ? `${zodSchemas.filter((s) => s.modelName === selectedModelName).length} of ${zodSchemas.length}`
+                  : `${zodSchemas.length} ${zodSchemas.length === 1 ? "schema" : "schemas"}`}
+              </span>
+              {zodSchemas.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => { setClearConfirmOpen(true); setClearConfirmInput(""); }}
+                  className="h-9 rounded-md border border-rose-200 bg-white px-4 text-xs font-semibold text-rose-600 transition hover:bg-rose-50"
+                >
+                  Clear All
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-3">
+          {listZodQuery.isLoading ? (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-6 text-center text-sm font-medium text-slate-500">
+              Loading...
+            </div>
+          ) : zodSchemas.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
+              <p className="text-sm font-medium text-slate-500">
+                No schemas generated yet for this version.
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+              {zodSchemas.filter((s) => !selectedModelName || s.modelName === selectedModelName).map((schema) => {
+                const fullPath = resolvedPath(schema);
+                const isCopied = copiedRowPath === schema.modelName;
+                const isViewing = viewingSchemaId === schema.id && readFileQuery.isFetching;
+                const isEditing = editingId === schema.id;
+                const isBeingEdited = editingSchemaId === schema.id;
+                const isDuplicate = duplicateSchema?.id === schema.id;
+
+                return (
+                  <div key={schema.id} className={classNames("px-4 py-3 space-y-2 transition-colors", isBeingEdited ? "bg-amber-50/50" : "", isDuplicate ? "animate-pulse bg-amber-50" : "")}>
+                    <div className="flex items-center gap-3">
+                      <div className="min-w-0 flex-1 flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-slate-950 shrink-0">
+                          {schema.schemaName}
+                        </span>
+                        {isBeingEdited && (
+                          <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-700">
+                            editing
+                          </span>
+                        )}
+                        {schema.schemaName !== schema.modelName && (
+                          <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-500">
+                            {schema.modelName}
+                          </span>
+                        )}
+                        <span className="shrink-0 rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                          v{schema.generatedAt.slice(0, 10)}
+                        </span>
+                        {schema.schemaCount > 0 && (
+                          <span className="shrink-0 rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">
+                            {schema.schemaCount} schema{schema.schemaCount !== 1 ? "s" : ""}
+                            {schema.enumCount > 0 ? ` · ${schema.enumCount} enum${schema.enumCount !== 1 ? "s" : ""}` : ""}
+                          </span>
+                        )}
+                        {fullPath ? (
+                          <span className="min-w-0 truncate text-xs font-medium text-slate-500" title={fullPath}>
+                            {fullPath}
+                          </span>
+                        ) : (
+                          <span className="shrink-0 text-xs font-medium text-slate-400 italic">
+                            No path set
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleCopyRowPath(schema)}
+                          disabled={!fullPath}
+                          title={fullPath ? "Copy resolved path" : "Set a project path first"}
+                          className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {isCopied ? (
+                            <IconCheck size={14} stroke={2.5} className="text-emerald-600" />
+                          ) : (
+                            <IconCopy size={14} stroke={2} />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setViewingSchemaId(schema.id)}
+                          disabled={isViewing}
+                          title="View code"
+                          className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 disabled:cursor-wait"
+                        >
+                          <IconEye size={14} stroke={2} />
+                        </button>
+                        <button
+                          type="button"
+                          title="Re-generate this schema"
+                          onClick={() => handleEditSchema(schema)}
+                          className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                        >
+                          <IconPencil size={14} stroke={2} />
+                        </button>
+                        <button
+                          type="button"
+                          title="Schema settings"
+                          onClick={() => {
+                            if (isEditing) {
+                              setEditingId(null);
+                            } else {
+                              setEditingId(schema.id);
+                              setEditingName(schema.schemaName);
+                              setEditingPath(schema.targetPath ?? "");
+                            }
+                          }}
+                          className={classNames(
+                            "flex h-7 w-7 items-center justify-center rounded border bg-white transition",
+                            isEditing || schema.targetPath
+                              ? "border-amber-300 text-amber-600 hover:bg-amber-50"
+                              : "border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700",
+                          )}
+                        >
+                          <IconSettings2 size={14} stroke={2} />
+                        </button>
+                        <button
+                          type="button"
+                          title="Delete this schema"
+                          onClick={() => deleteMutation.mutate({ id: schema.id })}
+                          disabled={deleteMutation.isPending}
+                          className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 disabled:cursor-wait"
+                        >
+                          <IconTrash size={14} stroke={2} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {isEditing && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50/30 p-3 space-y-3">
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                              Schema label
+                            </label>
+                            <input
+                              autoFocus
+                              type="text"
+                              value={editingName}
+                              onChange={(e) => setEditingName(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === "Escape") setEditingId(null); }}
+                              placeholder={schema.modelName}
+                              className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-amber-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                              Path in your project
+                            </label>
+                            <input
+                              type="text"
+                              value={editingPath}
+                              onChange={(e) => setEditingPath(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === "Escape") setEditingId(null); }}
+                              placeholder="/home/user/myapp/src/validators"
+                              className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-amber-500"
+                            />
+                          </div>
+                        </div>
+                        {editingPath.trim() && (
+                          <p className="text-[11px] text-slate-500">
+                            Resolves to: <span className="font-medium text-slate-700">{editingPath.trim().replace(/\/+$/, "")}/{(editingName.trim() || schema.schemaName).toLowerCase().replace(/\s+/g, "-")}.ts</span>
+                          </p>
+                        )}
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setEditingId(null)}
+                            className="h-8 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const name = editingName.trim() || schema.modelName;
+                              const targetPath = editingPath.trim() || null;
+                              if (name !== schema.schemaName) renameMutation.mutate({ id: schema.id, schemaName: name });
+                              if (targetPath !== schema.targetPath) setPathMutation.mutate({ id: schema.id, targetPath });
+                              setEditingId(null);
+                            }}
+                            disabled={setPathMutation.isPending || renameMutation.isPending}
+                            className="h-8 rounded-md bg-amber-600 px-4 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:opacity-60"
+                          >
+                            Save
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {clearConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
+          <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white shadow-2xl">
+            <div className="border-b border-slate-200 px-5 py-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">
+                Destructive Action
+              </p>
+              <h3 className="mt-1 text-lg font-semibold text-slate-950">
+                Clear All Generated Schemas
+              </h3>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <p className="text-sm text-slate-600">
+                This will permanently remove all <span className="font-semibold">{zodSchemas.length} Zod schema{zodSchemas.length !== 1 ? "s" : ""}</span> for version <span className="font-semibold">{version}</span> from the database. This cannot be undone.
+              </p>
+              <p className="text-sm text-slate-600">
+                To confirm, type the project name: <span className="font-mono font-semibold text-slate-950">{projectName}</span>
+              </p>
+              <input
+                autoFocus
+                type="text"
+                value={clearConfirmInput}
+                onChange={(e) => setClearConfirmInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && clearConfirmInput === projectName) {
+                    clearMutation.mutate({ projectName, version });
+                  }
+                }}
+                placeholder={projectName}
+                className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-rose-400"
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-4">
+              <button
+                type="button"
+                onClick={() => { setClearConfirmOpen(false); setClearConfirmInput(""); }}
+                className="h-9 rounded-md border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => clearMutation.mutate({ projectName, version })}
+                disabled={clearConfirmInput !== projectName || clearMutation.isPending}
+                className="h-9 rounded-md bg-rose-600 px-5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {clearMutation.isPending ? "Removing..." : "Remove All"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <section ref={generatorRef} className="rounded-lg border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-5 py-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
@@ -351,53 +827,45 @@ export function ValidationPageContent() {
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="flex flex-wrap items-center gap-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Selected Table
-                  </p>
-                  <h4 className="mt-1 text-lg font-semibold text-slate-950">
-                    {selectedModelName}
-                  </h4>
-                  <p className="mt-1 text-sm font-medium text-slate-500">
-                    {fields.filter((f) => !f.isBackReference).length} fields &middot; {enumTypes.length} enums
-                  </p>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-sm font-semibold text-slate-950">{selectedModelName}</span>
+                  <span className="text-xs font-medium text-slate-400">
+                    {fields.filter((f) => !f.isBackReference).length} fields
+                    {enumTypes.length > 0 ? ` · ${enumTypes.length} enum${enumTypes.length !== 1 ? "s" : ""}` : ""}
+                  </span>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={selectAll}
-                    className="h-9 rounded-md border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                  >
-                    Select All
-                  </button>
-                  <button
-                    type="button"
-                    onClick={clearAll}
-                    className="h-9 rounded-md border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                  >
-                    Clear
-                  </button>
-                </div>
-                <div className="w-full flex-1 lg:max-w-xs">
-                  <input
-                    type="text"
-                    value={fieldSearch}
-                    onChange={(event) => setFieldSearch(event.target.value)}
-                    placeholder="Search fields..."
-                    className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-amber-600"
-                  />
-                </div>
+                <div className="h-4 w-px bg-slate-200 shrink-0" />
+                <button
+                  type="button"
+                  onClick={selectAll}
+                  className="shrink-0 h-8 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  Select All
+                </button>
+                <button
+                  type="button"
+                  onClick={clearAll}
+                  className="shrink-0 h-8 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  Clear
+                </button>
+                <div className="h-4 w-px bg-slate-200 shrink-0" />
+                <input
+                  type="text"
+                  value={fieldSearch}
+                  onChange={(event) => setFieldSearch(event.target.value)}
+                  placeholder="Search fields..."
+                  className="h-8 min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-amber-600"
+                />
                 <select
                   value={fieldTypeFilter}
                   onChange={(event) => setFieldTypeFilter(event.target.value)}
-                  className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition focus:border-amber-600"
+                  className="shrink-0 h-8 rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-950 outline-none transition focus:border-amber-600"
                 >
                   <option value="all">All Types</option>
                   {fieldTypes.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
-                    </option>
+                    <option key={type} value={type}>{type}</option>
                   ))}
                 </select>
               </div>
@@ -494,6 +962,23 @@ export function ValidationPageContent() {
                 </p>
               ) : null}
 
+              {duplicateSchema && (
+                <div className="flex items-start justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  <span>
+                    <span className="font-semibold">Duplicate detected</span> — this exact field set was already generated as{" "}
+                    <span className="font-semibold">{duplicateSchema.schemaName}</span>. Change the field selection to convert.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setDismissedHash(selectionHash)}
+                    className="shrink-0 rounded p-0.5 text-amber-600 hover:bg-amber-100 hover:text-amber-800"
+                    title="Dismiss"
+                  >
+                    <IconX size={14} stroke={2} />
+                  </button>
+                </div>
+              )}
+
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium text-slate-500">
                   {selectedFieldKeys.size} of {fields.filter((f) => !f.isBackReference).length} fields selected
@@ -503,11 +988,12 @@ export function ValidationPageContent() {
                   onClick={() => handleConvert()}
                   disabled={
                     generateMutation.isPending ||
-                    selectedFieldKeys.size === 0
+                    selectedFieldKeys.size === 0 ||
+                    hasDuplicate
                   }
                   className="h-10 min-w-36 rounded-md bg-amber-600 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
-                  {generateMutation.isPending ? "Generating..." : "Convert"}
+                  {generateMutation.isPending ? "Generating..." : "Generate Schema"}
                 </button>
               </div>
             </div>
@@ -630,48 +1116,66 @@ export function ValidationPageContent() {
       {dialogOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-3">
           <div className="max-h-[92vh] w-[96vw] max-w-[1400px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-              <div>
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
+              <div className="min-w-0">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
                   Generated Code
                 </p>
-                <h3 className="mt-1 text-lg font-semibold text-slate-950">
-                  {dialogFilePath}
-                </h3>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <span className="rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">
-                    {dialogSchemaCount} schema{dialogSchemaCount !== 1 ? "s" : ""}
+                <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-lg font-semibold text-slate-950">
+                    {dialogSchemaName}
                   </span>
-                  {dialogEnumCount > 0 ? (
-                    <span className="rounded-md bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700">
-                      {dialogEnumCount} enum{dialogEnumCount !== 1 ? "s" : ""}
+                  {dialogModelName && dialogSchemaName !== dialogModelName && (
+                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-500">
+                      {dialogModelName}
                     </span>
-                  ) : null}
+                  )}
+                  {dialogDate && (
+                    <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                      v{dialogDate}
+                    </span>
+                  )}
+                  {dialogSchemaCount > 0 && (
+                    <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">
+                      {dialogSchemaCount} schema{dialogSchemaCount !== 1 ? "s" : ""}
+                      {dialogEnumCount > 0 ? ` · ${dialogEnumCount} enum${dialogEnumCount !== 1 ? "s" : ""}` : ""}
+                    </span>
+                  )}
+                  {dialogFilePath && (
+                    <span className="truncate text-xs font-medium text-slate-500" title={dialogFilePath}>
+                      {dialogFilePath}
+                    </span>
+                  )}
                 </div>
-                {dialogWarnings.length > 0 ? (
+                {dialogWarnings.length > 0 && (
                   <div className="mt-2 space-y-1">
                     {dialogWarnings.map((warning, i) => (
-                      <p key={i} className="text-xs font-medium text-amber-600">
-                        {warning}
-                      </p>
+                      <p key={i} className="text-xs font-medium text-amber-600">{warning}</p>
                     ))}
                   </div>
-                ) : null}
+                )}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-1">
                 <button
                   type="button"
                   onClick={handleCopy}
-                  className="h-9 rounded-md border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                  title={copied ? "Copied!" : "Copy code"}
+                  className={classNames(
+                    "flex h-8 w-8 items-center justify-center rounded border transition",
+                    copied
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-600"
+                      : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700",
+                  )}
                 >
-                  {copied ? "Copied!" : "Copy"}
+                  {copied ? <IconCheck size={15} stroke={2.5} /> : <IconCopy size={15} stroke={2} />}
                 </button>
                 <button
                   type="button"
                   onClick={closeDialog}
-                  className="h-9 rounded-md border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                  title="Close"
+                  className="flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
                 >
-                  Close
+                  <IconX size={15} stroke={2} />
                 </button>
               </div>
             </div>
