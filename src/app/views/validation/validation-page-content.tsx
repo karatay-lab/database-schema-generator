@@ -154,6 +154,7 @@ export function ValidationPageContent() {
   const enumTypes: string[] = fieldsQuery.data?.enumTypes ?? [];
 
   const [selectionHash, setSelectionHash] = useState<string | null>(null);
+  const [dismissedHash, setDismissedHash] = useState<string | null>(null);
   const [generateError, setGenerateError] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogCode, setDialogCode] = useState("");
@@ -188,12 +189,12 @@ export function ValidationPageContent() {
 
   const duplicateSchema = useMemo(
     () =>
-      selectionHash && selectedModelName
+      selectionHash && selectionHash !== dismissedHash && selectedModelName
         ? zodSchemas.find(
             (s) => s.fieldHash === selectionHash && s.modelName === selectedModelName && s.id !== editingSchemaId,
           ) ?? null
         : null,
-    [selectionHash, zodSchemas, selectedModelName, editingSchemaId],
+    [selectionHash, dismissedHash, zodSchemas, selectedModelName, editingSchemaId],
   );
 
   const readFileQuery = useQuery(
@@ -279,6 +280,7 @@ export function ValidationPageContent() {
   useEffect(() => {
     if (selectedFieldKeys.size === 0) { setSelectionHash(null); return; }
     const sorted = Array.from(selectedFieldKeys).sort().join(",");
+    setDismissedHash(null);
     crypto.subtle
       .digest("SHA-256", new TextEncoder().encode(sorted))
       .then((buf) => {
@@ -957,9 +959,19 @@ export function ValidationPageContent() {
               ) : null}
 
               {duplicateSchema && (
-                <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                  <span className="font-semibold">Duplicate detected</span> — this exact field set was already generated as{" "}
-                  <span className="font-semibold">{duplicateSchema.schemaName}</span>. You can still convert to create another copy.
+                <div className="flex items-start justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  <span>
+                    <span className="font-semibold">Duplicate detected</span> — this exact field set was already generated as{" "}
+                    <span className="font-semibold">{duplicateSchema.schemaName}</span>. You can still convert to create another copy.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setDismissedHash(selectionHash)}
+                    className="shrink-0 rounded p-0.5 text-amber-600 hover:bg-amber-100 hover:text-amber-800"
+                    title="Dismiss"
+                  >
+                    <IconX size={14} stroke={2} />
+                  </button>
                 </div>
               )}
 
