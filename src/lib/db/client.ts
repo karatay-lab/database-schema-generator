@@ -483,6 +483,39 @@ if (!global._appDb) {
     sqlite.exec("UPDATE zod_schemas SET schema_name = model_name WHERE schema_name IS NULL;");
   }
 
+  // Drop UNIQUE(project_id, version, model_name) so multiple schemas per model are allowed.
+  const zodTableDef = (sqlite
+    .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='zod_schemas'")
+    .get() as { sql: string } | undefined)?.sql ?? "";
+  if (zodTableDef.includes("UNIQUE(project_id, version, model_name)")) {
+    sqlite.transaction(() => {
+      sqlite.exec(`
+        CREATE TABLE zod_schemas_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          version TEXT NOT NULL,
+          model_name TEXT NOT NULL,
+          fs_path TEXT NOT NULL DEFAULT '',
+          schema_count INTEGER NOT NULL DEFAULT 0,
+          enum_count INTEGER NOT NULL DEFAULT 0,
+          field_count INTEGER NOT NULL DEFAULT 0,
+          generated_at TEXT NOT NULL,
+          target_path TEXT,
+          selected_field_keys TEXT,
+          code TEXT NOT NULL DEFAULT '',
+          schema_name TEXT
+        )
+      `);
+      sqlite.exec(`
+        INSERT INTO zod_schemas_new (id, project_id, version, model_name, fs_path, schema_count, enum_count, field_count, generated_at, target_path, selected_field_keys, code, schema_name)
+        SELECT id, project_id, version, model_name, COALESCE(fs_path,''), schema_count, enum_count, field_count, generated_at, target_path, selected_field_keys, COALESCE(code,''), schema_name
+        FROM zod_schemas
+      `);
+      sqlite.exec("DROP TABLE zod_schemas");
+      sqlite.exec("ALTER TABLE zod_schemas_new RENAME TO zod_schemas");
+    })();
+  }
+
   seedFieldTemplates(sqlite);
   global._appDb = sqlite;
 }

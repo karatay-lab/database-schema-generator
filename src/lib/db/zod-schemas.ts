@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import { db } from "./client";
 
 type ZodSchemaRow = {
@@ -26,29 +27,51 @@ export function upsertZodSchema(opts: {
   enumCount: number;
   fieldCount: number;
   selectedFieldKeys: string[];
+  schemaId?: number;
 }) {
-  db.prepare(`
-    INSERT INTO zod_schemas
-      (project_id, version, model_name, fs_path, code, schema_count, enum_count, field_count, selected_field_keys, generated_at)
-    VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(project_id, version, model_name) DO UPDATE SET
-      code = excluded.code,
-      schema_count = excluded.schema_count,
-      enum_count = excluded.enum_count,
-      field_count = excluded.field_count,
-      selected_field_keys = excluded.selected_field_keys,
-      generated_at = excluded.generated_at
-  `).run(
-    opts.projectId,
-    opts.version,
-    opts.modelName,
-    opts.code,
-    opts.schemaCount,
-    opts.enumCount,
-    opts.fieldCount,
-    JSON.stringify(opts.selectedFieldKeys),
-    new Date().toISOString(),
-  );
+  const now = new Date().toISOString();
+
+  if (opts.schemaId !== undefined) {
+    // Edit flow — update the specific row, preserve schema_name and target_path
+    db.prepare(`
+      UPDATE zod_schemas SET
+        code = ?, schema_count = ?, enum_count = ?, field_count = ?,
+        selected_field_keys = ?, generated_at = ?
+      WHERE id = ?
+    `).run(
+      opts.code,
+      opts.schemaCount,
+      opts.enumCount,
+      opts.fieldCount,
+      JSON.stringify(opts.selectedFieldKeys),
+      now,
+      opts.schemaId,
+    );
+  } else {
+    // New generate — always insert; first schema for this model gets the model name,
+    // subsequent ones get [ModelName]-[short-uuid] so each is uniquely identifiable.
+    const existing = db
+      .prepare(`SELECT COUNT(*) as cnt FROM zod_schemas WHERE project_id = ? AND version = ? AND model_name = ?`)
+      .get(opts.projectId, opts.version, opts.modelName) as { cnt: number };
+    const shortId = randomUUID().slice(0, 8);
+    const schemaName = existing.cnt > 0 ? `${opts.modelName}-${shortId}` : opts.modelName;
+    db.prepare(`
+      INSERT INTO zod_schemas
+        (project_id, version, model_name, fs_path, code, schema_count, enum_count, field_count, selected_field_keys, schema_name, generated_at)
+      VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      opts.projectId,
+      opts.version,
+      opts.modelName,
+      opts.code,
+      opts.schemaCount,
+      opts.enumCount,
+      opts.fieldCount,
+      JSON.stringify(opts.selectedFieldKeys),
+      schemaName,
+      now,
+    );
+  }
 }
 
 export function listZodSchemas(opts: { projectId: string; version: string }) {
@@ -72,23 +95,13 @@ export function listZodSchemas(opts: { projectId: string; version: string }) {
   }));
 }
 
-export function readZodSchema(opts: {
-  projectId: string;
-  version: string;
-  modelName: string;
-}): { code: string } {
+export function readZodSchema(opts: { id: number }): { code: string } {
   const row = db
-    .prepare(
-      `SELECT code FROM zod_schemas WHERE project_id = ? AND version = ? AND model_name = ?`,
-    )
-    .get(opts.projectId, opts.version, opts.modelName) as { code: string } | undefined;
+    .prepare(`SELECT code FROM zod_schemas WHERE id = ?`)
+    .get(opts.id) as { code: string } | undefined;
 
-  if (!row) {
-    throw new Error(`No generated schema found for model "${opts.modelName}".`);
-  }
-  if (!row.code) {
-    throw new Error(`Schema for "${opts.modelName}" has no stored code — please regenerate it.`);
-  }
+  if (!row) throw new Error(`Schema not found.`);
+  if (!row.code) throw new Error(`Schema has no stored code — please regenerate it.`);
   return { code: row.code };
 }
 
@@ -104,6 +117,10 @@ export function updateZodSchemaName(opts: { id: number; schemaName: string }) {
     opts.schemaName,
     opts.id,
   );
+}
+
+export function deleteZodSchema(opts: { id: number }) {
+  db.prepare(`DELETE FROM zod_schemas WHERE id = ?`).run(opts.id);
 }
 
 export function deleteAllZodSchemas(opts: { projectId: string; version: string }) {

@@ -7,7 +7,7 @@ import { useTRPC } from "@/trpc/client";
 import { classNames } from "../shared/dashboard-data";
 import { fieldTypeBadgeClass } from "@/lib/badge-utils";
 import { useProjectInfo } from "../shared/project-info-context";
-import { IconCheck, IconCopy, IconEye, IconPencil, IconSettings2 } from "@tabler/icons-react";
+import { IconCheck, IconCopy, IconEye, IconPencil, IconSettings2, IconTrash, IconX } from "@tabler/icons-react";
 import type { PrismaField, PrismaModel } from "@/lib/schema-store";
 import type { GenerateResponse } from "@/types/validation";
 
@@ -162,13 +162,15 @@ export function ValidationPageContent() {
   const [dialogWarnings, setDialogWarnings] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
 
-  const [viewingModel, setViewingModel] = useState<string | null>(null);
+  const [viewingSchemaId, setViewingSchemaId] = useState<number | null>(null);
+  const [editingSchemaId, setEditingSchemaId] = useState<number | null>(null);
   const [copiedRowPath, setCopiedRowPath] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingName, setEditingName] = useState("");
   const [editingPath, setEditingPath] = useState("");
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [clearConfirmInput, setClearConfirmInput] = useState("");
+  const [schemaTableFilter, setSchemaTableFilter] = useState<string | null>(null);
 
   const listZodQuery = useQuery(
     trpc.schema.listZodFiles.queryOptions(
@@ -180,8 +182,8 @@ export function ValidationPageContent() {
 
   const readFileQuery = useQuery(
     trpc.schema.readZodFile.queryOptions(
-      { projectName, version, modelName: viewingModel ?? "" },
-      { enabled: !!viewingModel },
+      { id: viewingSchemaId ?? 0 },
+      { enabled: viewingSchemaId !== null },
     ),
   );
 
@@ -249,9 +251,12 @@ export function ValidationPageContent() {
     }
   }, [selectedModelName]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reset field selection when model changes (unless we're restoring from an edit)
+  // Reset field selection and editing context when model changes (unless restoring from edit)
   useEffect(() => {
-    if (pendingFieldKeys === null) setSelectedFieldKeys(new Set());
+    if (pendingFieldKeys === null) {
+      setSelectedFieldKeys(new Set());
+      setEditingSchemaId(null);
+    }
   }, [selectedModelName]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Restore field selection after fields load (triggered by Edit button)
@@ -263,9 +268,11 @@ export function ValidationPageContent() {
   }, [fields, fieldsQuery.isLoading, pendingFieldKeys]);
 
   useEffect(() => {
-    if (!readFileQuery.data || !viewingModel) return;
-    const schema = zodSchemas.find((s) => s.modelName === viewingModel);
-    const displayPath = resolvedPath(schema ?? { modelName: viewingModel, targetPath: null }) ?? `${viewingModel.toLowerCase()}.ts`;
+    if (!readFileQuery.data || viewingSchemaId === null) return;
+    const schema = zodSchemas.find((s) => s.id === viewingSchemaId);
+    const displayPath = schema
+      ? (resolvedPath(schema) ?? `${schema.modelName.toLowerCase()}.ts`)
+      : "schema.ts";
     setDialogCode(readFileQuery.data.code);
     setDialogFilePath(displayPath);
     setDialogSchemaCount(schema?.schemaCount ?? 0);
@@ -298,9 +305,10 @@ export function ValidationPageContent() {
     setTimeout(() => setCopiedRowPath(null), 1500);
   };
 
-  const handleEditSchema = (schema: { modelName: string; selectedFieldKeys: string[] }) => {
+  const handleEditSchema = (schema: { id: number; modelName: string; selectedFieldKeys: string[] }) => {
     setPendingFieldKeys(schema.selectedFieldKeys);
     setSelectedModelName(schema.modelName);
+    setEditingSchemaId(schema.id);
     setFieldSearch("");
     setFieldTypeFilter("all");
     setGenerateError("");
@@ -314,6 +322,7 @@ export function ValidationPageContent() {
     setIsTableSelectorOpen(false);
     setGenerateError("");
     setTablePage(1);
+    setSchemaTableFilter(modelName);
   };
 
   const toggleField = (fieldKey: string) => {
@@ -353,6 +362,15 @@ export function ValidationPageContent() {
     },
   });
 
+  const deleteMutation = useMutation({
+    ...trpc.schema.deleteZodFile.mutationOptions(),
+    onSuccess: (_, vars) => {
+      queryClient.invalidateQueries({ queryKey: trpc.schema.listZodFiles.queryKey({ projectName, version }) });
+      if (editingSchemaId === vars.id) setEditingSchemaId(null);
+      if (viewingSchemaId === vars.id) setViewingSchemaId(null);
+    },
+  });
+
   const clearMutation = useMutation({
     ...trpc.schema.clearZodFiles.mutationOptions(),
     onSuccess: () => {
@@ -371,7 +389,8 @@ export function ValidationPageContent() {
       setDialogSchemaCount(d?.schemaCount ?? 0);
       setDialogEnumCount(d?.enumCount ?? 0);
       setDialogWarnings(d?.warnings ?? []);
-      setViewingModel(null);
+      setViewingSchemaId(null);
+      setEditingSchemaId(null);
       setDialogOpen(true);
       queryClient.invalidateQueries({ queryKey: trpc.schema.listZodFiles.queryKey({ projectName, version }) });
     },
@@ -386,6 +405,7 @@ export function ValidationPageContent() {
       modelName: selectedModelName,
       modelKey: selectedModelKey,
       selectedFieldKeys: Array.from(selectedFieldKeys),
+      schemaId: editingSchemaId ?? undefined,
     });
   };
 
@@ -412,7 +432,7 @@ export function ValidationPageContent() {
   const closeDialog = () => {
     setDialogOpen(false);
     setCopied(false);
-    setViewingModel(null);
+    setViewingSchemaId(null);
   };
 
   if (!hasProject) {
@@ -436,9 +456,22 @@ export function ValidationPageContent() {
                 Generated Schemas
               </h3>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {schemaTableFilter && (
+                <button
+                  type="button"
+                  onClick={() => setSchemaTableFilter(null)}
+                  className="flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-100"
+                  title="Clear filter"
+                >
+                  {schemaTableFilter}
+                  <IconX size={11} stroke={2.5} />
+                </button>
+              )}
               <span className="rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700">
-                {zodSchemas.length} {zodSchemas.length === 1 ? "schema" : "schemas"}
+                {schemaTableFilter
+                  ? `${zodSchemas.filter((s) => s.modelName === schemaTableFilter).length} / ${zodSchemas.length}`
+                  : `${zodSchemas.length} ${zodSchemas.length === 1 ? "schema" : "schemas"}`}
               </span>
               {zodSchemas.length > 0 && (
                 <button
@@ -466,20 +499,26 @@ export function ValidationPageContent() {
             </div>
           ) : (
             <div className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
-              {zodSchemas.map((schema) => {
+              {zodSchemas.filter((s) => !schemaTableFilter || s.modelName === schemaTableFilter).map((schema) => {
                 const fullPath = resolvedPath(schema);
                 const isCopied = copiedRowPath === schema.modelName;
-                const isViewing = viewingModel === schema.modelName && readFileQuery.isFetching;
+                const isViewing = viewingSchemaId === schema.id && readFileQuery.isFetching;
                 const isEditing = editingId === schema.id;
+                const isBeingEdited = editingSchemaId === schema.id;
 
                 return (
-                  <div key={schema.id} className="px-4 py-3 space-y-2">
+                  <div key={schema.id} className={classNames("px-4 py-3 space-y-2", isBeingEdited ? "bg-amber-50/50" : "")}>
                     <div className="flex items-center gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-semibold text-slate-950">
                             {schema.schemaName}
                           </span>
+                          {isBeingEdited && (
+                            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-700">
+                              editing
+                            </span>
+                          )}
                           {schema.schemaName !== schema.modelName && (
                             <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-500">
                               {schema.modelName}
@@ -522,7 +561,7 @@ export function ValidationPageContent() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => setViewingModel(schema.modelName)}
+                          onClick={() => setViewingSchemaId(schema.id)}
                           disabled={isViewing}
                           title="View code"
                           className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 disabled:cursor-wait"
@@ -557,6 +596,15 @@ export function ValidationPageContent() {
                           )}
                         >
                           <IconSettings2 size={14} stroke={2} />
+                        </button>
+                        <button
+                          type="button"
+                          title="Delete this schema"
+                          onClick={() => deleteMutation.mutate({ id: schema.id })}
+                          disabled={deleteMutation.isPending}
+                          className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 disabled:cursor-wait"
+                        >
+                          <IconTrash size={14} stroke={2} />
                         </button>
                       </div>
                     </div>

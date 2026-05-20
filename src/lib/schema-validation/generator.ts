@@ -8,6 +8,7 @@ export type ZodGeneratorInput = {
   modelName: string;
   modelKey: string;
   selectedFieldKeys: string[];
+  schemaId?: number;
 };
 
 export type ZodGeneratorOutput = {
@@ -219,6 +220,7 @@ export async function generateZodSchema(
       enumCount: enumEntries.length,
       fieldCount: selectedCanonicalFields.length,
       selectedFieldKeys: input.selectedFieldKeys,
+      schemaId: input.schemaId,
     });
   }
 

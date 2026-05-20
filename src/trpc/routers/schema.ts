@@ -4,7 +4,7 @@ import { z } from "zod";
 import { getSchemaStats, testPrismaSchema } from "@/lib/schema-store";
 import { listSchemaImports } from "@/lib/schema-imports-store";
 import { generateZodSchema } from "@/lib/schema-validation/generator";
-import { listZodSchemas, readZodSchema, updateZodSchemaTargetPath, updateZodSchemaName, deleteAllZodSchemas } from "@/lib/db/zod-schemas";
+import { listZodSchemas, readZodSchema, updateZodSchemaTargetPath, updateZodSchemaName, deleteZodSchema, deleteAllZodSchemas } from "@/lib/db/zod-schemas";
 import { db } from "@/lib/db/client";
 import { baseProcedure, createTRPCRouter } from "../init";
 
@@ -47,6 +47,7 @@ export const schemaRouter = createTRPCRouter({
         modelName: z.string(),
         modelKey: z.string().optional(),
         selectedFieldKeys: z.array(z.string()).min(1, "At least one field must be selected."),
+        schemaId: z.number().optional(),
       })
     )
     .mutation(async ({ input }) => {
@@ -57,6 +58,7 @@ export const schemaRouter = createTRPCRouter({
           modelName: input.modelName,
           modelKey: input.modelKey ?? "",
           selectedFieldKeys: input.selectedFieldKeys,
+          schemaId: input.schemaId,
         });
       } catch (err) {
         trpcError(err, "Zod schema generation failed.");
@@ -78,18 +80,10 @@ export const schemaRouter = createTRPCRouter({
     }),
 
   readZodFile: baseProcedure
-    .input(z.object({ projectName: z.string(), version: z.string(), modelName: z.string() }))
+    .input(z.object({ id: z.number() }))
     .query(({ input }) => {
       try {
-        const project = db
-          .prepare("SELECT id FROM projects WHERE name = ?")
-          .get(input.projectName) as { id: string } | undefined;
-        if (!project) throw new Error("Project not found.");
-        return readZodSchema({
-          projectId: project.id,
-          version: input.version,
-          modelName: input.modelName,
-        });
+        return readZodSchema({ id: input.id });
       } catch (err) {
         trpcError(err, "Could not read schema.");
       }
@@ -112,6 +106,16 @@ export const schemaRouter = createTRPCRouter({
         updateZodSchemaName({ id: input.id, schemaName: input.schemaName });
       } catch (err) {
         trpcError(err, "Could not rename schema.");
+      }
+    }),
+
+  deleteZodFile: baseProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(({ input }) => {
+      try {
+        deleteZodSchema({ id: input.id });
+      } catch (err) {
+        trpcError(err, "Could not delete schema.");
       }
     }),
 
