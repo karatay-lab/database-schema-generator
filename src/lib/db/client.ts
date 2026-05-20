@@ -482,6 +482,9 @@ if (!global._appDb) {
     sqlite.exec("ALTER TABLE zod_schemas ADD COLUMN schema_name TEXT;");
     sqlite.exec("UPDATE zod_schemas SET schema_name = model_name WHERE schema_name IS NULL;");
   }
+  if (zodSchemaCols.length > 0 && !zodSchemaCols.some((c) => c.name === "field_hash")) {
+    sqlite.exec("ALTER TABLE zod_schemas ADD COLUMN field_hash TEXT;");
+  }
 
   // Drop UNIQUE(project_id, version, model_name) so multiple schemas per model are allowed.
   const zodTableDef = (sqlite

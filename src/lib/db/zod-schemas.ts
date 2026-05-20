@@ -1,6 +1,10 @@
 import "server-only";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { db } from "./client";
+
+function fieldHash(keys: string[]): string {
+  return createHash("sha256").update([...keys].sort().join(",")).digest("hex");
+}
 
 type ZodSchemaRow = {
   id: number;
@@ -16,6 +20,7 @@ type ZodSchemaRow = {
   selected_field_keys: string | null;
   code: string;
   schema_name: string | null;
+  field_hash: string | null;
 };
 
 export function upsertZodSchema(opts: {
@@ -32,12 +37,15 @@ export function upsertZodSchema(opts: {
 }) {
   const now = new Date().toISOString();
 
+  // Hash uses field UUIDs (keys) — stable even if field names/types change
+  const hash = fieldHash(opts.selectedFieldKeys);
+
   if (opts.schemaId !== undefined) {
     // Edit flow — update the specific row, preserve schema_name and target_path
     db.prepare(`
       UPDATE zod_schemas SET
         code = ?, schema_count = ?, enum_count = ?, field_count = ?,
-        selected_field_keys = ?, generated_at = ?
+        selected_field_keys = ?, field_hash = ?, generated_at = ?
       WHERE id = ?
     `).run(
       opts.code,
@@ -45,6 +53,7 @@ export function upsertZodSchema(opts: {
       opts.enumCount,
       opts.fieldCount,
       JSON.stringify(opts.selectedFieldKeys),
+      hash,
       now,
       opts.schemaId,
     );
@@ -59,8 +68,8 @@ export function upsertZodSchema(opts: {
     const targetPath = opts.defaultPath?.trim().replace(/\/+$/, "") || null;
     db.prepare(`
       INSERT INTO zod_schemas
-        (project_id, version, model_name, fs_path, code, schema_count, enum_count, field_count, selected_field_keys, schema_name, target_path, generated_at)
-      VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?)
+        (project_id, version, model_name, fs_path, code, schema_count, enum_count, field_count, selected_field_keys, field_hash, schema_name, target_path, generated_at)
+      VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       opts.projectId,
       opts.version,
@@ -70,6 +79,7 @@ export function upsertZodSchema(opts: {
       opts.enumCount,
       opts.fieldCount,
       JSON.stringify(opts.selectedFieldKeys),
+      hash,
       schemaName,
       targetPath,
       now,
@@ -94,6 +104,7 @@ export function listZodSchemas(opts: { projectId: string; version: string }) {
     generatedAt: row.generated_at,
     targetPath: row.target_path ?? null,
     selectedFieldKeys: row.selected_field_keys ? (JSON.parse(row.selected_field_keys) as string[]) : [],
+    fieldHash: row.field_hash ?? null,
     hasCode: row.code.length > 0,
   }));
 }

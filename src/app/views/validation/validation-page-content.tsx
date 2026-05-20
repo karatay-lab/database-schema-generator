@@ -153,6 +153,7 @@ export function ValidationPageContent() {
   const fields: PrismaField[] = fieldsQuery.data?.fields ?? [];
   const enumTypes: string[] = fieldsQuery.data?.enumTypes ?? [];
 
+  const [selectionHash, setSelectionHash] = useState<string | null>(null);
   const [generateError, setGenerateError] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogCode, setDialogCode] = useState("");
@@ -184,6 +185,16 @@ export function ValidationPageContent() {
     ),
   );
   const zodSchemas = listZodQuery.data ?? [];
+
+  const duplicateSchema = useMemo(
+    () =>
+      selectionHash && selectedModelName
+        ? zodSchemas.find(
+            (s) => s.fieldHash === selectionHash && s.modelName === selectedModelName && s.id !== editingSchemaId,
+          ) ?? null
+        : null,
+    [selectionHash, zodSchemas, selectedModelName, editingSchemaId],
+  );
 
   const readFileQuery = useQuery(
     trpc.schema.readZodFile.queryOptions(
@@ -263,6 +274,17 @@ export function ValidationPageContent() {
       setEditingSchemaId(null);
     }
   }, [selectedModelName]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Compute SHA-256 of sorted field UUIDs for duplicate detection
+  useEffect(() => {
+    if (selectedFieldKeys.size === 0) { setSelectionHash(null); return; }
+    const sorted = Array.from(selectedFieldKeys).sort().join(",");
+    crypto.subtle
+      .digest("SHA-256", new TextEncoder().encode(sorted))
+      .then((buf) => {
+        setSelectionHash(Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join(""));
+      });
+  }, [selectedFieldKeys]);
 
   // Restore field selection after fields load (triggered by Edit button)
   useEffect(() => {
@@ -517,9 +539,10 @@ export function ValidationPageContent() {
                 const isViewing = viewingSchemaId === schema.id && readFileQuery.isFetching;
                 const isEditing = editingId === schema.id;
                 const isBeingEdited = editingSchemaId === schema.id;
+                const isDuplicate = duplicateSchema?.id === schema.id;
 
                 return (
-                  <div key={schema.id} className={classNames("px-4 py-3 space-y-2", isBeingEdited ? "bg-amber-50/50" : "")}>
+                  <div key={schema.id} className={classNames("px-4 py-3 space-y-2 transition-colors", isBeingEdited ? "bg-amber-50/50" : "", isDuplicate ? "animate-pulse bg-amber-50" : "")}>
                     <div className="flex items-center gap-3">
                       <div className="min-w-0 flex-1 flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-semibold text-slate-950 shrink-0">
@@ -932,6 +955,13 @@ export function ValidationPageContent() {
                   {generateError}
                 </p>
               ) : null}
+
+              {duplicateSchema && (
+                <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  <span className="font-semibold">Duplicate detected</span> — this exact field set was already generated as{" "}
+                  <span className="font-semibold">{duplicateSchema.schemaName}</span>. You can still convert to create another copy.
+                </div>
+              )}
 
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium text-slate-500">
