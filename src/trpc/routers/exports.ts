@@ -39,6 +39,13 @@ export const exportsRouter = createTRPCRouter({
         .all(input.projectName) as ExportRecord[];
     }),
 
+  reset: baseProcedure
+    .input(z.object({ projectName: z.string() }))
+    .mutation(({ input }) => {
+      db.prepare("DELETE FROM schema_exports WHERE project_name = ? AND is_downloaded = 1").run(input.projectName);
+      return { ok: true };
+    }),
+
   markDownloaded: baseProcedure
     .input(z.object({ id: z.string() }))
     .mutation(({ input }) => {

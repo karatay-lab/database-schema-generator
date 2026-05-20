@@ -193,6 +193,7 @@ export function ExportsPageContent() {
   const [copied, setCopied] = useState(false);
   const [activeExportType, setActiveExportType] = useState<ExportType | null>(null);
   const [pendingPickle, setPendingPickle] = useState<ExportType | null>(null);
+  const [resetConfirm, setResetConfirm] = useState(false);
 
   const historyQuery = useQuery(
     trpc.exports.list.queryOptions(
@@ -229,6 +230,14 @@ export function ExportsPageContent() {
       setActiveExportType(null);
     },
     onError: (err) => { setExportError(err.message); setActiveExportType(null); },
+  });
+
+  const resetMutation = useMutation({
+    ...trpc.exports.reset.mutationOptions(),
+    onSuccess: () => {
+      setResetConfirm(false);
+      queryClient.invalidateQueries({ queryKey: trpc.exports.list.queryOptions({ projectName: projectName ?? "" }).queryKey });
+    },
   });
 
   const markDownloadedMutation = useMutation({
@@ -300,6 +309,7 @@ export function ExportsPageContent() {
   if (trackedProject !== projectName) {
     setTrackedProject(projectName);
     setHistoryPage(0);
+    setResetConfirm(false);
   }
 
   if (!hasProject) {
@@ -321,12 +331,47 @@ export function ExportsPageContent() {
       {/* Export history */}
       <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-5 py-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-            Download History
-          </p>
-          <h3 className="mt-1 text-base font-semibold text-slate-950">
-            Exported Schemas
-          </h3>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Download History
+              </p>
+              <h3 className="mt-1 text-base font-semibold text-slate-950">
+                Exported Schemas
+              </h3>
+            </div>
+            {exportHistory.length > 0 ? (
+              <div className="flex items-center gap-2">
+                {resetConfirm ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setResetConfirm(false)}
+                      className="h-8 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => resetMutation.mutate({ projectName: projectName ?? "" })}
+                      disabled={resetMutation.isPending}
+                      className="h-8 rounded-md bg-rose-600 px-3 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:opacity-60"
+                    >
+                      {resetMutation.isPending ? "Clearing…" : "Yes, clear all"}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setResetConfirm(true)}
+                    className="h-8 rounded-md border border-rose-200 bg-rose-50 px-3 text-xs font-semibold text-rose-600 transition hover:bg-rose-100"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+            ) : null}
+          </div>
         </div>
 
         {exportHistory.length === 0 ? (
