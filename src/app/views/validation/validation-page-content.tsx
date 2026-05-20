@@ -7,7 +7,7 @@ import { useTRPC } from "@/trpc/client";
 import { classNames } from "../shared/dashboard-data";
 import { fieldTypeBadgeClass } from "@/lib/badge-utils";
 import { useProjectInfo } from "../shared/project-info-context";
-import { IconCheck, IconCopy, IconEye, IconPencil, IconSettings2, IconTrash, IconX } from "@tabler/icons-react";
+import { IconCheck, IconCopy, IconEye, IconPencil, IconSettings2, IconTrash } from "@tabler/icons-react";
 import type { PrismaField, PrismaModel } from "@/lib/schema-store";
 import type { GenerateResponse } from "@/types/validation";
 
@@ -170,7 +170,6 @@ export function ValidationPageContent() {
   const [editingPath, setEditingPath] = useState("");
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [clearConfirmInput, setClearConfirmInput] = useState("");
-  const [schemaTableFilter, setSchemaTableFilter] = useState<string | null>(null);
 
   const listZodQuery = useQuery(
     trpc.schema.listZodFiles.queryOptions(
@@ -322,7 +321,6 @@ export function ValidationPageContent() {
     setIsTableSelectorOpen(false);
     setGenerateError("");
     setTablePage(1);
-    setSchemaTableFilter(modelName);
   };
 
   const toggleField = (fieldKey: string) => {
@@ -457,20 +455,9 @@ export function ValidationPageContent() {
               </h3>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {schemaTableFilter && (
-                <button
-                  type="button"
-                  onClick={() => setSchemaTableFilter(null)}
-                  className="flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-100"
-                  title="Clear filter"
-                >
-                  {schemaTableFilter}
-                  <IconX size={11} stroke={2.5} />
-                </button>
-              )}
               <span className="rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700">
-                {schemaTableFilter
-                  ? `${zodSchemas.filter((s) => s.modelName === schemaTableFilter).length} / ${zodSchemas.length}`
+                {selectedModelName
+                  ? `${zodSchemas.filter((s) => s.modelName === selectedModelName).length} of ${zodSchemas.length}`
                   : `${zodSchemas.length} ${zodSchemas.length === 1 ? "schema" : "schemas"}`}
               </span>
               {zodSchemas.length > 0 && (
@@ -499,7 +486,7 @@ export function ValidationPageContent() {
             </div>
           ) : (
             <div className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
-              {zodSchemas.filter((s) => !schemaTableFilter || s.modelName === schemaTableFilter).map((schema) => {
+              {zodSchemas.filter((s) => !selectedModelName || s.modelName === selectedModelName).map((schema) => {
                 const fullPath = resolvedPath(schema);
                 const isCopied = copiedRowPath === schema.modelName;
                 const isViewing = viewingSchemaId === schema.id && readFileQuery.isFetching;
