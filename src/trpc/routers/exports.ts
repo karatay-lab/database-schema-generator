@@ -43,6 +43,7 @@ export const exportsRouter = createTRPCRouter({
     .input(z.object({ id: z.string() }))
     .mutation(({ input }) => {
       db.prepare("UPDATE schema_exports SET is_downloaded = 1 WHERE id = ?").run(input.id);
+      db.prepare("DELETE FROM schema_exports WHERE is_downloaded = 0").run();
       return { ok: true };
     }),
 
