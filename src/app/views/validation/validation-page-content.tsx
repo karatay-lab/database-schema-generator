@@ -187,6 +187,7 @@ export function ValidationPageContent() {
   );
   const zodSchemas = listZodQuery.data ?? [];
 
+  // Respects dismiss — used for banner + row blink
   const duplicateSchema = useMemo(
     () =>
       selectionHash && selectionHash !== dismissedHash && selectedModelName
@@ -195,6 +196,17 @@ export function ValidationPageContent() {
           ) ?? null
         : null,
     [selectionHash, dismissedHash, zodSchemas, selectedModelName, editingSchemaId],
+  );
+
+  // Ignores dismiss — used to block Convert regardless of whether banner was closed
+  const hasDuplicate = useMemo(
+    () =>
+      selectionHash && selectedModelName
+        ? zodSchemas.some(
+            (s) => s.fieldHash === selectionHash && s.modelName === selectedModelName && s.id !== editingSchemaId,
+          )
+        : false,
+    [selectionHash, zodSchemas, selectedModelName, editingSchemaId],
   );
 
   const readFileQuery = useQuery(
@@ -962,7 +974,7 @@ export function ValidationPageContent() {
                 <div className="flex items-start justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
                   <span>
                     <span className="font-semibold">Duplicate detected</span> — this exact field set was already generated as{" "}
-                    <span className="font-semibold">{duplicateSchema.schemaName}</span>. You can still convert to create another copy.
+                    <span className="font-semibold">{duplicateSchema.schemaName}</span>. Change the field selection to convert.
                   </span>
                   <button
                     type="button"
@@ -984,7 +996,8 @@ export function ValidationPageContent() {
                   onClick={() => handleConvert()}
                   disabled={
                     generateMutation.isPending ||
-                    selectedFieldKeys.size === 0
+                    selectedFieldKeys.size === 0 ||
+                    hasDuplicate
                   }
                   className="h-10 min-w-36 rounded-md bg-amber-600 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
