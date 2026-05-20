@@ -827,53 +827,45 @@ export function ValidationPageContent() {
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="flex flex-wrap items-center gap-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Selected Table
-                  </p>
-                  <h4 className="mt-1 text-lg font-semibold text-slate-950">
-                    {selectedModelName}
-                  </h4>
-                  <p className="mt-1 text-sm font-medium text-slate-500">
-                    {fields.filter((f) => !f.isBackReference).length} fields &middot; {enumTypes.length} enums
-                  </p>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-sm font-semibold text-slate-950">{selectedModelName}</span>
+                  <span className="text-xs font-medium text-slate-400">
+                    {fields.filter((f) => !f.isBackReference).length} fields
+                    {enumTypes.length > 0 ? ` · ${enumTypes.length} enum${enumTypes.length !== 1 ? "s" : ""}` : ""}
+                  </span>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={selectAll}
-                    className="h-9 rounded-md border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                  >
-                    Select All
-                  </button>
-                  <button
-                    type="button"
-                    onClick={clearAll}
-                    className="h-9 rounded-md border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                  >
-                    Clear
-                  </button>
-                </div>
-                <div className="w-full flex-1 lg:max-w-xs">
-                  <input
-                    type="text"
-                    value={fieldSearch}
-                    onChange={(event) => setFieldSearch(event.target.value)}
-                    placeholder="Search fields..."
-                    className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-amber-600"
-                  />
-                </div>
+                <div className="h-4 w-px bg-slate-200 shrink-0" />
+                <button
+                  type="button"
+                  onClick={selectAll}
+                  className="shrink-0 h-8 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  Select All
+                </button>
+                <button
+                  type="button"
+                  onClick={clearAll}
+                  className="shrink-0 h-8 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  Clear
+                </button>
+                <div className="h-4 w-px bg-slate-200 shrink-0" />
+                <input
+                  type="text"
+                  value={fieldSearch}
+                  onChange={(event) => setFieldSearch(event.target.value)}
+                  placeholder="Search fields..."
+                  className="h-8 min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-amber-600"
+                />
                 <select
                   value={fieldTypeFilter}
                   onChange={(event) => setFieldTypeFilter(event.target.value)}
-                  className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition focus:border-amber-600"
+                  className="shrink-0 h-8 rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-950 outline-none transition focus:border-amber-600"
                 >
                   <option value="all">All Types</option>
                   {fieldTypes.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
-                    </option>
+                    <option key={type} value={type}>{type}</option>
                   ))}
                 </select>
               </div>
