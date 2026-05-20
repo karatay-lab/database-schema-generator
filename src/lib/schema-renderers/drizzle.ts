@@ -126,14 +126,14 @@ export function generateDrizzleSchema(
       usedImports.add("pgEnum");
       for (const e of store.enums) {
         const varName = `${toSnakeCase(e.name)}Enum`;
-        const vals = e.values.map((v) => `"${v}"`).join(", ");
+        const vals = e.values.map((v) => `"${v.name}"`).join(", ");
         enumBlocks.push(`export const ${varName} = pgEnum("${toSnakeCase(e.name)}", [${vals}]);`);
       }
     } else if (provider === "mysql") {
       usedImports.add("mysqlEnum");
       for (const e of store.enums) {
         const varName = `${toSnakeCase(e.name)}Enum`;
-        const vals = e.values.map((v) => `"${v}"`).join(", ");
+        const vals = e.values.map((v) => `"${v.name}"`).join(", ");
         enumBlocks.push(`export const ${varName} = mysqlEnum([${vals}]);`);
       }
     }

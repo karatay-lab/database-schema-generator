@@ -1,4 +1,5 @@
 import { createTRPCRouter } from "../init";
+import { enumsRouter } from "./enums";
 import { projectsRouter } from "./projects";
 import { tablesRouter } from "./tables";
 import { fieldsRouter } from "./fields";
@@ -27,6 +28,7 @@ export const appRouter = createTRPCRouter({
   commentary: commentaryRouter,
   exports: exportsRouter,
   hierarchy: hierarchyRouter,
+  enums: enumsRouter,
 });
 
 export type AppRouter = typeof appRouter;

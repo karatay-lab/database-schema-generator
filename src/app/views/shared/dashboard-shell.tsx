@@ -103,6 +103,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
     relationCount: statsData?.relationCount ?? 0,
     restrictionCount: statsData?.restrictionCount ?? 0,
     importQueuedCount: statsData?.imports ?? 0,
+    enumCount: statsData?.enumCount ?? 0,
   };
 
   const schemaTestMutation = useMutation(trpc.schema.test.mutationOptions());
@@ -124,6 +125,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
             tables: schemaStats.tableCount,
             fields: schemaStats.fieldCount,
             imports: schemaStats.importQueuedCount,
+            enums: schemaStats.enumCount,
             relations: schemaStats.relationCount,
             restrictions: schemaStats.restrictionCount,
           }

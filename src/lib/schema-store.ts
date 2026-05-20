@@ -213,9 +213,15 @@ type CanonicalModel = {
   restrictions: CanonicalRestriction[];
 };
 
-type CanonicalEnum = {
+type CanonicalEnumValue = {
+  valueId: string;
   name: string;
-  values: string[];
+};
+
+type CanonicalEnum = {
+  enumId: string;
+  name: string;
+  values: CanonicalEnumValue[];
 };
 
 type CanonicalModelStore = {
@@ -583,13 +589,34 @@ function normalizeEnum(value: unknown): CanonicalEnum | null {
 
   const record = value as Record<string, unknown>;
   const name = getString(record.name);
-  const values = getStringArray(record.values);
 
-  if (!name || values.length === 0) {
+  if (!name) {
     return null;
   }
 
-  return { name, values };
+  const enumId = getString(record.enumId) || randomUUID();
+
+  // Support both old format (values: string[]) and new format (values: { valueId, name }[])
+  let values: CanonicalEnumValue[];
+  if (Array.isArray(record.values)) {
+    values = record.values.map((v: unknown) => {
+      if (typeof v === "string") {
+        return { valueId: randomUUID(), name: v };
+      }
+      if (v && typeof v === "object") {
+        const vRecord = v as Record<string, unknown>;
+        return {
+          valueId: getString(vRecord.valueId) || randomUUID(),
+          name: getString(vRecord.name) || "",
+        };
+      }
+      return { valueId: randomUUID(), name: "" };
+    }).filter((v) => v.name !== "");
+  } else {
+    values = [];
+  }
+
+  return { enumId, name, values };
 }
 
 function normalizeStore(
@@ -1390,12 +1417,14 @@ function storeFromPrisma(
   const enums = schema.list
     .filter(isEnumBlock)
     .map((item: any) => ({
+      enumId: randomUUID(),
       name: item.name,
       values: (item.enumerators ?? item.properties ?? [])
         .map((value: any) => value.name)
-        .filter(Boolean),
+        .filter(Boolean)
+        .map((vName: string) => ({ valueId: randomUUID(), name: vName })),
     }))
-    .filter((item) => item.name && item.values.length > 0);
+    .filter((item) => item.name);
   const models = schema.list.filter(isModelBlock).map((model) => {
     const astFields = model.properties.filter(isFieldProperty);
     const canonicalFields = astFields.map(fieldFromPrismaAst);
@@ -2639,6 +2668,7 @@ export type SchemaStats = {
   relationCount: number;
   restrictionCount: number;
   tableCount: number;
+  enumCount: number;
 };
 
 export async function getSchemaStats(
@@ -2667,6 +2697,7 @@ export async function getSchemaStats(
       0,
     ),
     tableCount: store.models.length,
+    enumCount: store.enums?.length ?? 0,
   };
 }
 
@@ -2822,7 +2853,7 @@ generator client {
   const chunks: string[] = [prelude];
 
   for (const item of store.enums ?? []) {
-    chunks.push(`enum ${item.name} {\n${item.values.map((v) => `  ${v}`).join("\n")}\n}`);
+    chunks.push(`enum ${item.name} {\n${item.values.map((v) => `  ${v.name}`).join("\n")}\n}`);
   }
 
   for (const model of store.models) {
@@ -2836,4 +2867,107 @@ generator client {
   }
 
   return `${chunks.filter(Boolean).join("\n\n")}\n`;
+}
+
+// ─── Enum CRUD ────────────────────────────────────────────────────────────────
+
+export async function listEnums(projectName: string, version: string) {
+  const store = await readModelStore(projectName, version);
+  return (store.enums ?? []).map((e) => ({
+    enumId: e.enumId,
+    name: e.name,
+    values: e.values.map((v) => ({ valueId: v.valueId, name: v.name })),
+  }));
+}
+
+export async function createEnum(projectName: string, version: string, name: string) {
+  const store = await readModelStore(projectName, version);
+  const trimmed = name.trim();
+  assertValidIdentifier(trimmed, "Enum name");
+  if (store.enums?.some((e) => e.name === trimmed)) {
+    throw new Error(`An enum named "${trimmed}" already exists.`);
+  }
+  if (!store.enums) store.enums = [];
+  store.enums.push({ enumId: randomUUID(), name: trimmed, values: [] });
+  writeModelStore(store);
+}
+
+export async function renameEnum(projectName: string, version: string, oldName: string, newName: string) {
+  const store = await readModelStore(projectName, version);
+  const trimmed = newName.trim();
+  assertValidIdentifier(trimmed, "Enum name");
+  const entry = store.enums?.find((e) => e.name === oldName);
+  if (!entry) throw new Error(`Enum "${oldName}" not found.`);
+  if (trimmed !== oldName && store.enums?.some((e) => e.name === trimmed)) {
+    throw new Error(`An enum named "${trimmed}" already exists.`);
+  }
+  entry.name = trimmed;
+  for (const model of store.models) {
+    for (const field of model.fields) {
+      if (field.type === oldName) field.type = trimmed;
+    }
+  }
+  writeModelStore(store);
+}
+
+export async function deleteEnum(projectName: string, version: string, name: string) {
+  const store = await readModelStore(projectName, version);
+  const idx = store.enums?.findIndex((e) => e.name === name) ?? -1;
+  if (idx < 0) throw new Error(`Enum "${name}" not found.`);
+  store.enums!.splice(idx, 1);
+  writeModelStore(store);
+}
+
+export async function addEnumValue(projectName: string, version: string, enumName: string, value: string) {
+  const store = await readModelStore(projectName, version);
+  const entry = store.enums?.find((e) => e.name === enumName);
+  if (!entry) throw new Error(`Enum "${enumName}" not found.`);
+  const trimmed = value.trim();
+  assertValidIdentifier(trimmed, "Enum value");
+  if (entry.values.some((v) => v.name === trimmed)) throw new Error(`Value "${trimmed}" already exists.`);
+  entry.values.push({ valueId: randomUUID(), name: trimmed });
+  writeModelStore(store);
+}
+
+export async function renameEnumValue(
+  projectName: string,
+  version: string,
+  enumName: string,
+  valueId: string,
+  newValue: string,
+) {
+  const store = await readModelStore(projectName, version);
+  const entry = store.enums?.find((e) => e.name === enumName);
+  if (!entry) throw new Error(`Enum "${enumName}" not found.`);
+  const trimmed = newValue.trim();
+  assertValidIdentifier(trimmed, "Enum value");
+  if (trimmed.length > 63) throw new Error("Enum value must be 63 characters or fewer.");
+  const valueEntry = entry.values.find((v) => v.valueId === valueId);
+  if (!valueEntry) throw new Error("Enum value not found.");
+  if (trimmed !== valueEntry.name && entry.values.some((v) => v.name === trimmed)) {
+    throw new Error(`Value "${trimmed}" already exists.`);
+  }
+  valueEntry.name = trimmed;
+  writeModelStore(store);
+}
+
+export async function deleteEnumValue(projectName: string, version: string, enumName: string, valueId: string) {
+  const store = await readModelStore(projectName, version);
+  const entry = store.enums?.find((e) => e.name === enumName);
+  if (!entry) throw new Error(`Enum "${enumName}" not found.`);
+  const idx = entry.values.findIndex((v) => v.valueId === valueId);
+  if (idx < 0) throw new Error("Enum value not found.");
+  entry.values.splice(idx, 1);
+  writeModelStore(store);
+}
+
+export async function reorderEnumValues(projectName: string, version: string, enumName: string, valueIds: string[]) {
+  const store = await readModelStore(projectName, version);
+  const entry = store.enums?.find((e) => e.name === enumName);
+  if (!entry) throw new Error(`Enum "${enumName}" not found.`);
+  const valueMap = new Map(entry.values.map((v) => [v.valueId, v]));
+  const reordered = valueIds.map((id) => valueMap.get(id)).filter((v): v is NonNullable<typeof v> => v !== undefined);
+  const remaining = entry.values.filter((v) => !new Set(valueIds).has(v.valueId));
+  entry.values = [...reordered, ...remaining];
+  writeModelStore(store);
 }

@@ -58,7 +58,7 @@ type CanonicalStore = {
   projectName: string;
   projectVersion: string;
   provider: string;
-  enums?: { name: string; values: string[] }[];
+  enums?: { enumId: string; name: string; values: { valueId: string; name: string }[] }[];
   models: CanonicalModel[];
 };
 
@@ -124,9 +124,10 @@ export type SchemaGraphRelation = {
 
 export type SchemaGraphEnum = {
   id: string;
+  enumKey: string;
   name: string;
   dbName: string | null;
-  values: { id: string; name: string; dbName: string | null; sortOrder: number }[];
+  values: { id: string; valueKey: string; name: string; dbName: string | null; sortOrder: number }[];
 };
 
 export type ProjectVersionGraph = {
@@ -537,20 +538,20 @@ function migrateLegacyStore(project: DbProject, version: DbVersion, store: Canon
   }
 
   for (const [enumIndex, item] of (store.enums ?? []).entries()) {
-    const enumId = randomUUID();
+    const enumRowId = randomUUID();
     db.prepare(`
       INSERT INTO schema_enums
-        (id, version_id, name, db_name, sort_order, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(enumId, version.id, item.name, null, enumIndex, stamp, stamp);
+        (id, enum_key, version_id, name, db_name, sort_order, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(enumRowId, item.enumId, version.id, item.name, null, enumIndex, stamp, stamp);
 
     const insertValue = db.prepare(`
       INSERT INTO schema_enum_values
-        (id, enum_id, name, db_name, sort_order, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+        (id, value_key, enum_id, name, db_name, sort_order, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     item.values.forEach((value, valueIndex) => {
-      insertValue.run(randomUUID(), enumId, value, null, valueIndex, stamp, stamp);
+      insertValue.run(randomUUID(), value.valueId, enumRowId, value.name, null, valueIndex, stamp, stamp);
     });
   }
 }
@@ -627,13 +628,13 @@ export function readProjectVersionGraph(projectName: string, versionName: string
     : [];
 
   const enumRows = db
-    .prepare("SELECT id, name, db_name, sort_order FROM schema_enums WHERE version_id = ? ORDER BY sort_order, rowid")
-    .all(version.id) as { id: string; name: string; db_name: string | null; sort_order: number }[];
+    .prepare("SELECT id, enum_key, name, db_name, sort_order FROM schema_enums WHERE version_id = ? ORDER BY sort_order, rowid")
+    .all(version.id) as { id: string; enum_key: string; name: string; db_name: string | null; sort_order: number }[];
   const enumIds = enumRows.map((item) => item.id);
   const enumValues = enumIds.length
     ? (db
-        .prepare(`SELECT id, enum_id, name, db_name, sort_order FROM schema_enum_values WHERE enum_id IN (${enumIds.map(() => "?").join(",")}) ORDER BY sort_order, rowid`)
-        .all(...enumIds) as { id: string; enum_id: string; name: string; db_name: string | null; sort_order: number }[])
+        .prepare(`SELECT id, value_key, enum_id, name, db_name, sort_order FROM schema_enum_values WHERE enum_id IN (${enumIds.map(() => "?").join(",")}) ORDER BY sort_order, rowid`)
+        .all(...enumIds) as { id: string; value_key: string; enum_id: string; name: string; db_name: string | null; sort_order: number }[])
     : [];
 
   return {
@@ -716,12 +717,14 @@ export function readProjectVersionGraph(projectName: string, versionName: string
     })),
     enums: enumRows.map((item) => ({
       id: item.id,
+      enumKey: item.enum_key,
       name: item.name,
       dbName: item.db_name,
       values: enumValues
         .filter((value) => value.enum_id === item.id)
         .map((value) => ({
           id: value.id,
+          valueKey: value.value_key,
           name: value.name,
           dbName: value.db_name,
           sortOrder: value.sort_order,
@@ -753,8 +756,9 @@ export function graphToCanonicalStore(graph: ProjectVersionGraph): CanonicalStor
     projectVersion: graph.version.name,
     provider: graph.project.provider,
     enums: graph.enums.map((item) => ({
+      enumId: item.enumKey,
       name: item.name,
-      values: item.values.map((value) => value.name),
+      values: item.values.map((value) => ({ valueId: value.valueKey, name: value.name })),
     })),
     models: graph.tables.map((table) => {
       const tableFields = fieldsByTable.get(table.id) ?? [];

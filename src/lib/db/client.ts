@@ -416,6 +416,17 @@ if (!global._appDb) {
     );
   }
 
+  // One-time schema upgrade: add enum_key to schema_enums (existing rows get id as the key).
+  const schemaEnumCols = sqlite.prepare("PRAGMA table_info(schema_enums)").all() as { name: string }[];
+  if (schemaEnumCols.length > 0 && !schemaEnumCols.some((c) => c.name === "enum_key")) {
+    sqlite.exec('ALTER TABLE schema_enums ADD COLUMN enum_key TEXT NOT NULL DEFAULT ""; UPDATE schema_enums SET enum_key = id;');
+  }
+  // One-time schema upgrade: add value_key to schema_enum_values (existing rows get id as the key).
+  const schemaEnumValueCols = sqlite.prepare("PRAGMA table_info(schema_enum_values)").all() as { name: string }[];
+  if (schemaEnumValueCols.length > 0 && !schemaEnumValueCols.some((c) => c.name === "value_key")) {
+    sqlite.exec('ALTER TABLE schema_enum_values ADD COLUMN value_key TEXT NOT NULL DEFAULT ""; UPDATE schema_enum_values SET value_key = id;');
+  }
+
   // One-time schema upgrade: drop old migration_connections if it has plaintext columns.
   const migCols = sqlite
     .prepare("PRAGMA table_info(migration_connections)")

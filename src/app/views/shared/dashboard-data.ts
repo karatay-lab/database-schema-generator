@@ -26,6 +26,7 @@ export type Project = {
   tables: number;
   fields: number;
   imports?: number;
+  enums?: number;
   relations: number;
   restrictions?: number;
   versions: ProjectVersion[];
@@ -61,14 +62,15 @@ export const defaultSchemaOptions: SchemaOptions = {
 
 export const menuItemsBase: MenuItem[] = [
   { label: "Tables", href: "/tables", tone: "bg-cyan-400", metric: "0 tables" },
-    {
+  { label: "Enums", href: "/enums", tone: "bg-indigo-400", metric: "0 enums" },
+  {
     label: "Schema",
     href: "/schema",
     detail: "Fields & Templates",
     tone: "bg-rose-400",
     metric: "draft",
   },
-    {
+  {
     label: "Relations",
     href: "/relations",
     detail: "Relations & Templates",
@@ -82,9 +84,14 @@ export const menuItemsBase: MenuItem[] = [
     tone: "bg-blue-400",
     metric: "0 links",
   },
+  {
+    label: "Commentary",
+    href: "/commentary",
+    detail: "GraphQL like comment",
+    tone: "bg-fuchsia-400",
+    metric: "",
+  },
   { label: "Validation", href: "/validation", tone: "bg-amber-400", metric: "0 rules" },
-  { label: "Exports", href: "/exports", tone: "bg-blue-400", metric: "0 targets" },
-  { label: "Imports", href: "/imports", tone: "bg-lime-400", metric: "0 queued" },
   {
     label: "SQL Query",
     href: "/sql-query",
@@ -93,10 +100,10 @@ export const menuItemsBase: MenuItem[] = [
     metric: "draft",
   },
   {
-    label: "Commentary",
-    href: "/commentary",
-    detail: "GraphQL like comment",
-    tone: "bg-fuchsia-400",
+    label: "Hierarchy",
+    href: "/hierarchy",
+    detail: "Order",
+    tone: "bg-emerald-400",
     metric: "",
   },
   {
@@ -106,13 +113,8 @@ export const menuItemsBase: MenuItem[] = [
     tone: "bg-slate-300",
     metric: "",
   },
-  {
-    label: "Hierarchy",
-    href: "/hierarchy",
-    detail: "Order",
-    tone: "bg-emerald-400",
-    metric: "",
-  },
+  { label: "Exports", href: "/exports", tone: "bg-blue-400", metric: "0 targets" },
+  { label: "Imports", href: "/imports", tone: "bg-lime-400", metric: "0 queued" },
   { label: "History", href: "/history", tone: "bg-teal-400", metric: "0 saves" },
 ];
 
@@ -125,6 +127,8 @@ export function computeMenuItems(project: Project | null): MenuItem[] {
     switch (item.label) {
       case "Tables":
         return { ...item, metric: `${project.tables} tables` };
+      case "Enums":
+        return { ...item, metric: `${project.enums ?? 0} enums` };
       case "Validation":
         return { ...item, metric: `${Math.max(0, project.fields - project.tables)} rules` };
       case "Relations":

@@ -278,6 +278,11 @@ export function SchemaPageContent() {
     [enumTypes, scalarTypes],
   );
 
+  const scalarTypeOptions = useMemo(
+    () => Array.from(new Set([...defaultFieldTypes, ...scalarTypes])),
+    [scalarTypes],
+  );
+
   const editableFields = useMemo(
     () => fields.filter((field) => field.isEditable && !field.isId),
     [fields],
@@ -838,7 +843,7 @@ export function SchemaPageContent() {
                               >
                                 <div className="flex gap-3">
                                   <div className="min-w-0 flex-1 grid gap-2">
-                                    <div className="grid grid-cols-[1fr_minmax(0,140px)_1fr] gap-2">
+                                    <div className={classNames("grid gap-2", enumTypes.includes(draft.input.type) ? "grid-cols-[1fr_minmax(0,120px)_minmax(0,140px)_1fr]" : "grid-cols-[1fr_minmax(0,140px)_1fr]")}>
                                       <label className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
                                         Name
                                         <input
@@ -851,17 +856,37 @@ export function SchemaPageContent() {
                                       <label className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
                                         Type
                                         <select
-                                          value={draft.input.type}
-                                          onChange={(event) => updateNewFieldDraft(draft.id, { type: event.target.value })}
-                                          className={classNames("mt-1 h-8 w-full rounded-md border px-2.5 text-xs font-medium normal-case tracking-normal outline-none transition focus:border-cyan-600", typeSelectClass(draft.input.type))}
+                                          value={enumTypes.includes(draft.input.type) ? "Enum" : draft.input.type}
+                                          onChange={(event) => {
+                                            const val = event.target.value;
+                                            if (val === "Enum") {
+                                              updateNewFieldDraft(draft.id, { type: enumTypes[0] ?? draft.input.type });
+                                            } else {
+                                              updateNewFieldDraft(draft.id, { type: val });
+                                            }
+                                          }}
+                                          className={classNames("mt-1 h-8 w-full rounded-md border px-2.5 text-xs font-medium normal-case tracking-normal outline-none transition focus:border-cyan-600", enumTypes.includes(draft.input.type) ? "border-indigo-200 bg-indigo-50 text-indigo-800" : typeSelectClass(draft.input.type))}
                                         >
-                                          {fieldTypeOptions.map((type) => (
-                                            <option key={type} value={type}>
-                                              {type}
-                                            </option>
+                                          {scalarTypeOptions.map((type) => (
+                                            <option key={type} value={type}>{type}</option>
                                           ))}
+                                          <option value="Enum" disabled={enumTypes.length === 0}>Enum</option>
                                         </select>
                                       </label>
+                                      {enumTypes.includes(draft.input.type) ? (
+                                        <label className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+                                          Enum
+                                          <select
+                                            value={draft.input.type}
+                                            onChange={(event) => updateNewFieldDraft(draft.id, { type: event.target.value })}
+                                            className="mt-1 h-8 w-full rounded-md border border-indigo-200 bg-indigo-50 px-2.5 text-xs font-medium normal-case tracking-normal text-indigo-800 outline-none transition focus:border-indigo-400"
+                                          >
+                                            {enumTypes.map((enumName) => (
+                                              <option key={enumName} value={enumName}>{enumName}</option>
+                                            ))}
+                                          </select>
+                                        </label>
+                                      ) : null}
                                       <label className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
                                         Default
                                         <input
@@ -956,7 +981,7 @@ export function SchemaPageContent() {
                             >
                               <div className="flex gap-3">
                                 <div className="min-w-0 flex-1 grid gap-2">
-                                  <div className="grid grid-cols-[1fr_minmax(0,140px)_1fr] gap-2">
+                                  <div className={classNames("grid gap-2", enumTypes.includes(draft.type) ? "grid-cols-[1fr_minmax(0,120px)_minmax(0,140px)_1fr]" : "grid-cols-[1fr_minmax(0,140px)_1fr]")}>
                                     <label className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
                                       Name
                                       <input
@@ -968,17 +993,37 @@ export function SchemaPageContent() {
                                     <label className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
                                       Type
                                       <select
-                                        value={draft.type}
-                                        onChange={(event) => updateDraft(field.key, { type: event.target.value })}
-                                        className={classNames("mt-1 h-8 w-full rounded-md border px-2.5 text-xs font-medium normal-case tracking-normal outline-none transition focus:border-cyan-600", typeSelectClass(draft.type))}
+                                        value={enumTypes.includes(draft.type) ? "Enum" : draft.type}
+                                        onChange={(event) => {
+                                          const val = event.target.value;
+                                          if (val === "Enum") {
+                                            updateDraft(field.key, { type: enumTypes[0] ?? draft.type });
+                                          } else {
+                                            updateDraft(field.key, { type: val });
+                                          }
+                                        }}
+                                        className={classNames("mt-1 h-8 w-full rounded-md border px-2.5 text-xs font-medium normal-case tracking-normal outline-none transition focus:border-cyan-600", enumTypes.includes(draft.type) ? "border-indigo-200 bg-indigo-50 text-indigo-800" : typeSelectClass(draft.type))}
                                       >
-                                        {fieldTypeOptions.map((type) => (
-                                          <option key={type} value={type}>
-                                            {type}
-                                          </option>
+                                        {scalarTypeOptions.map((type) => (
+                                          <option key={type} value={type}>{type}</option>
                                         ))}
+                                        <option value="Enum" disabled={enumTypes.length === 0}>Enum</option>
                                       </select>
                                     </label>
+                                    {enumTypes.includes(draft.type) ? (
+                                      <label className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+                                        Enum
+                                        <select
+                                          value={draft.type}
+                                          onChange={(event) => updateDraft(field.key, { type: event.target.value })}
+                                          className="mt-1 h-8 w-full rounded-md border border-indigo-200 bg-indigo-50 px-2.5 text-xs font-medium normal-case tracking-normal text-indigo-800 outline-none transition focus:border-indigo-400"
+                                        >
+                                          {enumTypes.map((enumName) => (
+                                            <option key={enumName} value={enumName}>{enumName}</option>
+                                          ))}
+                                        </select>
+                                      </label>
+                                    ) : null}
                                     <label className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
                                       Default
                                       <input
