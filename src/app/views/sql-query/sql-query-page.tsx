@@ -2,6 +2,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { format as formatSql } from "sql-formatter";
+import CodeMirror from "@uiw/react-codemirror";
+import { sql as sqlLang, SQLite } from "@codemirror/lang-sql";
+import { dracula } from "@uiw/codemirror-theme-dracula";
+import { keymap } from "@codemirror/view";
+import { Prec } from "@codemirror/state";
 import { classNames } from "../shared/dashboard-data";
 import { fieldTypeBadgeClass } from "@/lib/badge-utils";
 import { useProjectInfo } from "../shared/project-info-context";
@@ -92,7 +98,7 @@ function q(name: string) {
 }
 
 function generateSelect(modelName: string, fields: PrismaField[]) {
-  const cols = chunked(colFields(fields).map((f) => q(f.name)));
+  const cols = chunked(colFields(fields).map((f) => q(f.dbName)));
   return `SELECT\n  ${cols}\nFROM ${q(modelName)}\nLIMIT 10;`;
 }
 
@@ -100,7 +106,7 @@ function generateInsert(modelName: string, fields: PrismaField[]) {
   const insertable = colFields(fields).filter(
     (f) => !f.isId || (f.isId && f.defaultValue !== "autoincrement()"),
   );
-  const cols = chunked(insertable.map((f) => q(f.name)));
+  const cols = chunked(insertable.map((f) => q(f.dbName)));
   const vals = chunked(insertable.map((f) => sqlMockValue(f)));
   return `INSERT INTO ${q(modelName)} (\n  ${cols}\n) VALUES (\n  ${vals}\n);`;
 }
@@ -109,16 +115,16 @@ function generateUpdate(modelName: string, fields: PrismaField[]) {
   const pk = pkField(fields);
   const updatable = editableFields(fields);
   if (!pk || updatable.length === 0) return `-- No editable fields on ${modelName}`;
-  const pairs = updatable.map((f) => `${q(f.name)} = ${sqlMockValue(f)}`);
+  const pairs = updatable.map((f) => `${q(f.dbName)} = ${sqlMockValue(f)}`);
   const setClause = chunked(pairs);
   const pkVal = sqlMockValue(pk);
-  return `UPDATE ${q(modelName)}\nSET\n  ${setClause}\nWHERE ${q(pk.name)} = ${pkVal};`;
+  return `UPDATE ${q(modelName)}\nSET\n  ${setClause}\nWHERE ${q(pk.dbName)} = ${pkVal};`;
 }
 
 function generateDelete(modelName: string, fields: PrismaField[]) {
   const pk = pkField(fields);
   if (!pk) return `-- No primary key on ${modelName}`;
-  return `DELETE FROM ${q(modelName)}\nWHERE ${q(pk.name)} = ${sqlMockValue(pk)};`;
+  return `DELETE FROM ${q(modelName)}\nWHERE ${q(pk.dbName)} = ${sqlMockValue(pk)};`;
 }
 
 // ─── component ────────────────────────────────────────────────────────────────
@@ -137,8 +143,6 @@ export function SqlQueryPageContent() {
   const [sql, setSql] = useState("");
   const [executing, setExecuting] = useState(false);
   const [queryResult, setQueryResult] = useState<QueryResult | null>(null);
-
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const { models: templateModels } = useSchemaModels(projectName, version);
   const [selectedTemplate, setSelectedTemplate] = useState("");
@@ -264,12 +268,29 @@ export function SqlQueryPageContent() {
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      void handleRun();
+  const handleFormat = () => {
+    if (!sql.trim()) return;
+    try {
+      setSql(formatSql(sql, { language: "sqlite", tabWidth: 2, keywordCase: "upper" }));
+    } catch {
+      // leave sql unchanged if formatter can't parse it
     }
   };
+
+  const handleRunRef = useRef(handleRun);
+  handleRunRef.current = handleRun;
+  const handleFormatRef = useRef(handleFormat);
+  handleFormatRef.current = handleFormat;
+
+  const editorExtensions = [
+    sqlLang({ dialect: SQLite }),
+    Prec.highest(
+      keymap.of([
+        { key: "Mod-Enter", run: () => { void handleRunRef.current(); return true; } },
+        { key: "Shift-Alt-f", run: () => { handleFormatRef.current(); return true; } },
+      ]),
+    ),
+  ];
 
   if (!hasProject) {
     return (
@@ -396,43 +417,62 @@ export function SqlQueryPageContent() {
       ) : null}
 
       {/* SQL editor card */}
-      <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 px-5 py-3">
+      <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
             SQL Editor
           </p>
+          <p className="text-xs font-medium text-slate-400">
+            Ctrl+Enter to run · Shift+Alt+F to format
+          </p>
         </div>
-        <div className="p-5">
-          <textarea
-            ref={textareaRef}
+        <div
+          className={classNames(
+            "transition",
+            !isInitialized && "pointer-events-none opacity-50",
+          )}
+        >
+          <CodeMirror
             value={sql}
-            onChange={(e) => setSql(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={!isInitialized}
+            theme={dracula}
+            height="260px"
+            editable={isInitialized}
             placeholder={
               isInitialized
                 ? "SELECT * FROM users LIMIT 20;"
                 : "Initialize the database first to run queries."
             }
-            rows={10}
-            className={classNames(
-              "w-full resize-y rounded-md border bg-white px-3 py-2.5 font-mono text-sm text-slate-950 outline-none transition placeholder:text-slate-400",
-              isInitialized
-                ? "border-slate-300 focus:border-orange-500"
-                : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
-            )}
+            extensions={editorExtensions}
+            onChange={(value) => setSql(value)}
+            basicSetup={{
+              lineNumbers: true,
+              highlightActiveLineGutter: true,
+              highlightActiveLine: true,
+              foldGutter: false,
+              bracketMatching: true,
+              closeBrackets: true,
+              autocompletion: true,
+              indentOnInput: true,
+            }}
           />
-          <div className="mt-3 flex items-center justify-between gap-3">
-            <p className="text-xs font-medium text-slate-400">Ctrl+Enter to run</p>
-            <button
-              type="button"
-              onClick={() => void handleRun()}
-              disabled={!isInitialized || !sql.trim() || executing}
-              className="h-10 min-w-28 rounded-md bg-orange-600 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-            >
-              {executing ? "Running…" : "Run Query"}
-            </button>
-          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-[#282a36] px-4 py-3">
+          <button
+            type="button"
+            onClick={handleFormat}
+            disabled={!sql.trim()}
+            className="h-9 rounded-md border border-slate-500 bg-transparent px-4 text-sm font-semibold text-slate-300 transition hover:border-slate-400 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+          >
+            Format
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleRun()}
+            disabled={!isInitialized || !sql.trim() || executing}
+            className="h-9 min-w-28 rounded-md bg-orange-500 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-400"
+          >
+            {executing ? "Running…" : "Run Query"}
+          </button>
         </div>
       </section>
 

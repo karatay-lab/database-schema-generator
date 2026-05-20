@@ -195,6 +195,17 @@ export function SchemaPageContent() {
   const enumTypes: string[] = fieldsQuery.data?.enumTypes ?? [];
   const scalarTypes: string[] = fieldsQuery.data?.scalarTypes ?? [];
 
+  const enumsListQuery = useQuery(
+    trpc.enums.list.queryOptions(
+      { projectName, version },
+      { enabled: !!projectName && !!version },
+    ),
+  );
+  const enumsList = enumsListQuery.data ?? [];
+
+  const getEnumValues = (enumName: string) =>
+    enumsList.find((e) => e.name === enumName)?.values ?? [];
+
   const templatesQuery = useQuery(trpc.fieldTemplates.list.queryOptions());
   const templates: FieldTemplate[] = (templatesQuery.data ?? []) as FieldTemplate[];
 
@@ -805,6 +816,7 @@ export function SchemaPageContent() {
                       {[
                         { label: "Name", desc: "Prisma field name — camelCase, used in generated code and queries." },
                         { label: "Type", desc: "Scalar type written into the Prisma schema (String, Int, Boolean…)." },
+                        { label: "Enum (indigo)", desc: "Project-defined enum type — select \"Enum\" in Type to reveal the enum picker. Values are shown as chips below." },
                         { label: "Default", desc: "Default value expression in the schema, e.g. now(), false, 0." },
                         { label: "Comment", desc: "Free-text note stored as a Prisma comment (/// …) above the field." },
                         { label: "Nullable (green)", desc: "Field is optional — Prisma adds ? suffix, column accepts NULL." },
@@ -897,6 +909,25 @@ export function SchemaPageContent() {
                                         />
                                       </label>
                                     </div>
+                                    {enumTypes.includes(draft.input.type) ? (
+                                      <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-indigo-100 bg-indigo-50/70 px-2.5 py-1.5">
+                                        <span className="mr-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-indigo-400">Values</span>
+                                        {getEnumValues(draft.input.type).length === 0 ? (
+                                          <span className="text-[10px] font-medium text-indigo-300">No values defined</span>
+                                        ) : (
+                                          <>
+                                            {getEnumValues(draft.input.type).slice(0, 12).map((v) => (
+                                              <span key={v.valueId} className="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
+                                                {v.name}
+                                              </span>
+                                            ))}
+                                            {getEnumValues(draft.input.type).length > 12 ? (
+                                              <span className="text-[10px] font-medium text-indigo-400">+{getEnumValues(draft.input.type).length - 12} more</span>
+                                            ) : null}
+                                          </>
+                                        )}
+                                      </div>
+                                    ) : null}
                                     <label className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
                                       Comment
                                       <input
@@ -1034,6 +1065,25 @@ export function SchemaPageContent() {
                                       />
                                     </label>
                                   </div>
+                                  {enumTypes.includes(draft.type) ? (
+                                    <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-indigo-100 bg-indigo-50/70 px-2.5 py-1.5">
+                                      <span className="mr-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-indigo-400">Values</span>
+                                      {getEnumValues(draft.type).length === 0 ? (
+                                        <span className="text-[10px] font-medium text-indigo-300">No values defined</span>
+                                      ) : (
+                                        <>
+                                          {getEnumValues(draft.type).slice(0, 12).map((v) => (
+                                            <span key={v.valueId} className="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
+                                              {v.name}
+                                            </span>
+                                          ))}
+                                          {getEnumValues(draft.type).length > 12 ? (
+                                            <span className="text-[10px] font-medium text-indigo-400">+{getEnumValues(draft.type).length - 12} more</span>
+                                          ) : null}
+                                        </>
+                                      )}
+                                    </div>
+                                  ) : null}
                                   <label className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
                                     Comment
                                     <input
