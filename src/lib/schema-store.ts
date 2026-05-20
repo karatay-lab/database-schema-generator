@@ -2821,8 +2821,9 @@ function renderFieldSQLite(field: CanonicalField, model: CanonicalModel, store: 
   if (field.constraints.some((c) => c.type === "UPDATED_AT")) attributes.push("@updatedAt");
 
   // Skip @db.* native attributes — not valid for SQLite provider
+  // @map is only valid on scalar fields, never on relation fields
   const dbName = field.dbName ?? normalizeDatabaseIdentifier(field.name);
-  if (dbName && dbName !== field.name) attributes.push(`@map(${quotedPrismaString(dbName)})`);
+  if (!field.relation && dbName && dbName !== field.name) attributes.push(`@map(${quotedPrismaString(dbName)})`);
 
   if (field.relation) {
     const targetModel = field.relation.fields.length > 0
