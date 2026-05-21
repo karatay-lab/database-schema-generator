@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import { db } from "./client";
 
 export type MigrationSnapshot = {
@@ -246,7 +247,6 @@ export function upsertMigrationSession(data: {
   ).get(data.projectId, data.fromVersion, data.toVersion, data.connectionId) as { id: string } | undefined;
 
   if (!existing) {
-    const { randomUUID } = require("node:crypto") as typeof import("node:crypto");
     const id = randomUUID();
     db.prepare(`
       INSERT INTO migration_sessions
@@ -313,6 +313,51 @@ export function listMigrationSessions(projectId?: string): MigrationSession[] {
     ? db.prepare(query).all(projectId)
     : db.prepare(query).all()) as SessionRow[];
   return rows.map(rowToSession);
+}
+
+// ─── Migration Logs ───────────────────────────────────────────────────────────
+
+export type MigrationLog = {
+  id: string;
+  projectId: string;
+  connectionId: string;
+  fromVersion: string | null;
+  toVersion: string;
+  status: string;
+  content: Record<string, unknown>;
+  createdAt: string;
+};
+
+export function insertMigrationLog(data: Omit<MigrationLog, "createdAt" | "content"> & { content: Record<string, unknown> }): void {
+  db.prepare(`
+    INSERT INTO migration_logs (id, project_id, connection_id, from_version, to_version, status, content, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    data.id ?? randomUUID(),
+    data.projectId,
+    data.connectionId,
+    data.fromVersion ?? null,
+    data.toVersion,
+    data.status,
+    JSON.stringify(data.content),
+    new Date().toISOString(),
+  );
+}
+
+export function listMigrationLogs(projectId: string): MigrationLog[] {
+  const rows = db.prepare(
+    `SELECT * FROM migration_logs WHERE project_id = ? ORDER BY created_at DESC LIMIT 50`,
+  ).all(projectId) as { id: string; project_id: string; connection_id: string; from_version: string | null; to_version: string; status: string; content: string; created_at: string }[];
+  return rows.map((r) => ({
+    id: r.id,
+    projectId: r.project_id,
+    connectionId: r.connection_id,
+    fromVersion: r.from_version,
+    toVersion: r.to_version,
+    status: r.status,
+    content: JSON.parse(r.content) as Record<string, unknown>,
+    createdAt: r.created_at,
+  }));
 }
 
 export function getMigrationSession(

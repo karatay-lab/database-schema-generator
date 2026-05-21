@@ -167,3 +167,17 @@ export type PushNewResponse = {
   newVersion?: string;
   error?: string;
 };
+
+export type ColumnIssue = {
+  table: string;
+  missingColumns: string[];
+};
+
+export type CheckSyncResponse = {
+  success: boolean;
+  compatible?: boolean;
+  missingTables?: string[];
+  extraTables?: string[];
+  columnIssues?: ColumnIssue[];
+  error?: string;
+};

@@ -7,6 +7,11 @@ export type TypeConversionRule = {
   warning?: string;
 };
 
+const KNOWN_SCALARS = new Set([
+  "string", "text", "integer", "int", "bigint", "float", "decimal",
+  "boolean", "timestamp", "datetime", "json", "bytes",
+]);
+
 const compatibleConversions: Record<string, Set<string>> = {
   integer: new Set(["decimal", "float", "string", "text", "bytes"]),
   string: new Set(["text"]),
@@ -17,10 +22,19 @@ export function checkTypeConversion(fromType: string, toType: string): TypeConve
   const from = fromType.toLowerCase();
   const to = toType.toLowerCase();
   if (from === to) return { compatible: true };
+
+  // Non-scalar target (enum): string source is compatible — values cast to enum member.
+  if (!KNOWN_SCALARS.has(to)) {
+    if (from === "string" || from === "text") {
+      return { compatible: true, warning: `String values will be cast to enum "${toType}". Ensure all existing values match valid enum members.` };
+    }
+    return { compatible: false };
+  }
+
   const compatible = compatibleConversions[from]?.has(to) ?? false;
   if (!compatible) return { compatible: false };
   if (from === "float" && to === "integer") {
-    return { compatible: true, warning: "Float values will be rounded." };
+    return { compatible: true, warning: "Float values will be truncated to integer." };
   }
   return { compatible: true };
 }

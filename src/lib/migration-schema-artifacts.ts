@@ -16,7 +16,7 @@ export function renderMigrationPrismaSchema(
   version: string,
 ) {
   const graph = readProjectVersionGraph(projectName, version);
-  const content = renderPrismaSchemaFromGraph(graph, { includeMigrationReference: true });
+  const content = renderPrismaSchemaFromGraph(graph, { includeMigrationReference: false });
 
   return { content };
 }

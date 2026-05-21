@@ -9,7 +9,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "seed:workflows": "npx tsx src/test/run.ts"
+    "seed:workflows": "npx tsx src/test/run.ts",
+    "seed:db": "npx tsx src/test/first-workflows/seed-db.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
@@ -35,6 +36,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.16.0",
+    "mysql2": "^3.22.3",
     "next": "16.2.4",
     "next-themes": "^0.4.6",
     "pg": "^8.20.0",

@@ -4,6 +4,7 @@ import { createReadStream } from "node:fs";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Client } from "pg";
+import mysql from "mysql2/promise";
 import Database from "better-sqlite3";
 import { getSchema } from "@mrleebo/prisma-ast";
 import type { Model } from "@mrleebo/prisma-ast";
@@ -188,6 +189,39 @@ function querySQLite(dbPath: string, modelInfos: ModelInfo[]): QueryResult[] {
   return results;
 }
 
+// ─── MySQL query ─────────────────────────────────────────────────────────────
+
+async function queryMySQL(connectionUrl: string, modelInfos: ModelInfo[]): Promise<QueryResult[]> {
+  const conn = await mysql.createConnection(connectionUrl);
+  const results: QueryResult[] = [];
+  try {
+    const [tableRows] = await conn.execute<mysql.RowDataPacket[]>(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE' ORDER BY table_name`,
+    );
+    const dbTables = tableRows.map((r) => r.table_name as string);
+
+    for (const { modelName, tableName } of modelInfos) {
+      const resolved = resolveTableName(tableName, dbTables);
+      if (!resolved) {
+        results.push({ modelName, schemaTable: tableName, resolvedTable: tableName, matched: false, records: [], queryError: null });
+        continue;
+      }
+      let records: Record<string, unknown>[] = [];
+      let queryError: string | null = null;
+      try {
+        const [rows] = await conn.execute<mysql.RowDataPacket[]>(`SELECT * FROM \`${resolved}\``);
+        records = rows as Record<string, unknown>[];
+      } catch (e) {
+        queryError = e instanceof Error ? e.message : String(e);
+      }
+      results.push({ modelName, schemaTable: tableName, resolvedTable: resolved, matched: true, records, queryError });
+    }
+  } finally {
+    await conn.end();
+  }
+  return results;
+}
+
 // ─── route handler ────────────────────────────────────────────────────────────
 
 export async function POST(request: Request) {
@@ -298,6 +332,8 @@ export async function POST(request: Request) {
   try {
     if (provider === "sqlite") {
       queryResults = querySQLite(stored.database, modelInfos);
+    } else if (provider === "mysql") {
+      queryResults = await queryMySQL(connectionUrl, modelInfos);
     } else {
       queryResults = await queryPostgres(connectionUrl, modelInfos);
     }

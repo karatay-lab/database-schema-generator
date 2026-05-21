@@ -595,6 +595,17 @@ db.exec(`
     exported_at TEXT NOT NULL,
     is_downloaded INTEGER NOT NULL DEFAULT 0
   );
+
+  CREATE TABLE IF NOT EXISTS migration_logs (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    connection_id TEXT NOT NULL,
+    from_version TEXT,
+    to_version TEXT NOT NULL,
+    status TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
 `);
 
 // One-time column upgrades for tables that pre-date these columns.
