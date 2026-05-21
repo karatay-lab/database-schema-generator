@@ -1,11 +1,10 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-
 import {
-  listSchemaImports,
-  matchImportedSchema,
-  syncProjectSchema,
-  uploadImportedSchemas,
+  parsePickle,
+  summarizePickle,
+  importVersionPickle,
+  importProjectPickle,
 } from "@/lib/schema-imports-store";
 import { baseProcedure, createTRPCRouter } from "../init";
 
@@ -17,59 +16,47 @@ function trpcError(err: unknown, fallback = "Operation failed."): never {
 }
 
 export const importsRouter = createTRPCRouter({
-  list: baseProcedure.query(async () => {
-    try {
-      return await listSchemaImports();
-    } catch (err) {
-      trpcError(err, "Could not read imports.");
-    }
-  }),
-
-  // Files are read as text on the client before sending via tRPC JSON.
-  upload: baseProcedure
-    .input(
-      z.object({
-        files: z.array(z.object({ content: z.string(), fileName: z.string() })),
-      })
-    )
-    .mutation(async ({ input }) => {
+  parse: baseProcedure
+    .input(z.object({ content: z.string() }))
+    .mutation(({ input }) => {
       try {
-        const imported = await uploadImportedSchemas(input.files);
-        const list = await listSchemaImports();
-        return { ...list, imported };
+        const pickle = parsePickle(input.content);
+        return summarizePickle(pickle);
       } catch (err) {
-        trpcError(err, "Upload failed.");
+        trpcError(err, "Could not parse pickle file.");
       }
     }),
 
-  match: baseProcedure
+  importVersion: baseProcedure
     .input(
       z.object({
-        fileName: z.string(),
-        projectId: z.string(),
-        projectName: z.string(),
-        replaceVersion: z.string().optional(),
-      })
+        content: z.string(),
+        projectId: z.string().optional(),
+        projectName: z.string().optional(),
+        versionName: z.string().optional(),
+        replace: z.boolean().optional(),
+      }),
     )
     .mutation(async ({ input }) => {
       try {
-        const result = await matchImportedSchema(input);
-        const list = await listSchemaImports();
-        return { ...list, result };
+        return await importVersionPickle(input);
       } catch (err) {
-        trpcError(err, "Match failed.");
+        trpcError(err, "Version import failed.");
       }
     }),
 
-  sync: baseProcedure
-    .input(z.object({ projectId: z.string(), version: z.string() }))
+  importProject: baseProcedure
+    .input(
+      z.object({
+        content: z.string(),
+        projectName: z.string().optional(),
+      }),
+    )
     .mutation(async ({ input }) => {
       try {
-        const result = await syncProjectSchema(input.projectId, input.version);
-        const list = await listSchemaImports();
-        return { ...list, result };
+        return await importProjectPickle(input);
       } catch (err) {
-        trpcError(err, "Sync failed.");
+        trpcError(err, "Project import failed.");
       }
     }),
 });

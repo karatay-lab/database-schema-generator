@@ -68,7 +68,7 @@ function seedFieldTemplates(sqlite: InstanceType<typeof Database>) {
 }
 
 if (!global._appDb) {
-  const dbPath = path.join(process.cwd(), "src/database/app.db");
+  const dbPath = process.env.TEST_DB_PATH ?? path.join(process.cwd(), "src/database/app.db");
   const sqlite = new Database(dbPath);
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("foreign_keys = ON");
