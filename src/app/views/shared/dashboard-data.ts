@@ -114,7 +114,7 @@ export const menuItemsBase: MenuItem[] = [
     metric: "",
   },
   { label: "Exports", href: "/exports", tone: "bg-blue-400", metric: "0 targets" },
-  { label: "Imports", href: "/imports", tone: "bg-lime-400", metric: "0 queued" },
+  { label: "Imports", href: "/imports", tone: "bg-lime-400", metric: "" },
   { label: "History", href: "/history", tone: "bg-teal-400", metric: "0 saves" },
 ];
 
@@ -138,7 +138,7 @@ export function computeMenuItems(project: Project | null): MenuItem[] {
       case "Hierarchy":
         return { ...item, metric: `${project.relations} deps` };
       case "Imports":
-        return { ...item, metric: `${project.imports ?? 0} queued` };
+        return item;
       case "History":
         return { ...item, metric: `${project.versions.length} saves` };
       default:
@@ -194,7 +194,7 @@ export const workflowSummaries: Record<string, string> = {
   Relations: "Model relation templates, delete behavior, and provider-specific restrictions.",
   Schema: "Inspect generated Prisma and Drizzle field templates before writing artifacts.",
   Exports: "Prepare schema bundles for SQL, Prisma, Drizzle, JSON, and documentation output.",
-  Imports: "Queue external schema input and normalize it into project-owned metadata.",
+  Imports: "Upload a version or project pickle to restore schema data into this project.",
   "SQL Query": "Draft provider-aware SQL examples against the selected schema version.",
   Commentary: "Plan GraphQL-like schema comments and generated documentation hints.",
   Migrations: "Compare committed schema state with the active draft and prepare sync steps.",

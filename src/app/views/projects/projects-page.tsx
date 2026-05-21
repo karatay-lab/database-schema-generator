@@ -459,10 +459,15 @@ export function ProjectsPageContent() {
                 return (
                   <div
                     key={project.id}
+                    onClick={!isEditing ? () => setActiveProjectId(project.id) : undefined}
                     className={classNames(
-                      "overflow-hidden rounded-xl border border-l-4 bg-white shadow-sm transition-shadow hover:shadow-md",
-                      isEditing ? "border-l-amber-400" : cfg.border,
-                      isActive && !isEditing ? "ring-1 ring-emerald-200 border-emerald-200" : "border-slate-200",
+                      "overflow-hidden rounded-xl border border-l-4 shadow-sm transition-all",
+                      !isEditing && "cursor-pointer",
+                      isEditing
+                        ? "border-l-amber-400 bg-white"
+                        : isActive
+                          ? "border-emerald-200 bg-emerald-50 ring-1 ring-emerald-200 hover:bg-emerald-100/60"
+                          : `${cfg.border} border-slate-200 bg-white hover:bg-slate-50 hover:shadow-md`,
                     )}
                   >
                     {isEditing ? (
@@ -562,13 +567,13 @@ export function ProjectsPageContent() {
                           </Button>
                           <Button
                             variant="outline" size="icon-sm"
-                            onClick={() => startProjectEdit(project)}
+                            onClick={(e) => { e.stopPropagation(); startProjectEdit(project); }}
                             className="hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
                             aria-label="Edit"
                           >
                             <PencilIcon />
                           </Button>
-                          <Button variant="destructive" size="sm" className="h-7" onClick={() => setDeleteTarget(project)}>
+                          <Button variant="destructive" size="sm" className="h-7" onClick={(e) => { e.stopPropagation(); setDeleteTarget(project); }}>
                             Delete
                           </Button>
                         </div>
@@ -605,9 +610,9 @@ export function ProjectsPageContent() {
                   {activeVersions.length === 0 ? (
                     <p className="py-4 text-center text-sm text-slate-400">No versions available.</p>
                   ) : (
-                    [...activeVersions].reverse().map((version, idx) => {
+                    activeVersions.map((version, idx) => {
                       const isSelected = version === selectedVersion;
-                      const isLatest = idx === 0;
+                      const isLatest = idx === activeVersions.length - 1;
                       return (
                         <button
                           key={version}

@@ -2,7 +2,6 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import { getSchemaStats, testPrismaSchema } from "@/lib/schema-store";
-import { listSchemaImports } from "@/lib/schema-imports-store";
 import { generateZodSchema } from "@/lib/schema-validation/generator";
 import { listZodSchemas, readZodSchema, updateZodSchemaTargetPath, updateZodSchemaName, deleteZodSchema, deleteAllZodSchemas } from "@/lib/db/zod-schemas";
 import { db } from "@/lib/db/client";
@@ -31,9 +30,7 @@ export const schemaRouter = createTRPCRouter({
     .query(async ({ input }) => {
       try {
         const schemaStats = await getSchemaStats(input.projectName, input.version);
-        const importStats = await listSchemaImports();
-        const importCount = importStats.groups.reduce((n, g) => n + g.files.length, 0);
-        return { ...schemaStats, imports: importCount };
+        return { ...schemaStats, imports: 0 };
       } catch (err) {
         trpcError(err, "Could not get schema stats.");
       }
