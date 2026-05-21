@@ -55,7 +55,13 @@ function defaultAttribute(field: SchemaGraphField, provider: string) {
   const value = providerValue || field.defaultValue;
 
   if (!value || field.defaultKind === "none") return "";
-  if (field.defaultKind === "literal") return `@default(${value})`;
+  if (field.defaultKind === "literal") {
+    // Enum types require bare unquoted values: @default(AUTHOR) not @default("AUTHOR").
+    // Scalar types (String, Int, etc.) keep their surrounding quotes as-is.
+    const isEnum = !(field.logicalType in logicalToPrisma);
+    const cleanValue = isEnum ? value.replace(/^["']|["']$/g, "") : value;
+    return `@default(${cleanValue})`;
+  }
   if (field.defaultKind === "dbgenerated") return `@default(${value})`;
   if (field.defaultKind === "autoincrement") return "@default(autoincrement())";
   if (field.defaultKind === "uuid") return value.startsWith("dbgenerated(") ? `@default(${value})` : "@default(uuid())";

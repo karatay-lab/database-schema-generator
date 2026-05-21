@@ -227,10 +227,16 @@ function runStage2(
     // Rename map for this model: v1 field name → v2 field name
     const renameMap = renameMapsByModel.get(model.name) ?? new Map<string, string>();
 
+    // Keys actually present in the collected data after renames applied.
+    // Fields absent here are new in v2 — runUpgradeRules already warns about them;
+    // validating them here produces duplicate errors for missing required values.
+    const presentKeys = new Set(Object.keys(applyRenames(records[0]!, renameMap)));
+
     const shape: Record<string, z.ZodTypeAny> = {};
     for (const field of model.fields) {
       if (!scalarTypes.has(field.type)) continue;
-      shape[field.name] = prismaTypeToZod(field.type, field.optional);
+      const isNewField = !presentKeys.has(field.name);
+      shape[field.name] = prismaTypeToZod(field.type, field.optional || isNewField);
     }
     const schema = z.object(shape).passthrough();
 
@@ -275,7 +281,13 @@ function runUpgradeRules(
       snapshotsByTable.get(targetModel.name) ??
       [];
 
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
     for (const targetField of targetModel.fields) {
+      // Relation back-references store the relation UUID as their type — skip them.
+      // They have no DB column and no collected data counterpart.
+      if (UUID_RE.test(targetField.type ?? "")) continue;
+
       const sourceField = sourceModel.fields.find(
         (field) => (field.fieldId ?? field.key) === (targetField.fieldId ?? targetField.key),
       );

@@ -267,6 +267,99 @@ function SummaryBar({ c }: { c: ModelComparisonResult }) {
   );
 }
 
+// ─── diff warnings ─────────────────────────────────────────────────────────────
+
+type DiffWarning = {
+  severity: "error" | "warning";
+  model: string;
+  field?: string;
+  message: string;
+};
+
+function computeWarnings(c: ModelComparisonResult): DiffWarning[] {
+  const out: DiffWarning[] = [];
+
+  for (const m of c.removedModels) {
+    out.push({ severity: "error", model: m.name, message: `Model "${m.name}" removed — all rows in this table will be dropped` });
+  }
+
+  for (const m of c.matchedModels) {
+    if (m.nameChanged) {
+      out.push({ severity: "warning", model: m.toName, message: `Model renamed "${m.fromName}" → "${m.toName}" — tracked by UUID, records will still map correctly` });
+    }
+
+    for (const f of m.matchedFields) {
+      if (f.isRelation) continue;
+      if (f.typeChanged) {
+        out.push({ severity: "error", model: m.toName, field: f.toName, message: `Type changed ${f.fromType} → ${f.toType} — data loss or coercion failure possible` });
+      }
+      if (f.fromNullable && !f.toNullable) {
+        out.push({ severity: "warning", model: m.toName, field: f.toName, message: `Nullable → Required — rows with null values will receive a generated placeholder` });
+      }
+      if (f.nameChanged && !f.typeChanged) {
+        out.push({ severity: "warning", model: m.toName, field: f.toName, message: `Field renamed "${f.fromName}" → "${f.toName}" — tracked by UUID, values will carry over` });
+      }
+    }
+
+    for (const f of m.removedFields) {
+      out.push({ severity: "warning", model: m.toName, field: f.name, message: `Field "${f.name}" removed — data in this column will be dropped` });
+    }
+
+    for (const f of m.addedFields) {
+      if (!f.nullable) {
+        out.push({ severity: "warning", model: m.toName, field: f.name, message: `New required field "${f.name}" — existing rows will receive a generated placeholder value` });
+      }
+    }
+  }
+
+  return out;
+}
+
+function WarningsPanel({ warnings }: { warnings: DiffWarning[] }) {
+  const [open, setOpen] = useState(false);
+  if (warnings.length === 0) return null;
+  const errors = warnings.filter((w) => w.severity === "error");
+  const warns = warnings.filter((w) => w.severity === "warning");
+  return (
+    <div className={classNames(
+      "rounded-md border text-xs",
+      errors.length > 0 ? "border-rose-200 bg-rose-50" : "border-amber-200 bg-amber-50",
+    )}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left"
+      >
+        <Chevron open={open} />
+        <span className={classNames("font-semibold", errors.length > 0 ? "text-rose-700" : "text-amber-700")}>
+          {errors.length > 0 && `${errors.length} data-loss risk${errors.length !== 1 ? "s" : ""}`}
+          {errors.length > 0 && warns.length > 0 && " · "}
+          {warns.length > 0 && `${warns.length} warning${warns.length !== 1 ? "s" : ""}`}
+        </span>
+        <span className="ml-auto text-[10px] text-slate-400">click to {open ? "collapse" : "expand"}</span>
+      </button>
+      {open && (
+        <div className="divide-y border-t border-inherit">
+          {warnings.map((w, i) => (
+            <div key={i} className="flex items-start gap-2 px-3 py-1.5">
+              <span className={classNames(
+                "mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase",
+                w.severity === "error" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700",
+              )}>
+                {w.severity === "error" ? "risk" : "warn"}
+              </span>
+              <div className="min-w-0">
+                <span className="font-mono font-semibold text-slate-700">{w.model}{w.field ? `.${w.field}` : ""}</span>
+                <span className="ml-2 text-slate-500">{w.message}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── main component ─────────────────────────────────────────────────────────────
 
 export function ModelDiff({
@@ -278,6 +371,7 @@ export function ModelDiff({
   toVersion: toVersionProp,
   onZodGenerated,
   onOpenFullScreen,
+  onComparisonReady,
 }: {
   projectName: string;
   versions: string[];
@@ -287,6 +381,7 @@ export function ModelDiff({
   toVersion?: string;
   onZodGenerated?: () => void;
   onOpenFullScreen?: () => void;
+  onComparisonReady?: (comparison: ModelComparisonResult) => void;
 }) {
   // Versions always come from props — no local selectors in either mode.
   const fromVersion = fromVersionProp ?? versions[0] ?? "";
@@ -330,15 +425,18 @@ export function ModelDiff({
       }
       setComparison(data.comparison);
       setCompareState("success");
+      onComparisonReady?.(data.comparison);
     } catch (err) {
       setCompareState("error");
       setCompareError(err instanceof Error ? err.message : "Comparison failed.");
     }
   }
 
-  // Auto-compare once on mount when opened as a full-screen modal with valid versions.
+  // Auto-compare: full-screen modal on mount, inline mode whenever versions change.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (!inline && !autoCompared.current && fromVersion && toVersion && fromVersion !== toVersion) { autoCompared.current = true; void runCompare(); } }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
+  useEffect(() => { if (inline && fromVersion && toVersion && fromVersion !== toVersion) { void runCompare(); } }, [fromVersion, toVersion]);
 
   async function runZodGeneration() {
     setZodState("loading");
@@ -367,29 +465,55 @@ export function ModelDiff({
 
   // ── inline variant ────────────────────────────────────────────────────────────
   if (inline) {
+    const warnings = comparison ? computeWarnings(comparison) : [];
     return (
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {/* version display */}
-        <div className="flex items-center gap-2 text-sm">
-          <span className="font-semibold text-slate-700">{fromVersion}</span>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-4 w-4 shrink-0 text-slate-400">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5-5 5M6 7l5 5-5 5" />
-          </svg>
-          <span className="font-semibold text-slate-700">{toVersion}</span>
-        </div>
-
-        {/* actions */}
-        <div className="flex items-center gap-2">
+      <div className="space-y-3">
+        {/* version + compare status */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-sm">
+            <span className="font-semibold text-slate-700">{fromVersion}</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-4 w-4 shrink-0 text-slate-400">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5-5 5M6 7l5 5-5 5" />
+            </svg>
+            <span className="font-semibold text-slate-700">{toVersion}</span>
+            {compareState === "loading" && <span className="text-xs text-slate-400">Comparing…</span>}
+            {compareState === "success" && comparison && (
+              <span className="text-xs text-slate-400">
+                <SummaryBar c={comparison} />
+              </span>
+            )}
+          </div>
           {onOpenFullScreen && (
             <button
               type="button"
               onClick={onOpenFullScreen}
               className="h-8 rounded-md bg-slate-800 px-3 text-xs font-semibold text-white transition hover:bg-slate-700"
             >
-              View Diff
+              View Full Diff
             </button>
           )}
         </div>
+
+        {/* warnings panel */}
+        {compareState === "success" && <WarningsPanel warnings={warnings} />}
+
+        {/* Zod generation — required to proceed */}
+        {compareState === "success" && (
+          <div className="flex items-center gap-3 border-t border-slate-100 pt-3">
+            <button
+              type="button"
+              disabled={zodState === "loading" || zodState === "success"}
+              onClick={() => void runZodGeneration()}
+              className="h-8 rounded-md bg-slate-800 px-3 text-xs font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+            >
+              {zodState === "loading" ? "Generating…" : zodState === "success" ? "Validators Generated ✓" : "Generate Zod Validators"}
+            </button>
+            {zodState !== "idle" && <StateChip state={zodState} />}
+            {zodState === "error" && zodError && (
+              <span className="text-xs text-rose-600">{zodError}</span>
+            )}
+          </div>
+        )}
       </div>
     );
   }

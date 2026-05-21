@@ -5,11 +5,13 @@ import { classNames } from "../shared/dashboard-data";
 import { useProjectInfo } from "../shared/project-info-context";
 import { ModelDiff } from "./model-diff";
 import type {
+  CheckSyncResponse,
   CollectResponse,
   ConnectionRecord,
   ConnectionsResponse,
   ConnectResponse,
   InvalidRow,
+  ModelComparisonResult,
   PhaseState,
   PushNewResponse,
   RunResponse,
@@ -180,6 +182,10 @@ export function MigrationsPageContent() {
   const [loadingConnections, setLoadingConnections] = useState(false);
   const [deletingId, setDeletingId] = useState<string>("");
 
+  // ── sync compatibility check ──
+  const [syncCheckState, setSyncCheckState] = useState<"idle" | "loading" | "compatible" | "incompatible">("idle");
+  const [syncCheckResult, setSyncCheckResult] = useState<CheckSyncResponse | null>(null);
+
   // ── step 1: new connection form ──
   const [showNewForm, setShowNewForm] = useState(false);
   const [connectionName, setConnectionName] = useState("");
@@ -198,6 +204,12 @@ export function MigrationsPageContent() {
   const [newTargetVersion, setNewTargetVersion] = useState(versions[versions.length - 1] ?? "");
   const [pushState, setPushState] = useState<PhaseState>("idle");
   const [pushError, setPushError] = useState("");
+  const [showDestroyModal, setShowDestroyModal] = useState(false);
+  const [destroyConfirmText, setDestroyConfirmText] = useState("");
+
+  // ── connection test ──
+  const [testingId, setTestingId] = useState("");
+  const [testResults, setTestResults] = useState<Record<string, { success: boolean; tables?: string[]; error?: string }>>({});
 
   // ── version plan ──
   const [syncVersion, setSyncVersion] = useState("");
@@ -206,6 +218,10 @@ export function MigrationsPageContent() {
   // ── step 2: model diff ──
   const [modelDiffState, setModelDiffState] = useState<PhaseState>("idle");
   const [showModelDiffModal, setShowModelDiffModal] = useState(false);
+  const [comparison, setComparison] = useState<ModelComparisonResult | null>(null);
+
+  // ── pre-flight modal ──
+  const [showPreflightModal, setShowPreflightModal] = useState(false);
 
   // ── step 3: schema check ──
   const [schemaCheckState, setSchemaCheckState] = useState<PhaseState>("idle");
@@ -232,6 +248,17 @@ export function MigrationsPageContent() {
   const [migrateError, setMigrateError] = useState("");
   const [migrateTables, setMigrateTables] = useState<RunResponse["tables"]>([]);
   const [migrateVersion, setMigrateVersion] = useState("");
+
+  // ── restore from snapshot ──
+  const [restoreState, setRestoreState] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [restoreError, setRestoreError] = useState("");
+  const [restoreTables, setRestoreTables] = useState<{ name: string; created: number; updated: number; errors: number }[]>([]);
+
+  // ── run progress (SSE) ──
+  type MigrateProgressEvent = { name: string; created: number; updated: number; errors: number };
+  const [migratePhase, setMigratePhase] = useState<"idle" | "schema_push" | "inserting">("idle");
+  const [migrateProgressTotal, setMigrateProgressTotal] = useState(0);
+  const [migrateProgressTables, setMigrateProgressTables] = useState<MigrateProgressEvent[]>([]);
 
   // ── fix-rows modal ──
   const [showFixModal, setShowFixModal] = useState(false);
@@ -313,7 +340,7 @@ export function MigrationsPageContent() {
   // Derived gating
   const isNewPlan = migrationPlan === "new";
   const isVersionPlan = migrationPlan === "version";
-  const canModelDiff: boolean = connectState === "success" && canVersionMigrate && !!syncVersion && !!targetVersion && syncVersion !== targetVersion;
+  const canModelDiff: boolean = connectState === "success" && canVersionMigrate && !!syncVersion && !!targetVersion && syncVersion !== targetVersion && syncCheckState === "compatible";
   const canSchemaCheck: boolean = modelDiffState === "success";
   const canCollect: boolean = schemaCheckState === "success" && (schemaCheckResult?.bothValid ?? false);
   const canMigrate: boolean = collectState === "success";
@@ -332,6 +359,7 @@ export function MigrationsPageContent() {
 
   function resetFromModelDiff() {
     setModelDiffState("idle");
+    setComparison(null);
     setSchemaCheckState("idle");
     setSchemaCheckResult(null);
     setCollectState("idle");
@@ -390,6 +418,39 @@ export function MigrationsPageContent() {
     void loadConnections();
   }, [loadConnections]);
 
+  // Auto-check whether the selected syncVersion schema matches the live DB.
+  // Fires whenever connection or syncVersion changes while in version-migration mode.
+  useEffect(() => {
+    if (connectState !== "success" || !activeConnectionId || !syncVersion || migrationPlan !== "version") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSyncCheckState("idle");
+      setSyncCheckResult(null);
+      return;
+    }
+
+    let cancelled = false;
+    setSyncCheckState("loading");
+    setSyncCheckResult(null);
+
+    fetch("/api/migrations/check-sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectName, connectionId: activeConnectionId, syncVersion }),
+    })
+      .then((r) => r.json() as Promise<CheckSyncResponse>)
+      .then((data) => {
+        if (cancelled) return;
+        setSyncCheckResult(data);
+        setSyncCheckState(data.success && data.compatible ? "compatible" : "incompatible");
+      })
+      .catch(() => {
+        if (!cancelled) setSyncCheckState("incompatible");
+      });
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectState, activeConnectionId, syncVersion, migrationPlan]);
+
   // ─── select existing connection ──────────────────────────────────────────
 
   const selectConnection = (uuid: string) => {
@@ -420,6 +481,26 @@ export function MigrationsPageContent() {
       }
     } finally {
       setDeletingId("");
+    }
+  };
+
+  // ─── test existing connection ────────────────────────────────────────────
+
+  const handleTestConnection = async (uuid: string) => {
+    setTestingId(uuid);
+    setTestResults((prev) => { const next = { ...prev }; delete next[uuid]; return next; });
+    try {
+      const res = await fetch("/api/migrations/test-connection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ connectionId: uuid }),
+      });
+      const data = await res.json() as { success: boolean; tables?: string[]; error?: string };
+      setTestResults((prev) => ({ ...prev, [uuid]: data }));
+    } catch {
+      setTestResults((prev) => ({ ...prev, [uuid]: { success: false, error: "Request failed." } }));
+    } finally {
+      setTestingId("");
     }
   };
 
@@ -596,6 +677,54 @@ export function MigrationsPageContent() {
       .catch(() => {/* best-effort */});
   }
 
+  // ─── shared SSE stream reader ─────────────────────────────────────────────
+
+  async function consumeMigrateStream(
+    body: RequestInit["body"],
+    onNeedsFix: (data: RunResponse) => void,
+    onError: (msg: string) => void,
+    onDone: (data: RunResponse) => void,
+  ) {
+    const res = await fetch("/api/migrations/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+    if (!res.body) throw new Error("No response body from run endpoint.");
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        try {
+          const event = JSON.parse(line.slice(6)) as { type: string; [k: string]: unknown };
+          if (event.type === "phase") {
+            const phase = event.phase as "schema_push" | "inserting";
+            setMigratePhase(phase);
+            if (phase === "inserting") setMigrateProgressTotal((event.total as number) ?? 0);
+          } else if (event.type === "progress") {
+            setMigrateProgressTables((prev) => [...prev, event as unknown as MigrateProgressEvent]);
+          } else if (event.type === "needsFix") {
+            onNeedsFix(event as unknown as RunResponse);
+            return;
+          } else if (event.type === "done") {
+            onDone(event as unknown as RunResponse);
+            return;
+          } else if (event.type === "error") {
+            onError((event.error as string) ?? "Migration failed.");
+            return;
+          }
+        } catch { /* malformed line */ }
+      }
+    }
+  }
+
   // ─── migrate ─────────────────────────────────────────────────────────────
 
   const handleMigrate = async () => {
@@ -603,39 +732,24 @@ export function MigrationsPageContent() {
     setMigrateError("");
     setMigrateTables([]);
     setMigrateVersion("");
+    setMigratePhase("idle");
+    setMigrateProgressTables([]);
     setShowFixModal(false);
     setInvalidRows([]);
     setRowPatches({});
     setFixModalError("");
 
     try {
-      const res = await fetch("/api/migrations/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectName,
-          connectionId: activeConnectionId,
-          syncVersion,
-          targetVersion,
-          dataTimestamp: collectTimestamp,
-        }),
-      });
-      const data: RunResponse = await res.json();
-
-      if (data.needsFix) {
-        setInvalidRows(data.invalidRows ?? []);
-        setStage1Issues(data.stage1Issues ?? []);
-        setStage2Issues(data.stage2Issues ?? []);
-        setShowFixModal(true);
-        setMigrateState("idle");
-        return;
-      }
-
-      if (!data.success) throw new Error(data.error ?? "Migration failed.");
-      applyMigrateSuccess(data);
+      await consumeMigrateStream(
+        JSON.stringify({ projectName, connectionId: activeConnectionId, syncVersion, targetVersion, dataTimestamp: collectTimestamp }),
+        (data) => { setInvalidRows(data.invalidRows ?? []); setStage1Issues(data.stage1Issues ?? []); setStage2Issues(data.stage2Issues ?? []); setShowFixModal(true); setMigrateState("idle"); setMigratePhase("idle"); },
+        (msg) => { setMigrateError(msg); setMigrateState("error"); setMigratePhase("idle"); },
+        (data) => { applyMigrateSuccess(data); setMigratePhase("idle"); },
+      );
     } catch (err) {
       setMigrateError(err instanceof Error ? err.message : "Migration failed.");
       setMigrateState("error");
+      setMigratePhase("idle");
     }
   };
 
@@ -644,39 +758,73 @@ export function MigrationsPageContent() {
   const handleFixAndMigrate = async () => {
     setFixModalLoading(true);
     setFixModalError("");
+    setMigratePhase("idle");
+    setMigrateProgressTables([]);
 
     try {
-      const res = await fetch("/api/migrations/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectName,
-          connectionId: activeConnectionId,
-          syncVersion,
-          targetVersion,
-          dataTimestamp: collectTimestamp,
-          rowPatches,
-        }),
-      });
-      const data: RunResponse = await res.json();
-
-      if (data.needsFix) {
-        setInvalidRows(data.invalidRows ?? []);
-        setStage2Issues(data.stage2Issues ?? []);
-        // Stay in modal — user sees updated errors
-        return;
-      }
-
-      if (!data.success) throw new Error(data.error ?? "Migration failed.");
-
-      setShowFixModal(false);
-      setInvalidRows([]);
-      setRowPatches({});
-      applyMigrateSuccess(data);
+      await consumeMigrateStream(
+        JSON.stringify({ projectName, connectionId: activeConnectionId, syncVersion, targetVersion, dataTimestamp: collectTimestamp, rowPatches }),
+        (data) => { setInvalidRows(data.invalidRows ?? []); setStage2Issues(data.stage2Issues ?? []); },
+        (msg) => { setFixModalError(msg); },
+        (data) => { setShowFixModal(false); setInvalidRows([]); setRowPatches({}); applyMigrateSuccess(data); setMigratePhase("idle"); },
+      );
     } catch (err) {
       setFixModalError(err instanceof Error ? err.message : "Migration failed.");
     } finally {
       setFixModalLoading(false);
+    }
+  };
+
+  // ─── restore from snapshot ───────────────────────────────────────────────
+
+  const handleRestore = async () => {
+    setRestoreState("loading");
+    setRestoreError("");
+    setRestoreTables([]);
+    setMigratePhase("idle");
+    setMigrateProgressTables([]);
+
+    try {
+      const res = await fetch("/api/migrations/restore-snapshot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectName, connectionId: activeConnectionId, dataTimestamp: collectTimestamp, syncVersion }),
+      });
+      if (!res.body) throw new Error("No response body.");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event = JSON.parse(line.slice(6)) as { type: string; [k: string]: unknown };
+            if (event.type === "phase") {
+              setMigratePhase(event.phase as "schema_push" | "inserting");
+              if (event.phase === "inserting") setMigrateProgressTotal((event.total as number) ?? 0);
+            } else if (event.type === "progress") {
+              setMigrateProgressTables((prev) => [...prev, event as unknown as MigrateProgressEvent]);
+            } else if (event.type === "done") {
+              setRestoreTables((event.tables as typeof restoreTables) ?? []);
+              setRestoreState("success");
+              setMigratePhase("idle");
+            } else if (event.type === "error") {
+              setRestoreError((event.error as string) ?? "Restore failed.");
+              setRestoreState("error");
+              setMigratePhase("idle");
+            }
+          } catch { /* malformed */ }
+        }
+      }
+    } catch (err) {
+      setRestoreError(err instanceof Error ? err.message : "Restore failed.");
+      setRestoreState("error");
+      setMigratePhase("idle");
     }
   };
 
@@ -692,8 +840,39 @@ export function MigrationsPageContent() {
 
   // ─── render ───────────────────────────────────────────────────────────────
 
+  const progressPct = migratePhase === "schema_push"
+    ? 5
+    : migratePhase === "inserting" && migrateProgressTotal > 0
+      ? Math.round(5 + (migrateProgressTables.length / migrateProgressTotal) * 90)
+      : 0;
+
   return (
     <div className="space-y-4">
+
+      {/* ── Migration progress bar (fixed top) ───────────────────────────── */}
+      {migratePhase !== "idle" && (
+        <div className="fixed left-0 right-0 top-0 z-60">
+          <div className="h-1 bg-slate-200">
+            <div
+              className="h-full bg-emerald-500 transition-all duration-500 ease-out"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+          <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-5 py-2 shadow-sm">
+            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+            <p className="text-xs font-semibold text-slate-700">
+              {migratePhase === "schema_push"
+                ? "Applying schema…"
+                : `Inserting records — ${migrateProgressTables.length} / ${migrateProgressTotal} tables`}
+            </p>
+            {migratePhase === "inserting" && migrateProgressTables.length > 0 && (
+              <span className="ml-auto font-mono text-[11px] text-slate-500">
+                {migrateProgressTables[migrateProgressTables.length - 1]!.name}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <div className="rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm">
@@ -853,9 +1032,9 @@ export function MigrationsPageContent() {
                   {isNewPlan && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
                 </span>
                 <div>
-                  <p className="text-sm font-semibold text-slate-950">New Migration</p>
+                  <p className="text-sm font-semibold text-slate-950">Destroy and Deploy Schema</p>
                   <p className="mt-0.5 text-xs text-slate-500">
-                    Push a schema version to a fresh database with no existing tables.
+                    Wipe the database and deploy a schema version from scratch. All existing data will be lost.
                   </p>
                   {dbIsEmpty && (
                     <span className="mt-2 inline-block rounded-full bg-cyan-100 px-2 py-0.5 text-[10px] font-semibold text-cyan-700">
@@ -888,13 +1067,13 @@ export function MigrationsPageContent() {
                   {isVersionPlan && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
                 </span>
                 <div>
-                  <p className="text-sm font-semibold text-slate-950">Version Migration</p>
+                  <p className="text-sm font-semibold text-slate-950">Sync and Migrate to Another Version</p>
                   <p className="mt-0.5 text-xs text-slate-500">
                     Collect existing data, validate, and migrate between schema versions.
                   </p>
                   {dbIsEmpty && (
                     <span className="mt-2 inline-block rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
-                      DB is empty — use New Migration
+                      DB is empty — use Destroy and Deploy Schema
                     </span>
                   )}
                   {!canVersionMigrate && !dbIsEmpty && (
@@ -910,7 +1089,7 @@ export function MigrationsPageContent() {
 
         {/* Version selectors — only shown for version migration */}
         {isVersionPlan && (
-          <div className="mt-4 flex flex-wrap items-end gap-3 border-t border-slate-100 pt-4">
+          <div className="mt-4 flex flex-wrap items-start gap-3 border-t border-slate-100 pt-4">
             <div className="flex min-w-[220px] flex-1 flex-col gap-1">
               <Label>Database is currently at</Label>
               <select
@@ -929,11 +1108,47 @@ export function MigrationsPageContent() {
                   <option key={v} value={v}>{v}</option>
                 ))}
               </select>
+
+              {/* ── Sync compatibility indicator ── */}
+              {syncVersion && syncCheckState === "loading" && (
+                <p className="text-[11px] text-slate-500">Checking compatibility…</p>
+              )}
+              {syncVersion && syncCheckState === "compatible" && (
+                <p className="text-[11px] font-semibold text-emerald-600">✓ Schema matches database</p>
+              )}
+              {syncVersion && syncCheckState === "incompatible" && (
+                <div className="rounded-md border border-rose-200 bg-rose-50 px-2.5 py-2 space-y-1">
+                  <p className="text-[11px] font-semibold text-rose-600">
+                    ✗ Schema does not match this database
+                  </p>
+                  {syncCheckResult?.error && (
+                    <p className="text-[11px] text-rose-500">{syncCheckResult.error}</p>
+                  )}
+                  {(syncCheckResult?.missingTables?.length ?? 0) > 0 && (
+                    <p className="text-[11px] text-rose-500">
+                      Missing tables: <span className="font-mono">{syncCheckResult!.missingTables!.join(", ")}</span>
+                    </p>
+                  )}
+                  {(syncCheckResult?.columnIssues?.length ?? 0) > 0 && (
+                    <div className="space-y-0.5">
+                      {syncCheckResult!.columnIssues!.map((issue) => (
+                        <p key={issue.table} className="text-[11px] text-rose-500">
+                          <span className="font-mono font-semibold">{issue.table}</span>: missing{" "}
+                          <span className="font-mono">{issue.missingColumns.join(", ")}</span>
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-[11px] text-rose-400 italic">
+                    Select the version that reflects the database&apos;s current state.
+                  </p>
+                </div>
+              )}
             </div>
 
-            {syncVersion && (
+            {syncVersion && syncCheckState === "compatible" && (
               <>
-                <span className="mb-2 shrink-0 text-slate-400">→</span>
+                <span className="mt-6 shrink-0 text-slate-400">→</span>
                 <div className="flex min-w-[220px] flex-1 flex-col gap-1">
                   <Label>Migrate to</Label>
                   <select
@@ -946,7 +1161,7 @@ export function MigrationsPageContent() {
                     className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-slate-500"
                   >
                     <option key="__target-placeholder__" value="" disabled>Select a version…</option>
-                    {versions.filter((v) => v !== syncVersion).map((v) => (
+                    {versions.filter((_, idx) => idx > versions.indexOf(syncVersion)).map((v) => (
                       <option key={v} value={v}>{v}</option>
                     ))}
                   </select>
@@ -1029,14 +1244,36 @@ export function MigrationsPageContent() {
                           {new Date(conn.lastUsedAt).toLocaleDateString()}
                         </span>
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleDelete(conn.uuid)}
-                        disabled={deletingId === conn.uuid || undefined}
-                        className="shrink-0 rounded px-2 py-1 text-xs font-semibold text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed"
-                      >
-                        {deletingId === conn.uuid ? "…" : "Remove"}
-                      </button>
+                      <div className="flex shrink-0 flex-col items-end gap-1">
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => void handleTestConnection(conn.uuid)}
+                            disabled={testingId === conn.uuid || undefined}
+                            className="rounded px-2 py-1 text-xs font-semibold text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed"
+                          >
+                            {testingId === conn.uuid ? "Testing…" : "Test"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleDelete(conn.uuid)}
+                            disabled={deletingId === conn.uuid || undefined}
+                            className="rounded px-2 py-1 text-xs font-semibold text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed"
+                          >
+                            {deletingId === conn.uuid ? "…" : "Remove"}
+                          </button>
+                        </div>
+                        {testResults[conn.uuid] && (
+                          <span className={classNames(
+                            "text-[10px] font-semibold",
+                            testResults[conn.uuid]!.success ? "text-emerald-600" : "text-rose-600",
+                          )}>
+                            {testResults[conn.uuid]!.success
+                              ? `✓ ${testResults[conn.uuid]!.tables?.length ?? 0} tables`
+                              : `✗ ${testResults[conn.uuid]!.error ?? "Failed"}`}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
@@ -1148,7 +1385,7 @@ export function MigrationsPageContent() {
         </CardBody>
       </Card>
 
-      {/* ── Step 2 (New Migration): Deploy Schema ─────────────────────────── */}
+      {/* ── Step 2 (Destroy & Deploy): Deploy Schema ──────────────────────── */}
       {isNewPlan && (
         <Card locked={connectState !== "success"}>
           <CardHeader>
@@ -1158,7 +1395,7 @@ export function MigrationsPageContent() {
                 <div>
                   <p className="text-sm font-semibold text-slate-950">Deploy Schema</p>
                   <p className="text-xs text-slate-500">
-                    Select a version and push the schema to the empty database.
+                    Select a version to deploy. The database will be wiped and rebuilt from scratch.
                   </p>
                 </div>
               </div>
@@ -1187,9 +1424,9 @@ export function MigrationsPageContent() {
 
               <button
                 type="button"
-                onClick={() => void handlePushNew()}
+                onClick={() => { setDestroyConfirmText(""); setShowDestroyModal(true); }}
                 disabled={pushState === "loading" || pushState === "success" || undefined}
-                className="h-9 min-w-44 rounded-md bg-slate-800 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                className="h-9 min-w-44 rounded-md bg-rose-600 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
                 {pushState === "loading" ? "Deploying…" : pushState === "success" ? "Deployed ✓" : "Deploy Schema"}
               </button>
@@ -1218,7 +1455,7 @@ export function MigrationsPageContent() {
         </Card>
       )}
 
-      {/* ── Steps 2–5 (Version Migration) ─────────────────────────────────── */}
+      {/* ── Steps 2–5 (Sync & Migrate) ───────────────────────────────────── */}
       {isVersionPlan && (
         <>
           {/* ── Step 2: Model Diff ──────────────────────────────────────────── */}
@@ -1228,9 +1465,9 @@ export function MigrationsPageContent() {
                 <div className="flex items-center gap-3">
                   <StepBadge n={2} state={modelDiffState} />
                   <div>
-                    <p className="text-sm font-semibold text-slate-950">Model Diff</p>
+                    <p className="text-sm font-semibold text-slate-950">Schema Change Review</p>
                     <p className="text-xs text-slate-500">
-                      Open the diff to compare versions and generate Zod validators.
+                      Compare schema versions, flag breaking changes, and generate validators to proceed.
                     </p>
                   </div>
                 </div>
@@ -1245,8 +1482,9 @@ export function MigrationsPageContent() {
                 versions={versions}
                 fromVersion={syncVersion}
                 toVersion={targetVersion}
-                onZodGenerated={() => { setModelDiffState("success"); void persistMigrationState({ zodGenerated: true }); }}
+                onZodGenerated={() => { setModelDiffState("success"); void persistMigrationState({ zodGenerated: true }); setSchemaCheckState("idle"); setSchemaCheckResult(null); void handleSchemaCheck(); }}
                 onOpenFullScreen={() => setShowModelDiffModal(true)}
+                onComparisonReady={(c) => setComparison(c)}
               />
             </CardBody>
           </Card>
@@ -1307,24 +1545,24 @@ export function MigrationsPageContent() {
                 <ErrorBox message={schemaCheckResult?.error ?? "Schema check failed."} />
               )}
 
+              {schemaCheckState === "loading" && (
+                <p className="text-xs text-slate-500">Running <code className="font-mono text-[11px]">prisma validate</code> on both schemas…</p>
+              )}
+
               {schemaCheckState === "error" && (schemaCheckResult?.sync || schemaCheckResult?.target) && (
-                <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3">
+                <div className="flex items-start justify-between gap-4 rounded-md border border-rose-200 bg-rose-50 px-4 py-3">
                   <p className="text-sm font-semibold text-rose-700">
                     One or more schemas have validation errors. Fix them in the /schema workflow before proceeding.
                   </p>
+                  <button
+                    type="button"
+                    onClick={() => void handleSchemaCheck()}
+                    className="shrink-0 rounded-md border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
+                  >
+                    Re-validate
+                  </button>
                 </div>
               )}
-
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => void handleSchemaCheck()}
-                  disabled={schemaCheckState === "loading" || undefined}
-                  className="h-9 min-w-44 rounded-md bg-slate-800 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
-                  {schemaCheckState === "loading" ? "Validating…" : "Validate Both Schemas"}
-                </button>
-              </div>
             </CardBody>
           </Card>
 
@@ -1400,12 +1638,33 @@ export function MigrationsPageContent() {
 
               {collectError && <ErrorBox message={collectError} />}
 
-              <div className="flex justify-end">
+              <div className="flex items-center justify-between gap-3">
+                {/* Restore from snapshot — only after snapshot collected */}
+                {collectState === "success" && collectTimestamp && (
+                  <div className="flex flex-col gap-1">
+                    <button
+                      type="button"
+                      onClick={() => void handleRestore()}
+                      disabled={restoreState === "loading" || undefined}
+                      className="h-8 rounded-md border border-amber-300 bg-amber-50 px-3 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {restoreState === "loading" ? "Restoring…" : restoreState === "success" ? "✓ Restored" : "Restore to Sync Version"}
+                    </button>
+                    {restoreState === "success" && restoreTables.length > 0 && (
+                      <p className="text-[10px] text-emerald-600 font-semibold">
+                        ✓ {restoreTables.reduce((s, t) => s + t.created, 0).toLocaleString()} rows re-inserted
+                      </p>
+                    )}
+                    {restoreState === "error" && restoreError && (
+                      <p className="text-[10px] text-rose-600">{restoreError}</p>
+                    )}
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={() => void handleCollect()}
                   disabled={collectBtnDisabled}
-                  className="h-9 min-w-48 rounded-md bg-slate-800 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  className="ml-auto h-9 min-w-48 rounded-md bg-slate-800 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
                   {collectState === "loading" ? "Collecting…" : "Collect All Tables"}
                 </button>
@@ -1422,7 +1681,7 @@ export function MigrationsPageContent() {
                   <div>
                     <p className="text-sm font-semibold text-slate-950">Validate & Migrate</p>
                     <p className="text-xs text-slate-500">
-                      Validate collected data, then reset and migrate the target database table by table.
+                      Check collected data against both schema versions, then run the migration.
                     </p>
                   </div>
                 </div>
@@ -1501,39 +1760,42 @@ export function MigrationsPageContent() {
               <div className="space-y-3 rounded-lg border border-slate-200 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-xs font-semibold text-slate-800">Step B — Run Migration</p>
-                    <p className="text-[11px] text-slate-500">Force-reset target schema, then upsert all validated records table by table.</p>
+                    <p className="text-xs font-semibold text-slate-800">Step B — Review &amp; Run</p>
+                    <p className="text-[11px] text-slate-500">Review the migration plan and begin. The target schema will be reset and all validated records re-inserted.</p>
                   </div>
                   <button
                     type="button"
-                    onClick={() => void handleMigrate()}
+                    onClick={() => setShowPreflightModal(true)}
                     disabled={migrateBtnDisabled}
                     className="h-8 min-w-36 rounded-md bg-slate-800 px-4 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
-                    {migrateState === "loading" ? "Migrating…" : "Run Migration"}
+                    {migrateState === "loading" ? "Migrating…" : "Review & Run"}
                   </button>
                 </div>
 
                 {migrateState === "success" && migrateTables && migrateTables.length > 0 && (
                   <div className="space-y-2">
-                    <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2.5">
+                    <div className="flex items-center gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2.5">
                       <p className="text-sm font-semibold text-emerald-700">
                         ✓ Migration complete — now at version {migrateVersion}
                       </p>
+                      <span className="ml-auto text-xs text-emerald-600">
+                        {migrateTables.reduce((s, t) => s + t.created, 0).toLocaleString()} rows inserted
+                      </span>
                     </div>
                     <div className="overflow-hidden rounded-md border border-slate-200">
-                      <div className="grid grid-cols-4 border-b border-slate-200 bg-slate-50 px-4 py-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                      <div className="grid grid-cols-[1fr_5rem_5rem_5rem] border-b border-slate-200 bg-slate-50 px-4 py-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
                         <span>Table</span>
-                        <span>Created</span>
-                        <span>Updated</span>
-                        <span>Errors</span>
+                        <span className="text-right">Created</span>
+                        <span className="text-right">Updated</span>
+                        <span className="text-right">Errors</span>
                       </div>
                       {migrateTables.map((t) => (
-                        <div key={t.name} className="grid grid-cols-4 border-b border-slate-100 px-4 py-2.5 text-sm last:border-0 hover:bg-slate-50">
+                        <div key={t.name} className="grid grid-cols-[1fr_5rem_5rem_5rem] border-b border-slate-100 px-4 py-2.5 last:border-0 hover:bg-slate-50">
                           <span className="font-mono text-xs font-semibold text-slate-800">{t.name}</span>
-                          <span className="text-emerald-700">{t.created}</span>
-                          <span className="text-blue-700">{t.updated}</span>
-                          <span className={t.errors > 0 ? "text-rose-700" : "text-slate-400"}>{t.errors}</span>
+                          <span className="text-right font-mono text-xs text-emerald-700">{t.created}</span>
+                          <span className="text-right font-mono text-xs text-blue-700">{t.updated}</span>
+                          <span className={classNames("text-right font-mono text-xs", t.errors > 0 ? "font-semibold text-rose-700" : "text-slate-400")}>{t.errors}</span>
                         </div>
                       ))}
                     </div>
@@ -1547,7 +1809,7 @@ export function MigrationsPageContent() {
         </>
       )}
 
-      {/* ── Collect result modal (version migration only) ─────────────────── */}
+      {/* ── Collect result modal (Sync & Migrate only) ───────────────────── */}
       {isVersionPlan && showEmptyModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
           <div className="flex w-full max-w-2xl flex-col rounded-lg border border-slate-200 bg-white shadow-2xl" style={{ maxHeight: "80vh" }}>
@@ -1721,6 +1983,154 @@ export function MigrationsPageContent() {
                   {collectQueryError ? "Proceed Anyway" : "Proceed"}
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Destroy & Deploy confirmation modal ─────────────────────────── */}
+      {showDestroyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+          <div className="w-full max-w-md rounded-lg border border-rose-200 bg-white shadow-2xl">
+            <div className="border-b border-rose-100 bg-rose-50 px-5 py-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-rose-600">Destructive Action</p>
+              <h3 className="mt-1 text-lg font-semibold text-slate-950">Destroy and Deploy Schema</h3>
+            </div>
+            <div className="space-y-4 p-5">
+              <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 space-y-1">
+                <p className="text-sm font-semibold text-rose-700">All existing data will be permanently lost.</p>
+                <p className="text-xs text-rose-600">This will wipe every table in the connected database and apply schema version <span className="font-mono font-semibold">{newTargetVersion}</span> from scratch. This cannot be undone.</p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-slate-600">
+                  Type <span className="font-mono text-rose-600">DELETE</span> to confirm
+                </label>
+                <input
+                  type="text"
+                  value={destroyConfirmText}
+                  onChange={(e) => setDestroyConfirmText(e.target.value)}
+                  placeholder="DELETE"
+                  autoComplete="off"
+                  className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 font-mono text-sm text-slate-950 outline-none transition placeholder:text-slate-300 focus:border-rose-400"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 border-t border-slate-200 px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setShowDestroyModal(false)}
+                className="h-9 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={destroyConfirmText !== "DELETE" || undefined}
+                onClick={() => { setShowDestroyModal(false); void handlePushNew(); }}
+                className="h-9 min-w-36 rounded-md bg-rose-600 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                Destroy &amp; Deploy
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Pre-flight summary modal ─────────────────────────────────────── */}
+      {showPreflightModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+          <div className="flex w-full max-w-xl flex-col rounded-lg border border-slate-200 bg-white shadow-2xl" style={{ maxHeight: "85vh" }}>
+            <div className="shrink-0 border-b border-slate-200 px-5 py-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Migration Plan</p>
+              <h3 className="mt-1 text-lg font-semibold text-slate-950">Review before running</h3>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto p-5 space-y-4">
+              {/* Connection + versions */}
+              <div className="grid grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-xs">
+                <div>
+                  <p className="font-semibold uppercase tracking-widest text-slate-400">Connection</p>
+                  <p className="mt-1 font-semibold text-slate-800 truncate">{activeConnection?.name ?? "—"}</p>
+                  <p className="text-slate-500 font-mono text-[10px]">{activeConnection ? `${activeConnection.host}:${activeConnection.port}/${activeConnection.database}` : ""}</p>
+                </div>
+                <div>
+                  <p className="font-semibold uppercase tracking-widest text-slate-400">Versions</p>
+                  <p className="mt-1 font-semibold text-slate-800">
+                    <span className="font-mono">{syncVersion}</span>
+                    <span className="mx-2 text-slate-400">→</span>
+                    <span className="font-mono">{targetVersion}</span>
+                  </p>
+                </div>
+                <div>
+                  <p className="font-semibold uppercase tracking-widest text-slate-400">Tables / Rows</p>
+                  <p className="mt-1 font-semibold text-slate-800">{collectTables.length} tables · {collectTotal.toLocaleString()} rows</p>
+                </div>
+                <div>
+                  <p className="font-semibold uppercase tracking-widest text-slate-400">Snapshot</p>
+                  <p className="mt-1 font-mono text-[10px] text-slate-700">{collectTimestamp || "—"}</p>
+                </div>
+              </div>
+
+              {/* Migration order */}
+              {migrationOrder.length > 0 && (
+                <div>
+                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">Insert Order</p>
+                  <p className="font-mono text-xs text-slate-700">{migrationOrder.map((i) => i.modelName).join(" → ")}</p>
+                </div>
+              )}
+
+              {/* Diff warnings from model comparison */}
+              {comparison && (() => {
+                const errors: string[] = [];
+                const warns: string[] = [];
+                for (const m of comparison.removedModels) errors.push(`Model "${m.name}" removed — all rows dropped`);
+                for (const m of comparison.matchedModels) {
+                  for (const f of m.matchedFields) {
+                    if (!f.isRelation && f.typeChanged) errors.push(`${m.toName}.${f.toName}: ${f.fromType} → ${f.toType} (type change)`);
+                    if (!f.isRelation && f.fromNullable && !f.toNullable) warns.push(`${m.toName}.${f.toName}: nullable → required`);
+                  }
+                  for (const f of m.removedFields) warns.push(`${m.toName}.${f.name}: field removed`);
+                  for (const f of m.addedFields) { if (!f.nullable) warns.push(`${m.toName}.${f.name}: new required field`); }
+                }
+                if (errors.length === 0 && warns.length === 0) return null;
+                return (
+                  <div className="space-y-2">
+                    {errors.length > 0 && (
+                      <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 space-y-1">
+                        <p className="text-[10px] font-semibold uppercase tracking-widest text-rose-600">{errors.length} data-loss risk{errors.length !== 1 ? "s" : ""}</p>
+                        {errors.map((e, i) => <p key={i} className="font-mono text-xs text-rose-700">{e}</p>)}
+                      </div>
+                    )}
+                    {warns.length > 0 && (
+                      <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 space-y-1">
+                        <p className="text-[10px] font-semibold uppercase tracking-widest text-amber-600">{warns.length} warning{warns.length !== 1 ? "s" : ""}</p>
+                        {warns.map((w, i) => <p key={i} className="font-mono text-xs text-amber-700">{w}</p>)}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+                <p className="text-xs font-semibold text-amber-700">The target database will be force-reset and rebuilt. Ensure the snapshot is current before proceeding.</p>
+              </div>
+            </div>
+
+            <div className="shrink-0 flex items-center justify-end gap-3 border-t border-slate-200 px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setShowPreflightModal(false)}
+                className="h-9 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowPreflightModal(false); void handleMigrate(); }}
+                className="h-9 min-w-40 rounded-md bg-slate-800 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700"
+              >
+                Begin Migration
+              </button>
             </div>
           </div>
         </div>

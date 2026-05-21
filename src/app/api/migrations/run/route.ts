@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 import { getSchema } from "@mrleebo/prisma-ast";
 import type { Attribute, Field, Model } from "@mrleebo/prisma-ast";
@@ -11,7 +12,7 @@ import type { StoredConnection, ValidationIssue } from "@/types/migrations";
 import { getConnection, touchLastUsedAt } from "@/lib/db/migration-connections";
 import { registerFsPath } from "@/lib/db/fs-paths";
 import { db as appDb } from "@/lib/db/client";
-import { upsertMigrationSession } from "@/lib/db/migration-state";
+import { insertMigrationLog, upsertMigrationSession } from "@/lib/db/migration-state";
 import { prepareMigrationPrismaSchema, renderMigrationPrismaSchema } from "@/lib/migration-schema-artifacts";
 import { readProjectVersionGraph } from "@/lib/schema-db/graph";
 import { MIGRATION_REFERENCE_FIELD } from "@/lib/schema-naming";
@@ -41,10 +42,10 @@ type SchemaModel = { name: string; tableName: string; fields: SchemaField[] };
 // ─── field transform ──────────────────────────────────────────────────────────
 
 type FieldTransform = {
-  unchanged: string[];                                    // same name in both versions
-  renames: Record<string, string>;                        // syncFieldName → targetFieldName
-  added: { name: string; type: string; optional: boolean }[];  // new fields in target
-  removed: string[];                                      // sync fields not in target
+  unchanged: string[];                                                          // same name in both versions
+  renames: Record<string, string>;                                              // syncFieldName → targetFieldName
+  added: { name: string; type: string; optional: boolean; hasDefault: boolean }[];  // new fields in target
+  removed: string[];                                                            // sync fields not in target
 };
 
 // ─── invalid row (for fix modal) ──────────────────────────────────────────────
@@ -119,6 +120,13 @@ function extractSchemaModels(content: string): SchemaModel[] {
       }
       const fields: SchemaField[] = model.properties
         .filter((p) => p.type === "field")
+        .filter((p) => {
+          const f = p as Field;
+          // Exclude list fields (back-relation arrays) and forward-relation fields (@relation attr).
+          // Neither has a physical DB column — including them causes "column does not exist" errors.
+          if (f.array) return false;
+          return !f.attributes?.some((a: Attribute) => a.type === "attribute" && a.name === "relation");
+        })
         .map((p) => {
           const f = p as Field;
           const isId = f.attributes?.some(
@@ -234,7 +242,7 @@ function buildFieldTransforms(
 
     const unchanged: string[] = [];
     const renames: Record<string, string> = {};
-    const added: { name: string; type: string; optional: boolean }[] = [];
+    const added: { name: string; type: string; optional: boolean; hasDefault: boolean }[] = [];
     const removed: string[] = [];
 
     if (syncCanon) {
@@ -243,13 +251,18 @@ function buildFieldTransforms(
         const tfId = tf.fieldId ?? tf.key;
         const sf = syncCanon.fields.find((f) => (f.fieldId ?? f.key) === tfId);
         const targetName = tf.dbName || targetSchema.fields.find((f) => f.name === tf.name)?.name || tf.name;
+
+        // If this canonical field has no corresponding DB column in the (relation-filtered)
+        // schema model, it is a relation back-reference or virtual field — skip it entirely.
+        const schemaField = targetSchema.fields.find((f) => f.name === targetName || f.name === tf.name);
+        if (!schemaField) continue;
+
         if (sf) {
           const syncName = sf.dbName || sf.name;
           if (syncName === targetName) unchanged.push(targetName);
           else renames[syncName] = targetName;
         } else {
-          const schemaField = targetSchema.fields.find((f) => f.name === targetName || f.name === tf.name);
-          added.push({ name: targetName, type: schemaField?.type ?? "String", optional: schemaField?.optional ?? true });
+          added.push({ name: targetName, type: schemaField.type, optional: schemaField.optional, hasDefault: schemaField.hasDefault });
         }
       }
       // Fields in sync but not in target → removed
@@ -260,7 +273,7 @@ function buildFieldTransforms(
     } else {
       // Model is new in target — all fields are added
       for (const f of targetSchema.fields) {
-        added.push({ name: f.name, type: f.type, optional: f.optional });
+        added.push({ name: f.name, type: f.type, optional: f.optional, hasDefault: f.hasDefault });
       }
     }
 
@@ -307,6 +320,24 @@ function coerce(value: unknown, type: string): unknown {
   }
 }
 
+// ─── type-appropriate default for new required fields ────────────────────────
+
+function typeAppropriateDefault(type: string, name: string, hasDefault: boolean): unknown {
+  // If the DB column has a @default(...), omit the value entirely so the DB default applies.
+  // The upsert script filters out `undefined` values from the INSERT column list.
+  if (hasDefault) return undefined;
+  switch (type) {
+    case "Int":
+    case "BigInt":   return 0;
+    case "Float":
+    case "Decimal":  return 0;
+    case "Boolean":  return false;
+    case "DateTime": return new Date().toISOString();
+    case "String":   return generatedUniqueValue(name);
+    default:         return null; // enum or unknown — DB must have a default or this will fail at insert
+  }
+}
+
 // ─── record transform ─────────────────────────────────────────────────────────
 
 function transformRecord(
@@ -331,14 +362,9 @@ function transformRecord(
     }
   }
 
-  // Add new fields with null default (user must fix via modal if required)
-  for (const { name, optional } of transform.added) {
-    if (!(name in out)) out[name] = optional ? null : generatedUniqueValue(name);
-  }
-
-  // Removed fields are simply excluded — not added to out
-  if (raw[MIGRATION_REFERENCE_FIELD] !== undefined) {
-    out[MIGRATION_REFERENCE_FIELD] = raw[MIGRATION_REFERENCE_FIELD];
+  // Add new fields with type-appropriate defaults
+  for (const { name, type, optional, hasDefault } of transform.added) {
+    if (!(name in out)) out[name] = optional ? null : typeAppropriateDefault(type, name, hasDefault);
   }
 
   return out;
@@ -465,8 +491,9 @@ const escVal = (v, provider) => {
   return "'" + String(v).replace(/'/g, "''") + "'";
 };
 
+const REF_FIELD = '${MIGRATION_REFERENCE_FIELD}';
 const buildSql = (tableName, record, idField, provider) => {
-  const entries = Object.entries(record).filter(([, v]) => v !== undefined);
+  const entries = Object.entries(record).filter(([k, v]) => k !== REF_FIELD && v !== undefined);
   const cols = entries.map(([k]) => k);
   const vals = entries.map(([, v]) => escVal(v, provider));
   const p = provider.toLowerCase();
@@ -501,13 +528,9 @@ const main = async () => {
         }
       });
       run(records);
-      summaries.push({ name: tableName, created, updated: 0, errors: errorDetails.length, errorDetails });
-    }
-    if (summaries.every((summary) => summary.errors === 0)) {
-      for (const { tableName } of tables) {
-        try { db.prepare('ALTER TABLE "' + tableName + '" DROP COLUMN "${MIGRATION_REFERENCE_FIELD}"').run(); }
-        catch (_) {}
-      }
+      const summary = { name: tableName, created, updated: 0, errors: errorDetails.length, errorDetails };
+      summaries.push(summary);
+      process.stdout.write(JSON.stringify({ type: 'progress', name: tableName, created, updated: 0, errors: errorDetails.length }) + '\\n');
     }
     db.close();
 
@@ -530,23 +553,49 @@ const main = async () => {
           await client.query('ROLLBACK');
           errorDetails.push({ error: e?.message ?? String(e) });
         }
-        summaries.push({ name: tableName, created, updated: 0, errors: errorDetails.length, errorDetails });
-      }
-      if (summaries.every((summary) => summary.errors === 0)) {
-        for (const { tableName } of tables) {
-          try { await client.query('ALTER TABLE "' + tableName + '" DROP COLUMN IF EXISTS "${MIGRATION_REFERENCE_FIELD}"'); }
-          catch (_) {}
-        }
+        const summary = { name: tableName, created, updated: 0, errors: errorDetails.length, errorDetails };
+        summaries.push(summary);
+        process.stdout.write(JSON.stringify({ type: 'progress', name: tableName, created, updated: 0, errors: errorDetails.length }) + '\\n');
       }
     } finally {
       await client.end();
+    }
+
+  } else if (p === 'mysql') {
+    const mysql = require('mysql2/promise');
+    const conn = await mysql.createConnection(connectionUrl);
+    try {
+      for (const { tableName, idField, records } of tables) {
+        let created = 0;
+        const errorDetails = [];
+        const buildMysqlSql = (rec) => {
+          const entries = Object.entries(rec).filter(([k, v]) => k !== REF_FIELD && v !== undefined);
+          const cols = entries.map(([k]) => '\`' + k + '\`').join(', ');
+          const vals = entries.map(([, v]) => escVal(v, provider)).join(', ');
+          const updates = entries
+            .filter(([k]) => k !== idField)
+            .map(([k]) => '\`' + k + '\` = VALUES(\`' + k + '\`)')
+            .join(', ');
+          return 'INSERT INTO \`' + tableName + '\` (' + cols + ') VALUES (' + vals + ')' +
+            (updates.length ? ' ON DUPLICATE KEY UPDATE ' + updates : '');
+        };
+        for (const rec of records) {
+          try { await conn.execute(buildMysqlSql(rec)); created++; }
+          catch (e) { errorDetails.push({ error: e?.message ?? String(e), record: rec }); }
+        }
+        const summary = { name: tableName, created, updated: 0, errors: errorDetails.length, errorDetails };
+        summaries.push(summary);
+        process.stdout.write(JSON.stringify({ type: 'progress', name: tableName, created, updated: 0, errors: errorDetails.length }) + '\\n');
+      }
+    } finally {
+      await conn.end();
     }
 
   } else {
     throw new Error('Unsupported provider: ' + provider);
   }
 
-  process.stdout.write(JSON.stringify(summaries));
+  process.stdout.write(JSON.stringify({ type: 'done', summaries }) + '\\n');
 };
 
 main().catch((e) => { process.stderr.write(String(e?.message ?? e)); process.exit(1); });
@@ -747,162 +796,140 @@ export async function POST(request: Request) {
 
   const { issues: stage2Issues, invalidRows } = runStage2(targetModels, transformedByModel);
 
+  // needsFix: stream a single event so the client opens the fix modal
   if (invalidRows.length > 0) {
-    return NextResponse.json({
-      success: false,
-      needsFix: true,
-      stage1Issues,
-      stage2Issues,
-      invalidRows,
-    });
+    const enc = new TextEncoder();
+    return new Response(
+      new ReadableStream({
+        start(ctrl) {
+          ctrl.enqueue(enc.encode(`data: ${JSON.stringify({ type: "needsFix", stage1Issues, stage2Issues, invalidRows })}\n\n`));
+          ctrl.close();
+        },
+      }),
+      { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } },
+    );
   }
 
-  // ── Migration: prisma db push + FK-ordered bulk insert ───────────────────────
+  // ── SSE streaming migration ───────────────────────────────────────────────────
 
   const startedAt = new Date().toISOString();
   const migrateTimestamp = startedAt.replace(/[:.]/g, "-").slice(0, 19);
   const tmpPayloadPath = path.join(tmpDir, `migrate-payload-${migrateTimestamp}.json`);
   const tmpScriptPath = path.join(tmpDir, `migrate-upsert-${migrateTimestamp}.js`);
-
   const logsDir = path.join(migrationsDir, projectSlug, connectionId, "logs");
-  await mkdir(logsDir, { recursive: true });
   const logFilename = `version-${syncVersion}-to-${targetVersion}-${migrateTimestamp}.json`;
   const logPath = path.join(logsDir, logFilename);
 
-  try {
-    // Force-reset target DB and apply target schema
-    await execFileAsync(
-      "pnpm",
-      ["prisma", "db", "push", "--force-reset", "--schema", schemaPath, `--url=${connectionUrl}`],
-      {
-        cwd: process.cwd(),
-        env: { ...process.env, PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK: "1" },
-        timeout: 120_000,
-      },
-    );
+  const insertOrder = migrationOrder.length
+    ? migrationOrder.map((item) => item.modelName)
+    : buildFkInsertOrder(targetContent, targetModels.map((m) => m.name));
 
-    // Build dependency-aware migration order and tell the client/log exactly what ran.
-    const insertOrder = migrationOrder.length
-      ? migrationOrder.map((item) => item.modelName)
-      : buildFkInsertOrder(targetContent, targetModels.map((m) => m.name));
+  const tablesPayload = insertOrder
+    .map((modelName) => {
+      const model = targetModelByName.get(modelName);
+      if (!model) return null;
+      const idField = model.fields.find((f) => f.isId)?.name ?? "id";
+      const records = transformedByModel.get(modelName) ?? [];
+      return { modelName, tableName: model.tableName, idField, records };
+    })
+    .filter(Boolean);
 
-    // Build payload for upsert child process (pre-transformed, FK-ordered)
-    const tables = insertOrder
-      .map((modelName) => {
-        const model = targetModelByName.get(modelName);
-        if (!model) return null;
-        const idField = model.fields.find((f) => f.isId)?.name ?? "id";
-        const records = transformedByModel.get(modelName) ?? [];
-        return { modelName, tableName: model.tableName, idField, records };
-      })
-      .filter(Boolean);
+  const enc = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (data: object) =>
+        controller.enqueue(enc.encode(`data: ${JSON.stringify(data)}\n\n`));
 
-    await mkdir(tmpDir, { recursive: true });
-    await writeFile(tmpPayloadPath, JSON.stringify({ tables, provider: stored.provider, connectionUrl }), "utf8");
-    await writeFile(tmpScriptPath, buildUpsertScript(), "utf8");
+      try {
+        // Phase 1: apply schema
+        send({ type: "phase", phase: "schema_push" });
+        await execFileAsync(
+          "pnpm",
+          ["prisma", "db", "push", "--force-reset", "--schema", schemaPath, `--url=${connectionUrl}`],
+          { cwd: process.cwd(), env: { ...process.env, PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK: "1" }, timeout: 120_000 },
+        );
 
-    const { stdout } = await execFileAsync(
-      "node",
-      [tmpScriptPath, tmpPayloadPath],
-      {
-        cwd: process.cwd(),
-        env: { ...process.env, DATABASE_URL: connectionUrl },
-        timeout: 120_000,
-        maxBuffer: 10 * 1024 * 1024,
-      },
-    );
+        // Phase 2: bulk insert
+        send({ type: "phase", phase: "inserting", total: tablesPayload.length });
+        await mkdir(logsDir, { recursive: true });
+        await mkdir(tmpDir, { recursive: true });
+        await writeFile(tmpPayloadPath, JSON.stringify({ tables: tablesPayload, provider: stored!.provider, connectionUrl }), "utf8");
+        await writeFile(tmpScriptPath, buildUpsertScript(), "utf8");
 
-    const tableSummaries = JSON.parse(stdout) as {
-      name: string; created: number; updated: number; errors: number;
-      errorDetails: { error: string; record: unknown }[];
-    }[];
+        const child = spawn("node", [tmpScriptPath, tmpPayloadPath], {
+          cwd: process.cwd(),
+          env: { ...process.env, DATABASE_URL: connectionUrl, NODE_PATH: path.join(process.cwd(), "node_modules") },
+        });
 
-    const totalCreated = tableSummaries.reduce((s, t) => s + t.created, 0);
-    const totalErrors = tableSummaries.reduce((s, t) => s + t.errors, 0);
-    const completedAt = new Date().toISOString();
+        let stderrBuf = "";
+        child.stderr?.on("data", (chunk: Buffer) => { stderrBuf += chunk.toString(); });
 
-    const pidRow = appDb.prepare("SELECT id FROM projects WHERE name = ?").get(projectName) as { id: string } | undefined;
-    if (pidRow) registerFsPath({ projectId: pidRow.id, connectionId, fileType: "migration_log", label: logFilename, fsPath: logPath });
+        const rl = createInterface({ input: child.stdout! });
+        let tableSummaries: { name: string; created: number; updated: number; errors: number; errorDetails: { error: string; record: unknown }[] }[] = [];
 
-    await writeFile(logPath, JSON.stringify({
-      status: totalErrors === 0 ? "success" : "partial",
-      startedAt,
-      completedAt,
-      project: projectName,
-      connectionId,
-      syncVersion,
-      targetVersion,
-      dataTimestamp,
-      stage1IssueCount: stage1Issues.length,
-      totalCreated,
-      totalErrors,
-      insertOrder,
-      migrationOrder,
-      tables: tableSummaries,
-    }, null, 2), "utf8");
+        for await (const line of rl) {
+          if (!line.trim()) continue;
+          try {
+            const event = JSON.parse(line) as { type: string; [k: string]: unknown };
+            if (event.type === "progress") {
+              send(event);
+            } else if (event.type === "done") {
+              tableSummaries = event.summaries as typeof tableSummaries;
+            }
+          } catch { /* non-JSON */ }
+        }
 
-    touchLastUsedAt(connectionId);
+        await new Promise<void>((resolve, reject) => {
+          child.on("close", (code) =>
+            code === 0 ? resolve() : reject(new Error(stderrBuf.trim() || `Upsert exited with code ${code}`)),
+          );
+        });
 
-    if (pidRow) {
-      upsertMigrationSession({
-        projectId: pidRow.id,
-        connectionId,
-        fromVersion: syncVersion,
-        toVersion: targetVersion,
-        runStatus: totalErrors === 0 ? "success" : "partial",
-        runLogPath: path.relative(process.cwd(), logPath),
-        runTables: tableSummaries,
-      });
-    }
+        const totalCreated = tableSummaries.reduce((s, t) => s + t.created, 0);
+        const totalErrors  = tableSummaries.reduce((s, t) => s + t.errors, 0);
+        const completedAt  = new Date().toISOString();
+        const status = totalErrors === 0 ? "success" : "partial";
+        const logContent = { status, startedAt, completedAt, project: projectName, connectionId, syncVersion, targetVersion, dataTimestamp, stage1IssueCount: stage1Issues.length, totalCreated, totalErrors, insertOrder, migrationOrder, tables: tableSummaries };
 
-    return NextResponse.json({
-      success: true,
-      stage1Issues,
-      tables: tableSummaries,
-      migrationOrder,
-      logPath: path.relative(process.cwd(), logPath),
-      newVersion: targetVersion,
-    });
+        await writeFile(logPath, JSON.stringify(logContent, null, 2), "utf8");
+        touchLastUsedAt(connectionId);
 
-  } catch (err) {
-    const e = err as { stdout?: string; stderr?: string; message?: string };
-    const output = `${e.stdout ?? ""}\n${e.stderr ?? ""}\n${e.message ?? ""}`.trim();
+        const pidRow = appDb.prepare("SELECT id FROM projects WHERE name = ?").get(projectName) as { id: string } | undefined;
+        if (pidRow) {
+          registerFsPath({ projectId: pidRow.id, connectionId, fileType: "migration_log", label: logFilename, fsPath: logPath });
+          upsertMigrationSession({ projectId: pidRow.id, connectionId, fromVersion: syncVersion, toVersion: targetVersion, runStatus: status, runLogPath: path.relative(process.cwd(), logPath), runTables: tableSummaries });
+          insertMigrationLog({ id: migrateTimestamp, projectId: pidRow.id, connectionId, fromVersion: syncVersion || null, toVersion: targetVersion, status, content: logContent });
+        }
 
-    await writeFile(logPath, JSON.stringify({
-      status: "error",
-      startedAt,
-      failedAt: new Date().toISOString(),
-      project: projectName,
-      connectionId,
-      syncVersion,
-      targetVersion,
-      dataTimestamp,
-      error: output || "Migration failed.",
-    }, null, 2), "utf8").catch(() => {/* best-effort */});
+        send({ type: "done", tables: tableSummaries, stage1Issues, migrationOrder, logPath: path.relative(process.cwd(), logPath), newVersion: targetVersion });
 
-    const errPidRow = appDb.prepare("SELECT id FROM projects WHERE name = ?").get(projectName) as { id: string } | undefined;
-    if (errPidRow) {
-      upsertMigrationSession({
-        projectId: errPidRow.id,
-        connectionId,
-        fromVersion: syncVersion,
-        toVersion: targetVersion,
-        runStatus: "failed",
-        runError: output || "Migration failed.",
-      });
-    }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Migration failed.";
+        const errContent = { status: "error", startedAt, failedAt: new Date().toISOString(), project: projectName, connectionId, syncVersion, targetVersion, dataTimestamp, error: msg };
+        await writeFile(logPath, JSON.stringify(errContent, null, 2), "utf8").catch(() => {});
+        const errPidRow = appDb.prepare("SELECT id FROM projects WHERE name = ?").get(projectName) as { id: string } | undefined;
+        if (errPidRow) {
+          upsertMigrationSession({ projectId: errPidRow.id, connectionId, fromVersion: syncVersion, toVersion: targetVersion, runStatus: "failed", runError: msg });
+          insertMigrationLog({ id: migrateTimestamp, projectId: errPidRow.id, connectionId, fromVersion: syncVersion || null, toVersion: targetVersion, status: "error", content: errContent });
+        }
+        send({ type: "error", error: msg, logPath: path.relative(process.cwd(), logPath) });
+      } finally {
+        controller.close();
+        await Promise.allSettled([
+          rm(tmpScriptPath, { force: true }),
+          rm(tmpPayloadPath, { force: true }),
+          schemaCleanupPath ? rm(schemaCleanupPath, { force: true, recursive: true }) : Promise.resolve(),
+        ]);
+      }
+    },
+  });
 
-    return NextResponse.json(
-      { success: false, error: output || "Migration failed.", logPath: path.relative(process.cwd(), logPath) },
-      { status: 400 },
-    );
-  } finally {
-    await Promise.allSettled([
-      rm(tmpScriptPath, { force: true }),
-      rm(tmpPayloadPath, { force: true }),
-      schemaCleanupPath
-        ? rm(schemaCleanupPath, { force: true, recursive: true })
-        : Promise.resolve(),
-    ]);
-  }
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }
