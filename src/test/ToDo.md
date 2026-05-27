@@ -6,7 +6,7 @@
 |---|---|---|---|
 | `first-workflows` | Blog Platform | Postgres | ✅ Complete — v1 + v2 built and seeded |
 | `second-workflows` | SaaS Project Management | Postgres | ✅ Complete — v1 + v2 built, seed-db.ts ready |
-| `third-workflows` | ? | MySQL | ⬜ Not started |
+| `third-workflows` | E-Commerce Shop | MySQL | ✅ Complete — v1 + v2 built and seeded |
 | `fourth-workflows` | ? | SQLite | ⬜ Not started |
 
 ---
@@ -29,12 +29,11 @@
 
 ## Where we left off
 
-**Last completed:** `second-workflows` v1 + v2 fully built and confirmed running.
+**Last completed:** `third-workflows` (MySQL E-Commerce) v1 + v2 fully built.
 
 **Next up — pick one:**
 
-1. **`third-workflows` (MySQL)** — A new domain on MySQL provider. Tests MySQL-specific
-   PK types and field behaviour. Similar v1/v2 structure with its own migration errors.
+1. **`fourth-workflows` (SQLite)** — A new domain on SQLite provider.
 
 2. **`migrations.test.ts`** — Vitest unit tests for the two tRPC migrations procedures:
    `migrations.listConnections` and `migrations.deleteConnection`. Lightweight — no
@@ -53,10 +52,12 @@
 # Build schemas (run with app running on :3000)
 pnpm seed:workflows first-workflows
 pnpm seed:workflows second-workflows
+pnpm seed:workflows third-workflows
 
-# Seed mock data into a real Postgres DB (schema must be deployed first)
+# Seed mock data into a real DB (schema must be deployed first)
 pnpm seed:db first-workflows  postgresql://user:pass@host/db
 pnpm seed:db second-workflows postgresql://user:pass@host/db
+pnpm seed:db third-workflows  mysql://user:pass@host:3306/db
 ```
 
 ## Expected migration errors (second-workflows v1 → v2)
