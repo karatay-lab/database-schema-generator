@@ -940,9 +940,17 @@ export function SchemaPageContent() {
                                         Default
                                         <input
                                           value={draft.input.defaultValue}
-                                          onChange={(event) => updateNewFieldDraft(draft.id, { defaultValue: event.target.value })}
-                                          className="mt-1 h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium normal-case tracking-normal text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-600"
-                                          placeholder="Default value"
+                                          readOnly={enumTypes.includes(draft.input.type)}
+                                          onChange={(event) => {
+                                            if (!enumTypes.includes(draft.input.type)) updateNewFieldDraft(draft.id, { defaultValue: event.target.value });
+                                          }}
+                                          className={classNames(
+                                            "mt-1 h-8 w-full rounded-md border px-2.5 text-xs font-medium normal-case tracking-normal text-slate-950 outline-none transition",
+                                            enumTypes.includes(draft.input.type)
+                                              ? "cursor-default border-indigo-100 bg-indigo-50/60 text-indigo-700"
+                                              : "border-slate-300 bg-white placeholder:text-slate-400 focus:border-cyan-600",
+                                          )}
+                                          placeholder={enumTypes.includes(draft.input.type) ? "Pick a value ↓" : "Default value"}
                                         />
                                       </label>
                                     </div>
@@ -953,11 +961,22 @@ export function SchemaPageContent() {
                                           <span className="text-[10px] font-medium text-indigo-300">No values defined</span>
                                         ) : (
                                           <>
-                                            {getEnumValues(draft.input.type).slice(0, 12).map((v) => (
-                                              <span key={v.valueId} className="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
-                                                {v.name}
-                                              </span>
-                                            ))}
+                                            {getEnumValues(draft.input.type).slice(0, 12).map((v) => {
+                                              const isActive = draft.input.defaultValue === `"${v.name}"`;
+                                              return (
+                                                <button
+                                                  key={v.valueId}
+                                                  type="button"
+                                                  onClick={() => updateNewFieldDraft(draft.id, { defaultValue: isActive ? "" : `"${v.name}"` })}
+                                                  className={classNames(
+                                                    "rounded px-1.5 py-0.5 text-[10px] font-semibold transition",
+                                                    isActive ? "bg-indigo-600 text-white" : "bg-indigo-100 text-indigo-700 hover:bg-indigo-200",
+                                                  )}
+                                                >
+                                                  {v.name}
+                                                </button>
+                                              );
+                                            })}
                                             {getEnumValues(draft.input.type).length > 12 ? (
                                               <span className="text-[10px] font-medium text-indigo-400">+{getEnumValues(draft.input.type).length - 12} more</span>
                                             ) : null}
@@ -1107,9 +1126,17 @@ export function SchemaPageContent() {
                                       Default
                                       <input
                                         value={draft.defaultValue}
-                                        onChange={(event) => updateDraft(field.key, { defaultValue: event.target.value })}
-                                        className="mt-1 h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium normal-case tracking-normal text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-600"
-                                        placeholder="Default value"
+                                        readOnly={enumTypes.includes(draft.type)}
+                                        onChange={(event) => {
+                                          if (!enumTypes.includes(draft.type)) updateDraft(field.key, { defaultValue: event.target.value });
+                                        }}
+                                        className={classNames(
+                                          "mt-1 h-8 w-full rounded-md border px-2.5 text-xs font-medium normal-case tracking-normal text-slate-950 outline-none transition",
+                                          enumTypes.includes(draft.type)
+                                            ? "cursor-default border-indigo-100 bg-indigo-50/60 text-indigo-700"
+                                            : "border-slate-300 bg-white placeholder:text-slate-400 focus:border-cyan-600",
+                                        )}
+                                        placeholder={enumTypes.includes(draft.type) ? "Pick a value ↓" : "Default value"}
                                       />
                                     </label>
                                   </div>
@@ -1120,11 +1147,22 @@ export function SchemaPageContent() {
                                         <span className="text-[10px] font-medium text-indigo-300">No values defined</span>
                                       ) : (
                                         <>
-                                          {getEnumValues(draft.type).slice(0, 12).map((v) => (
-                                            <span key={v.valueId} className="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
-                                              {v.name}
-                                            </span>
-                                          ))}
+                                          {getEnumValues(draft.type).slice(0, 12).map((v) => {
+                                            const isActive = draft.defaultValue === `"${v.name}"`;
+                                            return (
+                                              <button
+                                                key={v.valueId}
+                                                type="button"
+                                                onClick={() => updateDraft(field.key, { defaultValue: isActive ? "" : `"${v.name}"` })}
+                                                className={classNames(
+                                                  "rounded px-1.5 py-0.5 text-[10px] font-semibold transition",
+                                                  isActive ? "bg-indigo-600 text-white" : "bg-indigo-100 text-indigo-700 hover:bg-indigo-200",
+                                                )}
+                                              >
+                                                {v.name}
+                                              </button>
+                                            );
+                                          })}
                                           {getEnumValues(draft.type).length > 12 ? (
                                             <span className="text-[10px] font-medium text-indigo-400">+{getEnumValues(draft.type).length - 12} more</span>
                                           ) : null}
