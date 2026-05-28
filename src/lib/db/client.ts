@@ -606,6 +606,22 @@ db.exec(`
     content TEXT NOT NULL,
     created_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS migration_snapshot_data (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_id      TEXT NOT NULL REFERENCES migration_snapshots(id) ON DELETE CASCADE,
+    table_name       TEXT NOT NULL,
+    model_name       TEXT NOT NULL,
+    schema_table     TEXT NOT NULL,
+    resolved_table   TEXT,
+    matched          INTEGER NOT NULL DEFAULT 1,
+    table_id         TEXT,
+    target_table     TEXT,
+    target_model_key TEXT,
+    migration_order_json TEXT NOT NULL DEFAULT '[]',
+    records_json     TEXT NOT NULL DEFAULT '[]',
+    UNIQUE(snapshot_id, table_name)
+  );
 `);
 
 // One-time column upgrades for tables that pre-date these columns.
@@ -648,5 +664,28 @@ db.exec(`
   const exportCols = db.prepare("PRAGMA table_info(schema_exports)").all() as { name: string }[];
   if (exportCols.length > 0 && !exportCols.some((c) => c.name === "is_downloaded")) {
     db.exec("ALTER TABLE schema_exports ADD COLUMN is_downloaded INTEGER NOT NULL DEFAULT 0;");
+  }
+
+  // One-time upgrade: make migration_snapshots.folder_path nullable (was NOT NULL UNIQUE).
+  const snapCols = db.prepare("PRAGMA table_info(migration_snapshots)").all() as { name: string; notnull: number }[];
+  const fpCol = snapCols.find((c) => c.name === "folder_path");
+  if (fpCol && fpCol.notnull === 1) {
+    db.transaction(() => {
+      db.exec(`CREATE TABLE migration_snapshots_new (
+        id            TEXT PRIMARY KEY,
+        project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        connection_id TEXT NOT NULL,
+        from_version  TEXT NOT NULL,
+        to_version    TEXT NOT NULL,
+        folder_path   TEXT,
+        table_count   INTEGER NOT NULL DEFAULT 0,
+        row_count     INTEGER NOT NULL DEFAULT 0,
+        tables_json   TEXT NOT NULL DEFAULT '[]',
+        collected_at  TEXT NOT NULL
+      )`);
+      db.exec("INSERT INTO migration_snapshots_new SELECT * FROM migration_snapshots");
+      db.exec("DROP TABLE migration_snapshots");
+      db.exec("ALTER TABLE migration_snapshots_new RENAME TO migration_snapshots");
+    })();
   }
 }

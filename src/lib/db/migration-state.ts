@@ -8,7 +8,7 @@ export type MigrationSnapshot = {
   connectionId: string;
   fromVersion: string;
   toVersion: string;
-  folderPath: string;
+  folderPath?: string | null;
   tableCount: number;
   rowCount: number;
   tables: { name: string; count: number }[];
@@ -23,9 +23,63 @@ export function insertMigrationSnapshot(data: Omit<MigrationSnapshot, "collected
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     data.id, data.projectId, data.connectionId, data.fromVersion, data.toVersion,
-    data.folderPath, data.tableCount, data.rowCount, JSON.stringify(data.tables), collectedAt,
+    data.folderPath ?? null, data.tableCount, data.rowCount, JSON.stringify(data.tables), collectedAt,
   );
   return { ...data, collectedAt };
+}
+
+export type SnapshotTableData = {
+  tableName: string;
+  modelName: string;
+  schemaTable: string;
+  resolvedTable: string | null;
+  matched: boolean;
+  tableId: string | null;
+  targetTable: string | null;
+  targetModelKey: string | null;
+  migrationOrder: unknown[];
+  records: Record<string, unknown>[];
+};
+
+export function insertSnapshotData(snapshotId: string, tables: SnapshotTableData[]): void {
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO migration_snapshot_data
+      (snapshot_id, table_name, model_name, schema_table, resolved_table, matched,
+       table_id, target_table, target_model_key, migration_order_json, records_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  db.transaction((items: SnapshotTableData[]) => {
+    for (const item of items) {
+      stmt.run(
+        snapshotId, item.tableName, item.modelName, item.schemaTable,
+        item.resolvedTable ?? null, item.matched ? 1 : 0,
+        item.tableId ?? null, item.targetTable ?? null, item.targetModelKey ?? null,
+        JSON.stringify(item.migrationOrder), JSON.stringify(item.records),
+      );
+    }
+  })(tables);
+}
+
+export function getSnapshotData(snapshotId: string): SnapshotTableData[] {
+  const rows = db.prepare(
+    "SELECT * FROM migration_snapshot_data WHERE snapshot_id = ? ORDER BY id",
+  ).all(snapshotId) as {
+    table_name: string; model_name: string; schema_table: string; resolved_table: string | null;
+    matched: number; table_id: string | null; target_table: string | null;
+    target_model_key: string | null; migration_order_json: string; records_json: string;
+  }[];
+  return rows.map((r) => ({
+    tableName: r.table_name,
+    modelName: r.model_name,
+    schemaTable: r.schema_table,
+    resolvedTable: r.resolved_table,
+    matched: r.matched === 1,
+    tableId: r.table_id,
+    targetTable: r.target_table,
+    targetModelKey: r.target_model_key,
+    migrationOrder: JSON.parse(r.migration_order_json) as unknown[],
+    records: JSON.parse(r.records_json) as Record<string, unknown>[],
+  }));
 }
 
 export type MigrationWorkflowState = {
@@ -67,14 +121,14 @@ type DbRow = {
 };
 
 function rowToState(row: DbRow): MigrationWorkflowState {
-  const snapshot: MigrationSnapshot | null = row.snapshot_id && row.snap_folder_path
+  const snapshot: MigrationSnapshot | null = row.snapshot_id
     ? {
         id: row.snapshot_id,
         projectId: row.project_id,
         connectionId: row.snap_connection_id ?? "",
         fromVersion: row.snap_from_version ?? "",
         toVersion: row.snap_to_version ?? "",
-        folderPath: row.snap_folder_path,
+        folderPath: row.snap_folder_path ?? null,
         tableCount: row.snap_table_count ?? 0,
         rowCount: row.snap_row_count ?? 0,
         tables: row.snap_tables_json ? (JSON.parse(row.snap_tables_json) as { name: string; count: number }[]) : [],

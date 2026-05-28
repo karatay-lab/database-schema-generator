@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import type { StoredConnection } from "@/types/migrations";
 import { getConnection, touchLastUsedAt } from "@/lib/db/migration-connections";
 import { db as appDb } from "@/lib/db/client";
-import { insertMigrationLog, upsertMigrationSession } from "@/lib/db/migration-state";
+import { getSnapshotData, insertMigrationLog, upsertMigrationSession } from "@/lib/db/migration-state";
 import { prepareMigrationPrismaSchema } from "@/lib/migration-schema-artifacts";
 import { MIGRATION_REFERENCE_FIELD } from "@/lib/schema-naming";
 
@@ -133,11 +133,11 @@ export async function POST(request: Request) {
   const body = (await request.json()) as Record<string, unknown>;
   const projectName = getString(body.projectName);
   const connectionId = getString(body.connectionId);
-  const dataTimestamp = getString(body.dataTimestamp);
+  const snapshotId = getString(body.snapshotId);
   const syncVersion = getString(body.syncVersion);
 
-  if (!projectName || !connectionId || !dataTimestamp || !syncVersion) {
-    return Response.json({ success: false, error: "projectName, connectionId, dataTimestamp, and syncVersion are required." }, { status: 400 });
+  if (!projectName || !connectionId || !snapshotId || !syncVersion) {
+    return Response.json({ success: false, error: "projectName, connectionId, snapshotId, and syncVersion are required." }, { status: 400 });
   }
 
   let stored: StoredConnection | null;
@@ -147,12 +147,6 @@ export async function POST(request: Request) {
   if (!stored) return Response.json({ success: false, error: "Connection not found." }, { status: 404 });
 
   const projectSlug = toSlug(projectName);
-  const dataDir = path.join(migrationsDir, projectSlug, connectionId, "data", dataTimestamp);
-
-  let snapshotFiles: string[];
-  try { snapshotFiles = await readdir(dataDir); } catch {
-    return Response.json({ success: false, error: "Snapshot not found. Run Collect first." }, { status: 404 });
-  }
 
   // Load sync schema for FK-ordered insert
   let schemaPath: string;
@@ -167,14 +161,16 @@ export async function POST(request: Request) {
     return Response.json({ success: false, error: err instanceof Error ? err.message : "Schema could not be prepared." }, { status: 404 });
   }
 
-  // Load snapshot records (raw — no transformation)
+  // Load snapshot records from SQLite
+  const snapshotRows = getSnapshotData(snapshotId);
+  if (snapshotRows.length === 0) {
+    return Response.json({ success: false, error: "Snapshot not found. Run Collect first." }, { status: 404 });
+  }
+
   const snapshotsByTable = new Map<string, { tableName: string; idField: string; records: Record<string, unknown>[] }>();
-  for (const file of snapshotFiles.filter((f) => f.endsWith(".json"))) {
-    const raw = JSON.parse(await readFile(path.join(dataDir, file), "utf8")) as {
-      table: string; schemaTable?: string; records: Record<string, unknown>[];
-    };
-    const tableName = raw.schemaTable ?? raw.table;
-    snapshotsByTable.set(tableName, { tableName, idField: "id", records: raw.records });
+  for (const row of snapshotRows) {
+    const tableName = row.schemaTable ?? row.tableName;
+    snapshotsByTable.set(tableName, { tableName, idField: "id", records: row.records });
   }
 
   const tables = [...snapshotsByTable.values()];
@@ -233,7 +229,7 @@ export async function POST(request: Request) {
 
         const totalErrors = tableSummaries.reduce((s, t) => s + t.errors, 0);
         const status = totalErrors === 0 ? "success" : "partial";
-        const logContent = { status, type: "restore", startedAt, completedAt: new Date().toISOString(), project: projectName, connectionId, syncVersion, dataTimestamp, tables: tableSummaries };
+        const logContent = { status, type: "restore", startedAt, completedAt: new Date().toISOString(), project: projectName, connectionId, syncVersion, snapshotId, tables: tableSummaries };
 
         await writeFile(logPath, JSON.stringify(logContent, null, 2), "utf8");
         touchLastUsedAt(connectionId);

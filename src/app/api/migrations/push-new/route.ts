@@ -36,6 +36,7 @@ export async function POST(request: Request) {
   const projectName = getString(body.projectName);
   const connectionId = getString(body.connectionId);
   const targetVersion = getString(body.targetVersion);
+  const forceReset = body.forceReset === true;
 
   if (!projectName || !connectionId || !targetVersion) {
     return jsonError("projectName, connectionId, and targetVersion are required.");
@@ -67,19 +68,19 @@ export async function POST(request: Request) {
   const ts = startedAt.replace(/[:.]/g, "-").slice(0, 19);
   const logsDir = path.join(migrationsDir, projectSlug, connectionId, "logs");
   await mkdir(logsDir, { recursive: true });
-  const logFilename = `new-migration-${toSlug(targetVersion)}-${ts}.json`;
+  const logFilename = `new-migration-${forceReset ? "destroy-" : ""}${toSlug(targetVersion)}-${ts}.json`;
   const logPath = path.join(logsDir, logFilename);
 
+  const prismaArgs = forceReset
+    ? ["prisma", "db", "push", "--force-reset", "--schema", schemaPath, `--url=${connectionUrl}`]
+    : ["prisma", "db", "push", "--accept-data-loss", "--schema", schemaPath, `--url=${connectionUrl}`];
+
   try {
-    await execFileAsync(
-      "pnpm",
-      ["prisma", "db", "push", "--schema", schemaPath, `--url=${connectionUrl}`, "--accept-data-loss"],
-      {
-        cwd: process.cwd(),
-        env: { ...process.env, PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK: "1" },
-        timeout: 120_000,
-      },
-    );
+    await execFileAsync("pnpm", prismaArgs, {
+      cwd: process.cwd(),
+      env: { ...process.env, PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK: "1" },
+      timeout: 120_000,
+    });
 
     const completedAt = new Date().toISOString();
 
@@ -90,7 +91,7 @@ export async function POST(request: Request) {
 
     await writeFile(logPath, JSON.stringify({
       status: "success",
-      type: "new-migration",
+      type: forceReset ? "new-migration-force-reset" : "new-migration",
       startedAt,
       completedAt,
       project: projectName,

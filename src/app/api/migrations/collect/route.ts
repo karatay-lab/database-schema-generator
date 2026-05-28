@@ -1,8 +1,5 @@
 import { NextResponse } from "next/server";
-import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { mkdir, readdir, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { Client } from "pg";
 import mysql from "mysql2/promise";
 import Database from "better-sqlite3";
@@ -10,55 +7,12 @@ import { getSchema } from "@mrleebo/prisma-ast";
 import type { Model } from "@mrleebo/prisma-ast";
 import type { StoredConnection } from "@/types/migrations";
 import { getConnection, touchLastUsedAt } from "@/lib/db/migration-connections";
-import { registerFsPath } from "@/lib/db/fs-paths";
 import { db as appDb } from "@/lib/db/client";
-import { insertMigrationSnapshot, upsertMigrationSession } from "@/lib/db/migration-state";
-import { setMigrationState } from "@/lib/db/migration-state";
+import { insertMigrationSnapshot, insertSnapshotData, upsertMigrationSession, setMigrationState } from "@/lib/db/migration-state";
+import type { SnapshotTableData } from "@/lib/db/migration-state";
 import { renderMigrationPrismaSchema } from "@/lib/migration-schema-artifacts";
 import { readProjectVersionGraph } from "@/lib/schema-db/graph";
 import { computeMigrationOrder, fieldReadName, withMigrationReference } from "@/lib/migrations/rules";
-
-const migrationsDir = path.join(process.cwd(), "src/database/migrations");
-
-// ─── folder hashing ───────────────────────────────────────────────────────────
-
-function hashFileStream(filePath: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const hash = createHash("sha256");
-    const stream = createReadStream(filePath);
-    stream.on("data", (chunk) => hash.update(chunk));
-    stream.on("end", () => resolve(hash.digest("hex")));
-    stream.on("error", reject);
-  });
-}
-
-async function collectFiles(dir: string): Promise<string[]> {
-  const entries = await readdir(dir, { withFileTypes: true });
-  let files: string[] = [];
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) files = files.concat(await collectFiles(full));
-    else if (entry.isFile()) files.push(full);
-  }
-  return files;
-}
-
-async function hashFolder(folderPath: string): Promise<string> {
-  const files = await collectFiles(folderPath);
-  const parts: string[] = [];
-  for (const file of files.sort()) {
-    const fileHash = await hashFileStream(file);
-    const rel = path.relative(folderPath, file).replace(/\\/g, "/");
-    parts.push(`${fileHash}  ${rel}`);
-  }
-  return createHash("sha256").update(parts.join("\n")).digest("hex");
-}
-
-function toSlug(value: string) {
-  return (
-    value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "untitled"
-  );
-}
 
 function getString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -235,8 +189,6 @@ export async function POST(request: Request) {
     return jsonError("Project name, connection ID, and sync version are required.");
   }
 
-  const projectSlug = toSlug(projectName);
-
   let stored;
   try {
     stored = getConnection(connectionId);
@@ -352,19 +304,18 @@ export async function POST(request: Request) {
     });
   }
 
-  // Write data snapshots
-  const dataDir = path.join(migrationsDir, projectSlug, connectionId, "data", timestamp);
-  await mkdir(dataDir, { recursive: true });
+  // Build snapshot data and persist to SQLite
+  const snapshotId = randomUUID();
   const pidRow = appDb.prepare("SELECT id FROM projects WHERE name = ?").get(projectName) as { id: string } | undefined;
-  if (pidRow) registerFsPath({ projectId: pidRow.id, connectionId, fileType: "snapshot_dir", label: timestamp, fsPath: dataDir });
 
   const tables: { name: string; count: number }[] = [];
   const tableMismatches: { schemaTable: string; resolvedTable: string | null }[] = [];
   let totalRecords = 0;
   const perModelErrors: string[] = [];
+  const snapshotTableData: SnapshotTableData[] = [];
 
   for (const { modelName, schemaTable, resolvedTable, matched, records, queryError } of queryResults) {
-    const fileTable = matched ? resolvedTable : schemaTable;
+    const tableName = matched ? resolvedTable : schemaTable;
     const tableId = syncTableIdByModelName.get(modelName) ?? null;
     const targetInfo = tableId ? targetInfoByTableId.get(tableId) : null;
     const relationRefs = referencesByModelName.get(modelName) ?? [];
@@ -379,23 +330,20 @@ export async function POST(request: Request) {
       );
       return withMigrationReference(record, index, refs);
     });
-    await writeFile(
-      path.join(dataDir, `${fileTable}.json`),
-      JSON.stringify({
-        table: fileTable,
-        schemaTable,
-        resolvedTable: matched ? resolvedTable : null,
-        matched,
-        tableId,
-        targetTable: targetInfo?.targetTable ?? null,
-        targetModelKey: tableId,
-        count: records.length,
-        collectedAt: new Date().toISOString(),
-        migrationOrder,
-        records: recordsWithReferences,
-      }, null, 2),
-      "utf8",
-    );
+
+    snapshotTableData.push({
+      tableName,
+      modelName,
+      schemaTable,
+      resolvedTable: matched ? resolvedTable : null,
+      matched,
+      tableId,
+      targetTable: targetInfo?.targetTable ?? null,
+      targetModelKey: tableId,
+      migrationOrder,
+      records: recordsWithReferences,
+    });
+
     tables.push({ name: schemaTable, count: records.length });
     totalRecords += records.length;
     if (!matched) {
@@ -410,10 +358,7 @@ export async function POST(request: Request) {
 
   touchLastUsedAt(connectionId);
 
-  // Compute folder hash (content-addressed snapshot ID) then persist
-  let snapshotId: string | undefined;
   try {
-    snapshotId = await hashFolder(dataDir);
     if (pidRow) {
       insertMigrationSnapshot({
         id: snapshotId,
@@ -421,15 +366,12 @@ export async function POST(request: Request) {
         connectionId,
         fromVersion: syncVersion,
         toVersion: targetVersion,
-        folderPath: path.relative(process.cwd(), dataDir),
         tableCount: tables.length,
         rowCount: totalRecords,
         tables,
       });
-      setMigrationState(pidRow.id, {
-        snapshotId,
-        dataTimestamp: timestamp,
-      });
+      insertSnapshotData(snapshotId, snapshotTableData);
+      setMigrationState(pidRow.id, { snapshotId, dataTimestamp: timestamp });
       upsertMigrationSession({
         projectId: pidRow.id,
         connectionId,
@@ -441,14 +383,14 @@ export async function POST(request: Request) {
       });
     }
   } catch {
-    // Non-fatal — snapshot/session tracking failure should not abort a successful collect
+    // Non-fatal — tracking failure should not abort a successful collect
   }
 
   const collectError = perModelErrors.length > 0 ? perModelErrors.join(" | ") : undefined;
 
   return NextResponse.json({
     success: true,
-    dataPath: path.relative(process.cwd(), dataDir),
+    dataPath: "",
     snapshotId,
     timestamp,
     tables,

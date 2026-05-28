@@ -1,21 +1,12 @@
 import { NextResponse } from "next/server";
-import { readdir, readFile } from "node:fs/promises";
-import path from "node:path";
 import { getSchema } from "@mrleebo/prisma-ast";
 import type { Field, Model } from "@mrleebo/prisma-ast";
 import { z } from "zod";
 import type { ValidationIssue } from "@/types/migrations";
 import { db } from "@/lib/db/client";
+import { getSnapshotData } from "@/lib/db/migration-state";
 import { renderMigrationPrismaSchema } from "@/lib/migration-schema-artifacts";
 import { checkTypeConversion, generatedUniqueValue } from "@/lib/migrations/rules";
-
-const migrationsDir = path.join(process.cwd(), "src/database/migrations");
-
-function toSlug(value: string) {
-  return (
-    value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "untitled"
-  );
-}
 
 function getString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -352,13 +343,11 @@ export async function POST(request: Request) {
   const connectionId = getString(body.connectionId);
   const syncVersion = getString(body.syncVersion);
   const targetVersion = getString(body.targetVersion);
-  const dataTimestamp = getString(body.dataTimestamp);
+  const snapshotId = getString(body.snapshotId);
 
-  if (!projectName || !connectionId || !syncVersion || !targetVersion || !dataTimestamp) {
-    return jsonError("Project name, connection ID, sync version, target version, and dataTimestamp are required.");
+  if (!projectName || !connectionId || !syncVersion || !targetVersion || !snapshotId) {
+    return jsonError("Project name, connection ID, sync version, target version, and snapshotId are required.");
   }
-
-  const projectSlug = toSlug(projectName);
 
   try {
     const [syncContent, targetContent] = await Promise.all([
@@ -375,21 +364,18 @@ export async function POST(request: Request) {
       ? buildRenameMapsByModel(v1Store, v2Store)
       : new Map<string, Map<string, string>>();
 
-    // Load collected data snapshots
-    const dataDir = path.join(migrationsDir, projectSlug, connectionId, "data", dataTimestamp);
-    const snapshotsByTable = new Map<string, Record<string, unknown>[]>();
-
-    let files: string[] = [];
-    try {
-      files = await readdir(dataDir);
-    } catch {
+    // Load collected data snapshots from SQLite
+    const snapshotRows = getSnapshotData(snapshotId);
+    if (snapshotRows.length === 0) {
       return jsonError("Data snapshot not found. Run Collect first.", 404);
     }
 
-    for (const file of files.filter((f) => f.endsWith(".json"))) {
-      const content = await readFile(path.join(dataDir, file), "utf8");
-      const snapshot = JSON.parse(content) as { table: string; records: Record<string, unknown>[] };
-      snapshotsByTable.set(snapshot.table, snapshot.records);
+    const snapshotsByTable = new Map<string, Record<string, unknown>[]>();
+    for (const row of snapshotRows) {
+      snapshotsByTable.set(row.tableName, row.records);
+      if (row.schemaTable && row.schemaTable !== row.tableName) {
+        snapshotsByTable.set(row.schemaTable, row.records);
+      }
     }
 
     const stage1Issues = runStage1(syncModels, snapshotsByTable);

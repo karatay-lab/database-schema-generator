@@ -41,6 +41,13 @@ export type ConnectResponse = {
   error?: string;
 };
 
+export type TestConnectionResponse = {
+  success: boolean;
+  tables?: string[];
+  tableCounts?: { name: string; count: number }[];
+  error?: string;
+};
+
 export type PullResponse = {
   success: boolean;
   hash?: string;

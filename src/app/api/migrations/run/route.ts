@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { execFile, spawn } from "node:child_process";
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
@@ -12,7 +12,7 @@ import type { StoredConnection, ValidationIssue } from "@/types/migrations";
 import { getConnection, touchLastUsedAt } from "@/lib/db/migration-connections";
 import { registerFsPath } from "@/lib/db/fs-paths";
 import { db as appDb } from "@/lib/db/client";
-import { insertMigrationLog, upsertMigrationSession } from "@/lib/db/migration-state";
+import { getSnapshotData, insertMigrationLog, upsertMigrationSession } from "@/lib/db/migration-state";
 import { prepareMigrationPrismaSchema, renderMigrationPrismaSchema } from "@/lib/migration-schema-artifacts";
 import { readProjectVersionGraph } from "@/lib/schema-db/graph";
 import { MIGRATION_REFERENCE_FIELD } from "@/lib/schema-naming";
@@ -610,11 +610,11 @@ export async function POST(request: Request) {
   const connectionId = getString(body.connectionId);
   const syncVersion = getString(body.syncVersion);
   const targetVersion = getString(body.targetVersion);
-  const dataTimestamp = getString(body.dataTimestamp);
+  const snapshotId = getString(body.snapshotId);
   const rowPatches = (body.rowPatches ?? {}) as Record<string, Record<string, unknown>>;
 
-  if (!projectName || !connectionId || !targetVersion || !dataTimestamp) {
-    return jsonError("Project name, connection ID, target version, and dataTimestamp are required.");
+  if (!projectName || !connectionId || !targetVersion || !snapshotId) {
+    return jsonError("Project name, connection ID, target version, and snapshotId are required.");
   }
 
   const projectSlug = toSlug(projectName);
@@ -684,13 +684,9 @@ export async function POST(request: Request) {
     }
   } catch { /* non-fatal */ }
 
-  // Load collected snapshots
-  const dataDir = path.join(migrationsDir, projectSlug, connectionId, "data", dataTimestamp);
-  let snapshotFiles: string[] = [];
-
-  try {
-    snapshotFiles = await readdir(dataDir);
-  } catch {
+  // Load collected snapshots from SQLite
+  const snapshotRows = getSnapshotData(snapshotId);
+  if (snapshotRows.length === 0) {
     return jsonError("Data snapshot not found. Run Collect first.", 404);
   }
 
@@ -711,30 +707,17 @@ export async function POST(request: Request) {
     }
   }
 
-  for (const file of snapshotFiles.filter((f) => f.endsWith(".json"))) {
-    const raw = JSON.parse(await readFile(path.join(dataDir, file), "utf8")) as {
-      table: string;
-      schemaTable?: string;
-      tableId?: string;
-      targetModelKey?: string;
-      records: Record<string, unknown>[];
-    };
-
-    // Primary: use tableId (table_id from schema_tables — stable cross-version identity)
-    if (raw.tableId) {
-      recordsByTableId.set(raw.tableId, raw.records);
+  for (const row of snapshotRows) {
+    if (row.tableId) {
+      recordsByTableId.set(row.tableId, row.records);
     }
-
-    // Legacy: targetModelKey from older snapshots without tableId
-    const modelKey = raw.targetModelKey ?? (() => {
-      const syncTableOrName = raw.schemaTable ?? raw.table;
+    const modelKey = row.targetModelKey ?? (() => {
+      const syncTableOrName = row.schemaTable ?? row.tableName;
       return syncKeyByTableOrName.get(syncTableOrName);
     })();
-    if (modelKey) recordsByModelKey.set(modelKey, raw.records);
-
-    // Always keep name-keyed entries for stage 1 and edge cases
-    snapshotsByTable.set(raw.table, raw.records);
-    if (raw.schemaTable) snapshotsByTable.set(raw.schemaTable, raw.records);
+    if (modelKey) recordsByModelKey.set(modelKey, row.records);
+    snapshotsByTable.set(row.tableName, row.records);
+    if (row.schemaTable) snapshotsByTable.set(row.schemaTable, row.records);
   }
 
   // ── Stage 1: validate raw records against sync Zod (warnings only) ──────────
@@ -889,7 +872,7 @@ export async function POST(request: Request) {
         const totalErrors  = tableSummaries.reduce((s, t) => s + t.errors, 0);
         const completedAt  = new Date().toISOString();
         const status = totalErrors === 0 ? "success" : "partial";
-        const logContent = { status, startedAt, completedAt, project: projectName, connectionId, syncVersion, targetVersion, dataTimestamp, stage1IssueCount: stage1Issues.length, totalCreated, totalErrors, insertOrder, migrationOrder, tables: tableSummaries };
+        const logContent = { status, startedAt, completedAt, project: projectName, connectionId, syncVersion, targetVersion, snapshotId, stage1IssueCount: stage1Issues.length, totalCreated, totalErrors, insertOrder, migrationOrder, tables: tableSummaries };
 
         await writeFile(logPath, JSON.stringify(logContent, null, 2), "utf8");
         touchLastUsedAt(connectionId);
@@ -905,7 +888,7 @@ export async function POST(request: Request) {
 
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Migration failed.";
-        const errContent = { status: "error", startedAt, failedAt: new Date().toISOString(), project: projectName, connectionId, syncVersion, targetVersion, dataTimestamp, error: msg };
+        const errContent = { status: "error", startedAt, failedAt: new Date().toISOString(), project: projectName, connectionId, syncVersion, targetVersion, snapshotId, error: msg };
         await writeFile(logPath, JSON.stringify(errContent, null, 2), "utf8").catch(() => {});
         const errPidRow = appDb.prepare("SELECT id FROM projects WHERE name = ?").get(projectName) as { id: string } | undefined;
         if (errPidRow) {

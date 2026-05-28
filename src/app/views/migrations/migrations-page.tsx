@@ -16,6 +16,7 @@ import type {
   PushNewResponse,
   RunResponse,
   SchemaCheckResponse,
+  TestConnectionResponse,
   ValidateResponse,
   ValidationIssue,
 } from "@/types/migrations";
@@ -204,8 +205,11 @@ export function MigrationsPageContent() {
   const [newTargetVersion, setNewTargetVersion] = useState(versions[versions.length - 1] ?? "");
   const [pushState, setPushState] = useState<PhaseState>("idle");
   const [pushError, setPushError] = useState("");
+  const [lastPushMode, setLastPushMode] = useState<"safe" | "destroy" | null>(null);
   const [showDestroyModal, setShowDestroyModal] = useState(false);
   const [destroyConfirmText, setDestroyConfirmText] = useState("");
+  const [destroyDbPreview, setDestroyDbPreview] = useState<{ tables: { name: string; count: number }[]; total: number } | null>(null);
+  const [destroyDbPreviewLoading, setDestroyDbPreviewLoading] = useState(false);
 
   // ── connection test ──
   const [testingId, setTestingId] = useState("");
@@ -231,6 +235,7 @@ export function MigrationsPageContent() {
   const [collectState, setCollectState] = useState<PhaseState>("idle");
   const [collectError, setCollectError] = useState("");
   const [collectTimestamp, setCollectTimestamp] = useState("");
+  const [collectSnapshotId, setCollectSnapshotId] = useState<string | null>(null);
   const [collectTables, setCollectTables] = useState<{ name: string; count: number }[]>([]);
   const [collectTotal, setCollectTotal] = useState(0);
   const [collectQueryError, setCollectQueryError] = useState("");
@@ -316,6 +321,7 @@ export function MigrationsPageContent() {
       if (state.schemaCheckPassed) setSchemaCheckState("success");
       if (state.snapshotId && state.snapshot) {
         // Restore directly from the joined snapshot — no extra round-trip needed
+        setCollectSnapshotId(state.snapshotId);
         setCollectTimestamp(state.snapshot.collectedAt);
         setCollectTables(state.snapshot.tables);
         setCollectTotal(state.snapshot.rowCount);
@@ -365,6 +371,7 @@ export function MigrationsPageContent() {
     setCollectState("idle");
     setCollectError("");
     setCollectTimestamp("");
+    setCollectSnapshotId(null);
     setCollectTables([]);
     setCollectTotal(0);
     setCollectQueryError("");
@@ -551,16 +558,40 @@ export function MigrationsPageContent() {
     }
   };
 
+  // ─── new migration: open destroy modal with DB data check ────────────────
+
+  const handleDestroyOpen = () => {
+    setDestroyConfirmText("");
+    setDestroyDbPreview(null);
+    setDestroyDbPreviewLoading(true);
+    setShowDestroyModal(true);
+    fetch("/api/migrations/test-connection", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ connectionId: activeConnectionId, withCounts: true }),
+    })
+      .then((r) => r.json() as Promise<TestConnectionResponse>)
+      .then((data) => {
+        if (data.success && data.tableCounts) {
+          const total = data.tableCounts.reduce((s, t) => s + t.count, 0);
+          setDestroyDbPreview({ tables: data.tableCounts, total });
+        }
+      })
+      .catch(() => { /* silent — modal still functions without preview */ })
+      .finally(() => setDestroyDbPreviewLoading(false));
+  };
+
   // ─── new migration: push schema ───────────────────────────────────────────
 
-  const handlePushNew = async () => {
+  const handlePushNew = async (forceReset: boolean) => {
+    setLastPushMode(forceReset ? "destroy" : "safe");
     setPushState("loading");
     setPushError("");
     try {
       const res = await fetch("/api/migrations/push-new", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectName, connectionId: activeConnectionId, targetVersion: newTargetVersion }),
+        body: JSON.stringify({ projectName, connectionId: activeConnectionId, targetVersion: newTargetVersion, forceReset }),
       });
       const data = await res.json() as PushNewResponse;
       if (!data.success) throw new Error(data.error ?? "Push failed.");
@@ -600,6 +631,7 @@ export function MigrationsPageContent() {
     setCollectState("loading");
     setCollectError("");
     setCollectTimestamp("");
+    setCollectSnapshotId(null);
     setCollectTables([]);
     setCollectTotal(0);
     setCollectQueryError("");
@@ -614,6 +646,7 @@ export function MigrationsPageContent() {
       const data: CollectResponse = await res.json();
       if (!data.success) throw new Error(data.error ?? "Collect failed.");
       setCollectTimestamp(data.timestamp ?? "");
+      setCollectSnapshotId(data.snapshotId ?? null);
       setCollectTables(data.tables ?? []);
       setCollectTotal(data.totalRecords ?? 0);
       setCollectQueryError(data.collectError ?? "");
@@ -647,7 +680,7 @@ export function MigrationsPageContent() {
           connectionId: activeConnectionId,
           syncVersion,
           targetVersion,
-          dataTimestamp: collectTimestamp,
+          snapshotId: collectSnapshotId,
         }),
       });
       const data: ValidateResponse = await res.json();
@@ -741,7 +774,7 @@ export function MigrationsPageContent() {
 
     try {
       await consumeMigrateStream(
-        JSON.stringify({ projectName, connectionId: activeConnectionId, syncVersion, targetVersion, dataTimestamp: collectTimestamp }),
+        JSON.stringify({ projectName, connectionId: activeConnectionId, syncVersion, targetVersion, snapshotId: collectSnapshotId }),
         (data) => { setInvalidRows(data.invalidRows ?? []); setStage1Issues(data.stage1Issues ?? []); setStage2Issues(data.stage2Issues ?? []); setShowFixModal(true); setMigrateState("idle"); setMigratePhase("idle"); },
         (msg) => { setMigrateError(msg); setMigrateState("error"); setMigratePhase("idle"); },
         (data) => { applyMigrateSuccess(data); setMigratePhase("idle"); },
@@ -763,7 +796,7 @@ export function MigrationsPageContent() {
 
     try {
       await consumeMigrateStream(
-        JSON.stringify({ projectName, connectionId: activeConnectionId, syncVersion, targetVersion, dataTimestamp: collectTimestamp, rowPatches }),
+        JSON.stringify({ projectName, connectionId: activeConnectionId, syncVersion, targetVersion, snapshotId: collectSnapshotId, rowPatches }),
         (data) => { setInvalidRows(data.invalidRows ?? []); setStage2Issues(data.stage2Issues ?? []); },
         (msg) => { setFixModalError(msg); },
         (data) => { setShowFixModal(false); setInvalidRows([]); setRowPatches({}); applyMigrateSuccess(data); setMigratePhase("idle"); },
@@ -788,7 +821,7 @@ export function MigrationsPageContent() {
       const res = await fetch("/api/migrations/restore-snapshot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectName, connectionId: activeConnectionId, dataTimestamp: collectTimestamp, syncVersion }),
+        body: JSON.stringify({ projectName, connectionId: activeConnectionId, snapshotId: collectSnapshotId, syncVersion }),
       });
       if (!res.body) throw new Error("No response body.");
       const reader = res.body.getReader();
@@ -1385,7 +1418,7 @@ export function MigrationsPageContent() {
         </CardBody>
       </Card>
 
-      {/* ── Step 2 (Destroy & Deploy): Deploy Schema ──────────────────────── */}
+      {/* ── Step 2: Deploy Schema ─────────────────────────────────────────── */}
       {isNewPlan && (
         <Card locked={connectState !== "success"}>
           <CardHeader>
@@ -1395,7 +1428,7 @@ export function MigrationsPageContent() {
                 <div>
                   <p className="text-sm font-semibold text-slate-950">Deploy Schema</p>
                   <p className="text-xs text-slate-500">
-                    Select a version to deploy. The database will be wiped and rebuilt from scratch.
+                    Deploy Schema applies changes non-destructively. Destroy &amp; Deploy force-resets the entire database.
                   </p>
                 </div>
               </div>
@@ -1413,6 +1446,7 @@ export function MigrationsPageContent() {
                     setNewTargetVersion(e.target.value);
                     setPushState("idle");
                     setPushError("");
+                    setLastPushMode(null);
                   }}
                   className="h-9 min-w-40 rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-slate-500"
                 >
@@ -1424,17 +1458,26 @@ export function MigrationsPageContent() {
 
               <button
                 type="button"
-                onClick={() => { setDestroyConfirmText(""); setShowDestroyModal(true); }}
+                onClick={() => void handlePushNew(false)}
+                disabled={pushState === "loading" || pushState === "success" || undefined}
+                className="h-9 min-w-40 rounded-md border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {pushState === "loading" && lastPushMode === "safe" ? "Deploying…" : "Deploy Schema"}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDestroyOpen}
                 disabled={pushState === "loading" || pushState === "success" || undefined}
                 className="h-9 min-w-44 rounded-md bg-rose-600 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
-                {pushState === "loading" ? "Deploying…" : pushState === "success" ? "Deployed ✓" : "Deploy Schema"}
+                {pushState === "loading" && lastPushMode === "destroy" ? "Deploying…" : "Destroy & Deploy"}
               </button>
 
               {pushState === "success" && (
                 <button
                   type="button"
-                  onClick={() => { setPushState("idle"); setPushError(""); }}
+                  onClick={() => { setPushState("idle"); setPushError(""); setLastPushMode(null); }}
                   className="h-9 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                 >
                   Deploy Again
@@ -1445,12 +1488,22 @@ export function MigrationsPageContent() {
             {pushState === "success" && (
               <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3">
                 <p className="text-sm font-semibold text-emerald-700">
-                  ✓ Schema version {newTargetVersion} successfully deployed to the database.
+                  ✓ Schema version {newTargetVersion} successfully deployed
+                  {lastPushMode === "destroy" ? " (database force-reset)" : ""}.
                 </p>
               </div>
             )}
 
-            {pushError && <ErrorBox message={pushError} />}
+            {pushError && (
+              <>
+                <ErrorBox message={pushError} />
+                {lastPushMode === "safe" && /cannot be executed|force.reset/i.test(pushError) && (
+                  <p className="text-xs text-amber-700 font-semibold">
+                    The schema has incompatible changes that require a full reset. Use <span className="font-mono">Destroy &amp; Deploy</span> to force-reset the database.
+                  </p>
+                )}
+              </>
+            )}
           </CardBody>
         </Card>
       )}
@@ -2001,6 +2054,25 @@ export function MigrationsPageContent() {
                 <p className="text-sm font-semibold text-rose-700">All existing data will be permanently lost.</p>
                 <p className="text-xs text-rose-600">This will wipe every table in the connected database and apply schema version <span className="font-mono font-semibold">{newTargetVersion}</span> from scratch. This cannot be undone.</p>
               </div>
+              {destroyDbPreviewLoading && (
+                <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
+                  Checking database for existing data…
+                </div>
+              )}
+              {!destroyDbPreviewLoading && destroyDbPreview && destroyDbPreview.total > 0 && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 space-y-1">
+                  <p className="text-xs font-semibold text-amber-800">
+                    {destroyDbPreview.total.toLocaleString()} rows found across {destroyDbPreview.tables.filter((t) => t.count > 0).length} table{destroyDbPreview.tables.filter((t) => t.count > 0).length !== 1 ? "s" : ""}
+                  </p>
+                  <p className="text-xs text-amber-700">This data exists in the target database and will be permanently deleted by the force-reset.</p>
+                </div>
+              )}
+              {!destroyDbPreviewLoading && destroyDbPreview && destroyDbPreview.total === 0 && (
+                <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3">
+                  <p className="text-xs font-semibold text-emerald-700">No existing rows detected — safe to deploy from scratch.</p>
+                </div>
+              )}
               <div className="space-y-1.5">
                 <label className="block text-xs font-semibold text-slate-600">
                   Type <span className="font-mono text-rose-600">DELETE</span> to confirm
@@ -2026,7 +2098,7 @@ export function MigrationsPageContent() {
               <button
                 type="button"
                 disabled={destroyConfirmText !== "DELETE" || undefined}
-                onClick={() => { setShowDestroyModal(false); void handlePushNew(); }}
+                onClick={() => { setShowDestroyModal(false); void handlePushNew(true); }}
                 className="h-9 min-w-36 rounded-md bg-rose-600 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
                 Destroy &amp; Deploy

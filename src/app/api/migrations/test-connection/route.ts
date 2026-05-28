@@ -23,6 +23,7 @@ function buildConnectionUrl(conn: StoredConnection): string {
 export async function POST(request: Request) {
   const body = (await request.json()) as Record<string, unknown>;
   const connectionId = getString(body.connectionId);
+  const withCounts = body.withCounts === true;
 
   if (!connectionId) return jsonError("connectionId is required.");
 
@@ -38,6 +39,7 @@ export async function POST(request: Request) {
 
   try {
     let tables: string[] = [];
+    let tableCounts: { name: string; count: number }[] | undefined;
 
     if (provider === "sqlite") {
       const db = new Database(stored.database, { readonly: true });
@@ -47,6 +49,14 @@ export async function POST(request: Request) {
             `SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`,
           ).all() as { name: string }[]
         ).map((r) => r.name);
+        if (withCounts) {
+          tableCounts = tables.map((name) => {
+            try {
+              const row = db.prepare(`SELECT COUNT(*) as c FROM "${name}"`).get() as { c: number };
+              return { name, count: Number(row.c) };
+            } catch { return { name, count: 0 }; }
+          });
+        }
       } finally {
         db.close();
       }
@@ -57,6 +67,16 @@ export async function POST(request: Request) {
           `SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE' ORDER BY table_name`,
         );
         tables = rows.map((r) => r.table_name as string);
+        if (withCounts) {
+          tableCounts = await Promise.all(
+            tables.map(async (name) => {
+              try {
+                const [countRows] = await conn.execute<mysql.RowDataPacket[]>(`SELECT COUNT(*) as c FROM \`${name}\``);
+                return { name, count: Number((countRows[0] as mysql.RowDataPacket).c) };
+              } catch { return { name, count: 0 }; }
+            }),
+          );
+        }
       } finally {
         await conn.end();
       }
@@ -70,13 +90,23 @@ export async function POST(request: Request) {
            ORDER BY table_name`,
         );
         tables = res.rows.map((r) => r.table_name);
+        if (withCounts) {
+          tableCounts = await Promise.all(
+            tables.map(async (name) => {
+              try {
+                const r = await client.query<{ c: string }>(`SELECT COUNT(*) as c FROM "${name}"`);
+                return { name, count: Number(r.rows[0]?.c ?? 0) };
+              } catch { return { name, count: 0 }; }
+            }),
+          );
+        }
       } finally {
         await client.end();
       }
     }
 
     touchLastUsedAt(connectionId);
-    return NextResponse.json({ success: true, tables });
+    return NextResponse.json({ success: true, tables, ...(tableCounts ? { tableCounts } : {}) });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Connection failed.";
     return NextResponse.json({ success: false, error: message }, { status: 400 });
