@@ -21,36 +21,33 @@ function resolutionSeverity(w: SchemaWarning): Severity {
   return "info";
 }
 
-const severityStyles: Record<Severity, { row: string; badge: string; label: string; dot: string }> = {
-  breaking: { row: "bg-red-50/50",    badge: "border-red-200 bg-red-50 text-red-700",      label: "Breaking", dot: "bg-red-500"    },
-  warning:  { row: "bg-amber-50/40",  badge: "border-amber-200 bg-amber-50 text-amber-700", label: "Warning",  dot: "bg-amber-500"  },
-  info:     { row: "",                badge: "border-sky-200 bg-sky-50 text-sky-700",        label: "Info",     dot: "bg-sky-400"    },
-  approved: { row: "bg-slate-50/60",  badge: "border-emerald-200 bg-emerald-50 text-emerald-700", label: "Approved", dot: "bg-emerald-500" },
+const severityConfig: Record<Severity, { row: string; badge: string; label: string; dot: string }> = {
+  breaking: { row: "bg-red-50/60",    badge: "border-red-200 bg-red-50 text-red-700",              label: "Breaking", dot: "bg-red-500"     },
+  warning:  { row: "bg-amber-50/40",  badge: "border-amber-200 bg-amber-50 text-amber-700",         label: "Warning",  dot: "bg-amber-500"   },
+  info:     { row: "",                badge: "border-sky-200 bg-sky-50 text-sky-700",                label: "Info",     dot: "bg-sky-400"     },
+  approved: { row: "opacity-60",      badge: "border-emerald-200 bg-emerald-50 text-emerald-700",   label: "Approved", dot: "bg-emerald-400" },
 };
 
 function SeverityBadge({ w }: { w: SchemaWarning }) {
-  const s = severityStyles[resolutionSeverity(w)];
+  const c = severityConfig[resolutionSeverity(w)];
   return (
-    <span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-semibold leading-none ${s.badge}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
-      {s.label}
+    <span className={`inline-flex items-center gap-1.5 rounded border px-1.5 py-0.5 text-[10px] font-semibold leading-none ${c.badge}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${c.dot}`} />
+      {c.label}
     </span>
   );
 }
 
-// ─── navigate links per entity kind ──────────────────────────────────────────
+// ─── navigate links ────────────────────────────────────────────────────────────
 
 function navHref(w: SchemaWarning): string {
-  if (w.entityKind === "field") {
-    const tableName = w.entityName.split(".")[0] ?? "";
-    return `/schema?table=${tableName}`;
-  }
+  if (w.entityKind === "field") return `/schema?table=${w.entityName.split(".")[0] ?? ""}`;
   if (w.entityKind === "enum") return "/enums";
   if (w.entityKind === "relation") return "/relations";
   return "/tables";
 }
 
-// ─── approve action cell ──────────────────────────────────────────────────────
+// ─── action cell ──────────────────────────────────────────────────────────────
 
 function ActionCell({
   warning,
@@ -74,31 +71,22 @@ function ActionCell({
       </span>
     );
   }
-
-  // Enum value_removed → replacement picker
   if (warning.entityKind === "enum" && warning.changeKind === "value_removed") {
     const enumName = warning.entityName.split(".")[0] ?? "";
     const removedValue = warning.entityName.split(".")[1] ?? "";
-    const available = enumValuesMap[enumName] ?? [];
     return (
       <EnumValueReplacementPicker
         warning={warning}
         removedValue={removedValue}
-        availableValues={available}
+        availableValues={enumValuesMap[enumName] ?? []}
         onApprove={approve}
       />
     );
   }
-
-  return (
-    <ApproveWarningButton
-      warning={warning}
-      onApprove={(id) => approve(id)}
-    />
-  );
+  return <ApproveWarningButton warning={warning} onApprove={(id) => approve(id)} />;
 }
 
-// ─── empty states ─────────────────────────────────────────────────────────────
+// ─── restriction placeholder ──────────────────────────────────────────────────
 
 const RESTRICTION_PLACEHOLDER = (
   <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
@@ -109,6 +97,56 @@ const RESTRICTION_PLACEHOLDER = (
     </p>
   </div>
 );
+
+// ─── warning row ──────────────────────────────────────────────────────────────
+
+function WarningRow({
+  w,
+  enumValuesMap,
+  approve,
+}: {
+  w: SchemaWarning;
+  enumValuesMap: Record<string, string[]>;
+  approve: (id: string, replacementValue?: string) => Promise<void>;
+}) {
+  const c = severityConfig[resolutionSeverity(w)];
+  return (
+    <tr className={`${c.row} border-b border-slate-100 transition-colors last:border-0`}>
+      <td className="py-3 pr-4 align-middle whitespace-nowrap">
+        <SeverityBadge w={w} />
+      </td>
+      <td className="py-3 pr-4 align-middle font-semibold text-slate-800">
+        {w.entityName}
+      </td>
+      <td className="py-3 pr-4 align-middle">
+        <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-600">
+          {w.changeKind}
+        </code>
+      </td>
+      <td className="max-w-xs py-3 pr-4 align-middle text-xs text-slate-600">
+        {w.message}
+      </td>
+      <td className="py-3 pr-4 align-middle whitespace-nowrap">
+        {(w.fromValue || w.toValue) && (
+          <span className="flex items-center gap-1 text-xs">
+            {w.fromValue && <code className="rounded bg-slate-100 px-1 font-mono text-slate-600">{w.fromValue}</code>}
+            {w.fromValue && w.toValue && <span className="text-slate-400">→</span>}
+            {w.toValue && <code className="rounded bg-slate-100 px-1 font-mono text-slate-600">{w.toValue}</code>}
+          </span>
+        )}
+      </td>
+      <td className="py-3 pr-4 align-middle">
+        <ActionCell warning={w} enumValuesMap={enumValuesMap} approve={approve} />
+      </td>
+      <td className="py-3 align-middle">
+        <Link href={navHref(w)}
+          className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600 transition hover:border-teal-300 hover:text-teal-700 whitespace-nowrap">
+          View →
+        </Link>
+      </td>
+    </tr>
+  );
+}
 
 // ─── panel ────────────────────────────────────────────────────────────────────
 
@@ -128,6 +166,7 @@ export function WarningsPanel({
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const [showApproved, setShowApproved] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const enabled = Boolean(projectId && fromVersion && toVersion) && entityKind !== "restriction";
 
@@ -145,17 +184,10 @@ export function WarningsPanel({
 
   const warnings: SchemaWarning[] = data?.warnings ?? [];
   const enumValuesMap = data?.enumValuesMap ?? {};
-
   const pending = warnings.filter((w) => !w.approvedAt);
-  const approved = warnings.filter((w) => w.approvedAt);
+  const approved = warnings.filter((w) => !!w.approvedAt);
 
-  async function approve(id: string, replacementValue?: string) {
-    await fetch(`/api/schema-warnings/${id}`, {
-      method: "PATCH",
-      headers: replacementValue ? { "Content-Type": "application/json" } : {},
-      body: replacementValue ? JSON.stringify({ replacementValue }) : undefined,
-    });
-    // Invalidate both the tRPC query and the REST-based query used by other workflows
+  async function invalidate() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["trpc", "tracking", "warningsByKind"] }),
       queryClient.invalidateQueries({ queryKey: ["trpc", "tracking", "pendingCounts"] }),
@@ -163,135 +195,151 @@ export function WarningsPanel({
     ]);
   }
 
+  async function approve(id: string, replacementValue?: string) {
+    await fetch(`/api/schema-warnings/${id}`, {
+      method: "PATCH",
+      headers: replacementValue ? { "Content-Type": "application/json" } : {},
+      body: replacementValue ? JSON.stringify({ replacementValue }) : undefined,
+    });
+    await invalidate();
+  }
+
+  async function approveAll() {
+    if (pending.length === 0) return;
+    setBulkBusy(true);
+    await fetch("/api/schema-warnings/bulk-approve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: pending.map((w) => w.id) }),
+    });
+    await invalidate();
+    setBulkBusy(false);
+  }
+
+  async function unapproveAll() {
+    if (approved.length === 0) return;
+    setBulkBusy(true);
+    await fetch("/api/schema-warnings/bulk-unapprove", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: approved.map((w) => w.id) }),
+    });
+    await invalidate();
+    setShowApproved(false);
+    setBulkBusy(false);
+  }
+
   if (entityKind === "restriction") return RESTRICTION_PLACEHOLDER;
 
   if (isLoading) {
-    return (
-      <div className="py-12 text-center text-sm font-medium text-slate-500">Loading…</div>
-    );
+    return <div className="py-10 text-center text-sm font-medium text-slate-500">Loading…</div>;
   }
 
   if (warnings.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
+      <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
         <p className="text-sm font-semibold text-slate-600">No warnings for this category.</p>
         <p className="mt-1 text-xs text-slate-400">
-          Version diff detected no changes requiring approval between {fromVersion} and {toVersion}.
+          No changes requiring approval were detected between {fromVersion} and {toVersion}.
         </p>
       </div>
     );
   }
 
-  function WarningRow({ w }: { w: SchemaWarning }) {
-    const s = severityStyles[resolutionSeverity(w)];
-    return (
-      <tr className={`${s.row} border-b border-slate-100 transition-colors last:border-0`}>
-        {/* Severity */}
-        <td className="py-3 pr-3 align-middle">
-          <SeverityBadge w={w} />
-        </td>
-
-        {/* Entity name */}
-        <td className="py-3 pr-3 align-middle">
-          <span className="font-semibold text-slate-800">{w.entityName}</span>
-        </td>
-
-        {/* Change kind */}
-        <td className="py-3 pr-3 align-middle">
-          <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-600">
-            {w.changeKind}
-          </code>
-        </td>
-
-        {/* Message */}
-        <td className="py-3 pr-3 align-middle text-xs text-slate-600 max-w-xs">
-          {w.message}
-        </td>
-
-        {/* From / To */}
-        <td className="py-3 pr-3 align-middle whitespace-nowrap">
-          {(w.fromValue || w.toValue) && (
-            <span className="flex items-center gap-1 text-xs">
-              {w.fromValue && (
-                <code className="rounded bg-slate-100 px-1 font-mono text-slate-600">{w.fromValue}</code>
-              )}
-              {w.fromValue && w.toValue && <span className="text-slate-400">→</span>}
-              {w.toValue && (
-                <code className="rounded bg-slate-100 px-1 font-mono text-slate-600">{w.toValue}</code>
-              )}
-            </span>
-          )}
-        </td>
-
-        {/* Action */}
-        <td className="py-3 pr-3 align-middle">
-          <ActionCell warning={w} enumValuesMap={enumValuesMap} approve={approve} />
-        </td>
-
-        {/* Navigate */}
-        <td className="py-3 align-middle">
-          <Link
-            href={navHref(w)}
-            className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600 transition hover:border-teal-300 hover:text-teal-700 whitespace-nowrap"
-          >
-            View →
-          </Link>
-        </td>
-      </tr>
-    );
-  }
+  const TABLE_HEADERS = ["Severity", "Entity", "Change", "Message", "From → To", "Action", "View"] as const;
 
   return (
     <div className="space-y-4">
-      {/* Pending warnings */}
+      {/* ── Bulk action bar ── */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          {pending.length > 0 && (
+            <span className="text-xs font-medium text-slate-500">
+              <span className="font-semibold text-red-600">{pending.length}</span> pending
+            </span>
+          )}
+          {approved.length > 0 && (
+            <span className="text-xs font-medium text-slate-500">
+              · <span className="font-semibold text-emerald-600">{approved.length}</span> approved
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          {pending.length > 0 && (
+            <button
+              type="button"
+              disabled={bulkBusy}
+              onClick={approveAll}
+              className="inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {bulkBusy ? "…" : "✓ Approve all"}
+            </button>
+          )}
+          {approved.length > 0 && (
+            <button
+              type="button"
+              disabled={bulkBusy}
+              onClick={unapproveAll}
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-slate-400 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {bulkBusy ? "…" : "↩ Unapprove all"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── All approved state ── */}
+      {pending.length === 0 && approved.length > 0 && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 flex items-center justify-between">
+          <p className="text-sm font-semibold text-emerald-700">
+            All {approved.length} warning{approved.length !== 1 ? "s" : ""} approved ✓
+          </p>
+        </div>
+      )}
+
+      {/* ── Pending rows ── */}
       {pending.length > 0 && (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto rounded-lg border border-slate-200">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-200">
-                {(["Severity", "Entity", "Change", "Message", "From → To", "Action", "View"] as const).map((h) => (
-                  <th key={h} className="pb-2 pr-3 text-left text-xs font-semibold uppercase tracking-[0.13em] text-slate-400 last:pr-0">
+              <tr className="border-b border-slate-200 bg-slate-50">
+                {TABLE_HEADERS.map((h) => (
+                  <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-[0.12em] text-slate-400 first:pl-4">
                     {h}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {pending.map((w) => <WarningRow key={w.id} w={w} />)}
+              {pending.map((w) => (
+                <WarningRow key={w.id} w={w} enumValuesMap={enumValuesMap} approve={approve} />
+              ))}
             </tbody>
           </table>
         </div>
       )}
 
-      {/* Approved — collapsible */}
-      {approved.length > 0 && (
-        <div>
-          <button
-            type="button"
-            onClick={() => setShowApproved((v) => !v)}
-            className="flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-slate-600 transition"
-          >
-            <span className={`inline-block transition-transform ${showApproved ? "rotate-90" : ""}`}>▶</span>
-            {showApproved ? "Hide" : "Show"} {approved.length} approved
-          </button>
-          {showApproved && (
-            <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200">
-              <table className="w-full text-sm">
-                <tbody className="divide-y divide-slate-100">
-                  {approved.map((w) => <WarningRow key={w.id} w={w} />)}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+      {/* ── Approved — collapsible ── */}
+      {approved.length > 0 && pending.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowApproved((v) => !v)}
+          className="flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-slate-600 transition"
+        >
+          <span className={`inline-block transition-transform ${showApproved ? "rotate-90" : ""}`}>▶</span>
+          {showApproved ? "Hide" : "Show"} {approved.length} approved
+        </button>
       )}
-
-      {/* All approved state */}
-      {pending.length === 0 && approved.length > 0 && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-center">
-          <p className="text-sm font-semibold text-emerald-700">
-            All {approved.length} warning{approved.length !== 1 ? "s" : ""} approved ✓
-          </p>
+      {showApproved && approved.length > 0 && (
+        <div className="overflow-x-auto rounded-lg border border-emerald-100">
+          <table className="w-full text-sm">
+            <tbody className="divide-y divide-slate-100">
+              {approved.map((w) => (
+                <WarningRow key={w.id} w={w} enumValuesMap={enumValuesMap} approve={approve} />
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

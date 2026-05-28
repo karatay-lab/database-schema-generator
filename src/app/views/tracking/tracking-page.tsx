@@ -85,14 +85,16 @@ function TabTrigger({
     <TabsTrigger
       value={value}
       className={[
-        // Reset shadcn defaults
-        "h-11 shrink-0 rounded-none border-b-2 border-transparent bg-transparent px-5",
+        // Reset flex-1 (shadcn default) so tabs don't stretch
+        "flex-none",
+        // Shape
+        "h-11 rounded-none border-b-2 border-transparent bg-transparent px-5",
         "text-sm font-medium text-slate-500 shadow-none",
-        "hover:bg-slate-50 hover:text-slate-800 transition-colors",
+        "hover:bg-slate-50/80 hover:text-slate-800 transition-colors",
         // Active state
         "data-active:bg-transparent data-active:text-slate-950 data-active:font-semibold data-active:shadow-none",
         tabAccent[value] ?? "data-active:border-slate-700",
-        // Keep tab sitting ON the bottom border (–1 px trick)
+        // Sit on top of the card's bottom border
         "-mb-px",
       ].join(" ")}
     >
@@ -374,7 +376,7 @@ export function TrackingPageContent() {
 
           {/* Tab bar */}
           <div className="overflow-x-auto border-b border-slate-200">
-            <TabsList className="h-auto w-max min-w-full rounded-none border-none bg-transparent p-0 gap-0 px-4">
+            <TabsList className="h-auto w-full justify-start rounded-none border-none bg-transparent p-0 gap-0 px-2">
               <TabTrigger value="all" />
               <TabTrigger value="tables"       count={pending.table} />
               <TabTrigger value="enums"        count={pending.enum} />

@@ -97,6 +97,15 @@ export function approveWarnings(ids: string[]): void {
   })(ids);
 }
 
+export function unapproveWarnings(ids: string[]): void {
+  const stmt = db.prepare(
+    "UPDATE schema_warnings SET approved_at = NULL, replacement_value = NULL WHERE id = ?",
+  );
+  db.transaction((rows: string[]) => {
+    for (const id of rows) stmt.run(id);
+  })(ids);
+}
+
 export function getWarnings(
   projectId: string,
   fromVersion: string,
