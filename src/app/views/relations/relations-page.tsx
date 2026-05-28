@@ -1392,7 +1392,6 @@ export function RelationsPageContent() {
           mismatches={fkDetailModal.mismatches}
           fromVersion={versions[versions.indexOf(version) - 1] ?? ""}
           toVersion={version}
-          projectId={projectId}
           onClose={() => setFkDetailModal(null)}
         />
       ) : null}

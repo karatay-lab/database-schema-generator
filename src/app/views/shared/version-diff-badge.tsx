@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect } from "react";
-import Link from "next/link";
 import type { ChangeSeverity, FieldDiff, TableDiff } from "@/lib/version-diff/detect-changes";
 
 export type FkTypeMismatch = {
@@ -242,7 +241,6 @@ export function FkTypeDetailModal({
   mismatches,
   fromVersion,
   toVersion,
-  projectId,
   onClose,
 }: {
   relationName: string;
@@ -251,7 +249,6 @@ export function FkTypeDetailModal({
   mismatches: FkTypeMismatch[];
   fromVersion: string;
   toVersion: string;
-  projectId: string;
   onClose: () => void;
 }) {
   useEffect(() => {
@@ -317,15 +314,6 @@ export function FkTypeDetailModal({
                       FK field type still <span className="font-mono font-semibold">{m.fromType}</span> but <span className="font-semibold">{m.targetTableName}</span> PK is now <span className="font-mono font-semibold">{m.toType}</span>.
                     </p>
                   </div>
-                  {projectId && (
-                    <Link
-                      href={`/${projectId}/schema?table=${sourceTableName}`}
-                      onClick={onClose}
-                      className="shrink-0 rounded border border-violet-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-violet-700 transition hover:bg-violet-50"
-                    >
-                      Fix in Schema →
-                    </Link>
-                  )}
                 </div>
               </li>
             ))}
@@ -333,10 +321,7 @@ export function FkTypeDetailModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-5 py-3">
-          <p className="text-[11px] text-slate-400">
-            Update each FK field type to match the new PK type.
-          </p>
+        <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-5 py-3">
           <button
             type="button"
             onClick={onClose}
