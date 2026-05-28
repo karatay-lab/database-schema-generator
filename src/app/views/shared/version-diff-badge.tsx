@@ -228,38 +228,25 @@ export function TableDiffDetailModal({
 
 // Summary banner for a table showing only PK/table-level changes (Tables workflow scope).
 export function TableDiffSummary({ tableDiff }: { tableDiff: TableDiff }) {
-  // Tables workflow only surfaces PK-field and table-rename/add/remove changes.
   const pkDiffs = tableDiff.fieldDiffs.filter((d) => d.isPk);
   const wasRenamed = tableDiff.fromName !== "" && tableDiff.fromName !== tableDiff.tableName;
+  const isAdded = tableDiff.changeKind === "added";
+  const isRemoved = tableDiff.changeKind === "removed";
 
-  if (pkDiffs.length === 0 && !wasRenamed && tableDiff.changeKind !== "added" && tableDiff.changeKind !== "removed") {
+  if (pkDiffs.length === 0 && !wasRenamed && !isAdded && !isRemoved) {
     return null;
   }
 
-  const severity = tableDiff.changeKind === "removed"
-    ? "breaking"
-    : pkDiffs.some((d) => d.severity === "breaking")
-      ? "breaking"
-      : pkDiffs.some((d) => d.severity === "warning") || wasRenamed
-        ? "warning"
-        : "info";
-
-  const parts: string[] = [];
   const breaking = pkDiffs.filter((d) => d.severity === "breaking").length;
   const warnings = pkDiffs.filter((d) => d.severity === "warning").length;
-  if (wasRenamed) parts.push("renamed");
-  if (tableDiff.changeKind === "added") parts.push("added");
-  if (tableDiff.changeKind === "removed") parts.push("removed");
-  if (breaking > 0) parts.push(`${breaking} breaking`);
-  if (warnings > 0) parts.push(`${warnings} changed`);
-
-  const label = parts.join(", ") || tableDiff.message;
 
   return (
-    <VersionDiffBadge
-      severity={severity}
-      label={label}
-      title={tableDiff.message}
-    />
+    <span className="inline-flex items-center gap-1">
+      {wasRenamed && <VersionDiffBadge severity="warning" label="renamed" title={`${tableDiff.fromName} → ${tableDiff.tableName}`} />}
+      {isAdded && <VersionDiffBadge severity="info" label="added" />}
+      {isRemoved && <VersionDiffBadge severity="breaking" label="removed" />}
+      {breaking > 0 && <VersionDiffBadge severity="breaking" label={`${breaking} breaking`} />}
+      {warnings > 0 && <VersionDiffBadge severity="warning" label={`${warnings} changed`} />}
+    </span>
   );
 }
