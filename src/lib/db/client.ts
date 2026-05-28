@@ -607,6 +607,24 @@ db.exec(`
     created_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS schema_warnings (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    from_version TEXT NOT NULL,
+    to_version TEXT NOT NULL,
+    entity_kind TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    entity_name TEXT NOT NULL,
+    change_kind TEXT NOT NULL,
+    resolution TEXT NOT NULL,
+    from_value TEXT,
+    to_value TEXT,
+    message TEXT NOT NULL,
+    approved_at TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE(project_id, from_version, to_version, entity_kind, entity_id, change_kind)
+  );
+
   CREATE TABLE IF NOT EXISTS migration_snapshot_data (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     snapshot_id      TEXT NOT NULL REFERENCES migration_snapshots(id) ON DELETE CASCADE,

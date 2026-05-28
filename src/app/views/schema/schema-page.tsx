@@ -6,7 +6,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useVersionDiffLookup } from "../shared/use-version-diff";
-import { VersionDiffBadge, FieldDiffTooltip } from "../shared/version-diff-badge";
+import { useSchemaWarnings } from "../shared/use-schema-warnings";
+import { VersionDiffBadge, FieldDiffTooltip, ApproveWarningButton } from "../shared/version-diff-badge";
 import type { FieldDiff } from "@/lib/version-diff/detect-changes";
 import { classNames } from "../shared/dashboard-data";
 import { IconCheck, IconChevronDown, IconChevronLeft, IconChevronRight, IconPlus, IconTrash } from "@tabler/icons-react";
@@ -132,8 +133,11 @@ function templateToInput(template: FieldTemplate): FieldTemplateInput {
 }
 
 export function SchemaPageContent() {
-  const { projectName, version, hasProject, provider: projectProvider } = useProjectInfo();
+  const { projectName, version, versions, hasProject, provider: projectProvider, projectId } = useProjectInfo();
   const { diffByFieldKey, diffByTableKey } = useVersionDiffLookup(projectName, version);
+  const versionIdx = versions.indexOf(version);
+  const previousVersion = versionIdx > 0 ? versions[versionIdx - 1]! : "";
+  const { getWarning, approve } = useSchemaWarnings(projectId, previousVersion, version);
   const activeProject = hasProject;
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -1179,7 +1183,17 @@ export function SchemaPageContent() {
                                       placeholder="FK companies"
                                     />
                                   </label>
-                                  {fieldDiff ? <FieldDiffTooltip diff={fieldDiff} /> : null}
+                                  {fieldDiff ? (
+                                    <div className="flex items-start gap-2">
+                                      <div className="flex-1">
+                                        <FieldDiffTooltip diff={fieldDiff} />
+                                      </div>
+                                      <ApproveWarningButton
+                                        warning={getWarning("field", fieldDiff.fieldId, fieldDiff.changeKind)}
+                                        onApprove={approve}
+                                      />
+                                    </div>
+                                  ) : null}
                                 </div>
                                 <div className="flex w-1/5 min-w-0 flex-col gap-1.5">
                                   <button

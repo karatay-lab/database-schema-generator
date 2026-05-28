@@ -7,6 +7,7 @@ import { Trash2 } from "lucide-react";
 import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useVersionDiffLookup } from "../shared/use-version-diff";
+import { useSchemaWarnings } from "../shared/use-schema-warnings";
 import { TableDiffSummary, TableDiffDetailModal } from "../shared/version-diff-badge";
 import type { TableDiff } from "@/lib/version-diff/detect-changes";
 import type { PrismaModel } from "@/lib/schema-store";
@@ -115,13 +116,14 @@ function CloseIcon() {
 }
 
 export function TablesPageContent() {
-  const { projectName, version, versions, provider, hasProject } = useProjectInfo();
+  const { projectName, version, versions, provider, hasProject, projectId } = useProjectInfo();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const { diffByTableKey } = useVersionDiffLookup(projectName, version);
   const [diffDetail, setDiffDetail] = useState<TableDiff | null>(null);
   const versionIdx = versions.indexOf(version);
   const previousVersion = versionIdx > 0 ? versions[versionIdx - 1]! : "";
+  const { getWarning, approveMany } = useSchemaWarnings(projectId, previousVersion, version);
 
   const listQuery = useQuery(
     trpc.tables.list.queryOptions(
@@ -691,6 +693,15 @@ export function TablesPageContent() {
           tableDiff={diffDetail}
           fromVersion={previousVersion}
           toVersion={version}
+          pendingWarningIds={[
+            // Table-level warning (removed)
+            getWarning("table", diffDetail.tableId, diffDetail.changeKind),
+            // PK field-level warnings
+            ...diffDetail.fieldDiffs.filter(fd => fd.isPk).map(fd =>
+              getWarning("field", fd.fieldId, fd.changeKind)
+            ),
+          ].filter((w): w is NonNullable<typeof w> => !!w && !w.approvedAt).map(w => w.id)}
+          onApproveAll={approveMany}
           onClose={() => setDiffDetail(null)}
         />
       ) : null}

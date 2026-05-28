@@ -22,7 +22,8 @@ import { CSS } from "@dnd-kit/utilities";
 import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useVersionDiff, useVersionDiffLookup } from "../shared/use-version-diff";
-import { VersionDiffBadge } from "../shared/version-diff-badge";
+import { useSchemaWarnings } from "../shared/use-schema-warnings";
+import { VersionDiffBadge, ApproveWarningButton } from "../shared/version-diff-badge";
 
 type EnumValue = { valueId: string; name: string };
 type CanonicalEnum = { enumId: string; name: string; values: EnumValue[] };
@@ -373,10 +374,13 @@ function EnumEditPanel({
 }
 
 export function EnumsPageContent() {
-  const { projectName, version, provider, hasProject } = useProjectInfo();
+  const { projectName, version, versions, provider, hasProject, projectId } = useProjectInfo();
   const isSQLite = provider === "SQLite";
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const versionIdx = versions.indexOf(version);
+  const previousVersion = versionIdx > 0 ? versions[versionIdx - 1]! : "";
+  const { getWarning, approve } = useSchemaWarnings(projectId, previousVersion, version);
 
   const [enumName, setEnumName] = useState("");
   const [createError, setCreateError] = useState("");
@@ -573,9 +577,20 @@ export function EnumsPageContent() {
 
                 {removedEnumDiffs.length > 0 && (
                   <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
-                    <p className="text-sm font-semibold text-red-800">
-                      {removedEnumDiffs.length} enum{removedEnumDiffs.length > 1 ? "s" : ""} removed since {versionDiff?.fromVersion}
-                    </p>
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-red-800">
+                        {removedEnumDiffs.length} enum{removedEnumDiffs.length > 1 ? "s" : ""} removed since {versionDiff?.fromVersion}
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {removedEnumDiffs.map((d) => (
+                          <ApproveWarningButton
+                            key={d.enumId}
+                            warning={getWarning("enum", d.enumId, d.changeKind)}
+                            onApprove={approve}
+                          />
+                        ))}
+                      </div>
+                    </div>
                     <div className="mt-1.5 flex flex-wrap gap-1.5">
                       {removedEnumDiffs.map((d) => (
                         <span key={d.enumId} className="rounded border border-red-300 bg-white px-2 py-0.5 font-mono text-[11px] font-semibold text-red-700 line-through">
@@ -630,6 +645,12 @@ export function EnumsPageContent() {
                             </div>
                           </div>
                           <div className="flex shrink-0 items-center gap-1">
+                            {enumDiff && (enumDiff.changeKind === "removed" || (enumDiff.changeKind === "values_changed" && removedValueNames.length > 0)) && (
+                              <ApproveWarningButton
+                                warning={getWarning("enum", enumEntry.enumId, enumDiff.changeKind)}
+                                onApprove={approve}
+                              />
+                            )}
                             <button
                               type="button"
                               onClick={() => setEditingEnum(enumEntry)}

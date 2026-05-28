@@ -10,8 +10,9 @@ import { fieldTypeBadgeClass } from "@/lib/badge-utils";
 import { toCamelCaseIdentifier } from "@/lib/schema-naming";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useVersionDiffLookup } from "../shared/use-version-diff";
-import { FkTypeDetailModal, VersionDiffBadge } from "../shared/version-diff-badge";
+import { FkTypeDetailModal, VersionDiffBadge, ApproveWarningButton } from "../shared/version-diff-badge";
 import type { FkTypeMismatch } from "../shared/version-diff-badge";
+import { useSchemaWarnings } from "../shared/use-schema-warnings";
 import type {
   PrismaField,
   PrismaModel,
@@ -89,6 +90,8 @@ function relationKindClass(kind: PrismaRelation["kind"]) {
 
 export function RelationsPageContent() {
   const { projectName, version, hasProject, projectId, versions } = useProjectInfo();
+  const previousVersion = versions[versions.indexOf(version) - 1] ?? "";
+  const { getWarning, approve } = useSchemaWarnings(projectId, previousVersion, version);
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -514,9 +517,24 @@ export function RelationsPageContent() {
 
               {removedRelationDiffs.filter((d) => d.sourceTableName === selectedModelName).length > 0 && (
                 <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
-                  {removedRelationDiffs.filter((d) => d.sourceTableName === selectedModelName).length === 1
-                    ? "1 relation removed since the previous version"
-                    : `${removedRelationDiffs.filter((d) => d.sourceTableName === selectedModelName).length} relations removed since the previous version`}
+                  <div className="flex items-center justify-between gap-3">
+                    <span>
+                      {removedRelationDiffs.filter((d) => d.sourceTableName === selectedModelName).length === 1
+                        ? "1 relation removed since the previous version"
+                        : `${removedRelationDiffs.filter((d) => d.sourceTableName === selectedModelName).length} relations removed since the previous version`}
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {removedRelationDiffs
+                        .filter((d) => d.sourceTableName === selectedModelName)
+                        .map((d) => (
+                          <ApproveWarningButton
+                            key={d.relationId}
+                            warning={getWarning("relation", d.relationId, d.changeKind)}
+                            onApprove={approve}
+                          />
+                        ))}
+                    </div>
+                  </div>
                   <ul className="mt-1.5 list-disc pl-4 text-xs font-normal text-red-600">
                     {removedRelationDiffs
                       .filter((d) => d.sourceTableName === selectedModelName)

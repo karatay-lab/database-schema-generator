@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { ChangeSeverity, FieldDiff, TableDiff } from "@/lib/version-diff/detect-changes";
+import type { SchemaWarning } from "@/lib/schema-warnings-store";
 
 export type FkTypeMismatch = {
   fieldName: string;
@@ -48,6 +49,32 @@ function ChangeIcon({ severity }: { severity: ChangeSeverity }) {
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0">
       <path fillRule="evenodd" d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm.75 4.75a.75.75 0 0 0-1.5 0v3.5a.75.75 0 0 0 1.5 0v-3.5Zm0 6.5a.75.75 0 0 0-1.5 0v.5a.75.75 0 0 0 1.5 0v-.5Z" clipRule="evenodd" />
     </svg>
+  );
+}
+
+// Small inline approve button for a single warning row.
+export function ApproveWarningButton({
+  warning,
+  onApprove,
+}: {
+  warning: SchemaWarning | undefined;
+  onApprove: (id: string) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  if (!warning || warning.approvedAt) return null;
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        await onApprove(warning.id);
+        setBusy(false);
+      }}
+      className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600 transition hover:border-slate-400 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {busy ? "…" : "✓ Approve"}
+    </button>
   );
 }
 
@@ -107,11 +134,15 @@ export function TableDiffDetailModal({
   tableDiff,
   fromVersion,
   toVersion,
+  pendingWarningIds,
+  onApproveAll,
   onClose,
 }: {
   tableDiff: TableDiff;
   fromVersion: string;
   toVersion: string;
+  pendingWarningIds?: string[];
+  onApproveAll?: (ids: string[]) => Promise<void>;
   onClose: () => void;
 }) {
   useEffect(() => {
@@ -119,6 +150,8 @@ export function TableDiffDetailModal({
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
+
+  const [approving, setApproving] = useState(false);
 
   const rowBg: Record<ChangeSeverity, string> = {
     breaking: "bg-red-50/70",
@@ -219,7 +252,23 @@ export function TableDiffDetailModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-5 py-3">
+        <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-5 py-3">
+          <div>
+            {pendingWarningIds && pendingWarningIds.length > 0 && onApproveAll && (
+              <button
+                type="button"
+                disabled={approving}
+                onClick={async () => {
+                  setApproving(true);
+                  await onApproveAll(pendingWarningIds);
+                  setApproving(false);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {approving ? "Approving…" : `✓ I understand — approve ${pendingWarningIds.length > 1 ? "all changes" : "this change"}`}
+              </button>
+            )}
+          </div>
           <button
             type="button"
             onClick={onClose}

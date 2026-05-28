@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { detectVersionChanges, getPreviousVersion } from "@/lib/version-diff/detect-changes";
+import { writeWarningsForDiff } from "@/lib/version-diff/warning-writer";
 
 function getString(value: string | null): string {
   return value?.trim() ?? "";
@@ -25,6 +26,7 @@ export async function GET(request: Request) {
 
   try {
     const diff = detectVersionChanges(projectName, fromVersion, toVersion);
+    try { writeWarningsForDiff(projectName, fromVersion, toVersion, diff); } catch { /* non-fatal */ }
     return NextResponse.json({ success: true, diff });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Version diff failed.";
