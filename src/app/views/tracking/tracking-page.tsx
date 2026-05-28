@@ -52,18 +52,60 @@ function VersionPill({ name }: { name: string }) {
   );
 }
 
-// ─── tab trigger with pending badge ──────────────────────────────────────────
+// ─── tab trigger helpers ──────────────────────────────────────────────────────
 
-function TabLabel({ label, count }: { label: string; count?: number }) {
+const tabMeta: Record<string, { dot: string; label: string }> = {
+  all:          { dot: "bg-slate-400",   label: "All Changes"  },
+  tables:       { dot: "bg-cyan-500",    label: "Tables"       },
+  enums:        { dot: "bg-indigo-500",  label: "Enums"        },
+  schema:       { dot: "bg-rose-500",    label: "Schema"       },
+  relations:    { dot: "bg-violet-500",  label: "Relations"    },
+  restrictions: { dot: "bg-blue-500",    label: "Restrictions" },
+};
+
+// Active underline accent per tab
+const tabAccent: Record<string, string> = {
+  all:          "data-active:border-slate-700",
+  tables:       "data-active:border-cyan-600",
+  enums:        "data-active:border-indigo-600",
+  schema:       "data-active:border-rose-600",
+  relations:    "data-active:border-violet-600",
+  restrictions: "data-active:border-blue-600",
+};
+
+function TabTrigger({
+  value,
+  count,
+}: {
+  value: string;
+  count?: number;
+}) {
+  const meta = tabMeta[value]!;
   return (
-    <span className="flex items-center gap-1.5">
-      {label}
-      {count != null && count > 0 && (
-        <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
-          {count}
-        </span>
-      )}
-    </span>
+    <TabsTrigger
+      value={value}
+      className={[
+        // Reset shadcn defaults
+        "h-11 shrink-0 rounded-none border-b-2 border-transparent bg-transparent px-5",
+        "text-sm font-medium text-slate-500 shadow-none",
+        "hover:bg-slate-50 hover:text-slate-800 transition-colors",
+        // Active state
+        "data-active:bg-transparent data-active:text-slate-950 data-active:font-semibold data-active:shadow-none",
+        tabAccent[value] ?? "data-active:border-slate-700",
+        // Keep tab sitting ON the bottom border (–1 px trick)
+        "-mb-px",
+      ].join(" ")}
+    >
+      <span className="flex items-center gap-2">
+        <span className={`h-2 w-2 shrink-0 rounded-full ${meta.dot}`} />
+        {meta.label}
+        {count != null && count > 0 && (
+          <span className="min-w-[18px] rounded-full bg-red-500 px-1 py-0.5 text-center text-[10px] font-bold leading-[14px] text-white">
+            {count}
+          </span>
+        )}
+      </span>
+    </TabsTrigger>
   );
 }
 
@@ -325,116 +367,114 @@ export function TrackingPageContent() {
         )}
       </div>
 
-      {/* ── Tabs ── */}
+      {/* ── Tabbed card ── */}
       <Tabs defaultValue="all">
-        <TabsList className="h-auto w-full justify-start gap-1 rounded-lg border border-slate-200 bg-white px-2 py-2 shadow-sm">
-          <TabsTrigger value="all" className="px-4 py-2 text-sm">
-            All Changes
-          </TabsTrigger>
-          <TabsTrigger value="tables" className="px-4 py-2 text-sm">
-            <TabLabel label="Tables" count={pending.table} />
-          </TabsTrigger>
-          <TabsTrigger value="enums" className="px-4 py-2 text-sm">
-            <TabLabel label="Enums" count={pending.enum} />
-          </TabsTrigger>
-          <TabsTrigger value="schema" className="px-4 py-2 text-sm">
-            <TabLabel label="Schema" count={pending.field} />
-          </TabsTrigger>
-          <TabsTrigger value="relations" className="px-4 py-2 text-sm">
-            <TabLabel label="Relations" count={pending.relation} />
-          </TabsTrigger>
-          <TabsTrigger value="restrictions" className="px-4 py-2 text-sm">
-            Restrictions
-          </TabsTrigger>
-        </TabsList>
+        {/* Card shell — tab bar is the card header */}
+        <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
 
-        {/* All Changes */}
-        <TabsContent value="all" className="mt-4">
-          <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-            <AllChangesTab projectId={projectId} />
+          {/* Tab bar */}
+          <div className="overflow-x-auto border-b border-slate-200">
+            <TabsList className="h-auto w-max min-w-full rounded-none border-none bg-transparent p-0 gap-0 px-4">
+              <TabTrigger value="all" />
+              <TabTrigger value="tables"       count={pending.table} />
+              <TabTrigger value="enums"        count={pending.enum} />
+              <TabTrigger value="schema"       count={pending.field} />
+              <TabTrigger value="relations"    count={pending.relation} />
+              <TabTrigger value="restrictions" />
+            </TabsList>
           </div>
-        </TabsContent>
 
-        {/* Tables */}
-        <TabsContent value="tables" className="mt-4">
-          <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 border-b border-slate-100 pb-4">
-              <h4 className="font-semibold text-slate-950">Table warnings</h4>
-              <p className="mt-0.5 text-xs text-slate-500">
-                Breaking table changes that require approval before migration — table removals, PK type changes cascading into other tables.
-              </p>
-            </div>
-            {pair ? (
-              <WarningsPanel projectId={projectId} fromVersion={pair.from} toVersion={pair.to} entityKind="table" />
-            ) : (
-              <p className="text-sm text-slate-500">Select a version transition above.</p>
-            )}
-          </div>
-        </TabsContent>
+          {/* Tab panels */}
+          <div className="p-5">
 
-        {/* Enums */}
-        <TabsContent value="enums" className="mt-4">
-          <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 border-b border-slate-100 pb-4">
-              <h4 className="font-semibold text-slate-950">Enum warnings</h4>
-              <p className="mt-0.5 text-xs text-slate-500">
-                Removed enums and removed enum values. Value removals require you to map existing rows to a replacement value before migration runs.
-              </p>
-            </div>
-            {pair ? (
-              <WarningsPanel projectId={projectId} fromVersion={pair.from} toVersion={pair.to} entityKind="enum" />
-            ) : (
-              <p className="text-sm text-slate-500">Select a version transition above.</p>
-            )}
-          </div>
-        </TabsContent>
+            {/* All Changes */}
+            <TabsContent value="all">
+              <AllChangesTab projectId={projectId} />
+            </TabsContent>
 
-        {/* Schema (field warnings) */}
-        <TabsContent value="schema" className="mt-4">
-          <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 border-b border-slate-100 pb-4">
-              <h4 className="font-semibold text-slate-950">Schema field warnings</h4>
-              <p className="mt-0.5 text-xs text-slate-500">
-                Field type changes, nullability changes, and default removals that require explicit approval due to data risk.
-              </p>
-            </div>
-            {pair ? (
-              <WarningsPanel projectId={projectId} fromVersion={pair.from} toVersion={pair.to} entityKind="field" />
-            ) : (
-              <p className="text-sm text-slate-500">Select a version transition above.</p>
-            )}
-          </div>
-        </TabsContent>
+            {/* Tables */}
+            <TabsContent value="tables">
+              <div className="mb-5 flex items-start gap-3">
+                <span className="mt-0.5 h-3 w-3 shrink-0 rounded-full bg-cyan-500" />
+                <div>
+                  <p className="font-semibold text-slate-950">Table warnings</p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Table removals and PK type changes that cascade — these require approval before migration.
+                  </p>
+                </div>
+              </div>
+              {pair ? (
+                <WarningsPanel projectId={projectId} fromVersion={pair.from} toVersion={pair.to} entityKind="table" />
+              ) : <p className="text-sm text-slate-500">Select a version transition above.</p>}
+            </TabsContent>
 
-        {/* Relations */}
-        <TabsContent value="relations" className="mt-4">
-          <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 border-b border-slate-100 pb-4">
-              <h4 className="font-semibold text-slate-950">Relation warnings</h4>
-              <p className="mt-0.5 text-xs text-slate-500">
-                Removed relations that may leave orphaned foreign key data.
-              </p>
-            </div>
-            {pair ? (
-              <WarningsPanel projectId={projectId} fromVersion={pair.from} toVersion={pair.to} entityKind="relation" />
-            ) : (
-              <p className="text-sm text-slate-500">Select a version transition above.</p>
-            )}
-          </div>
-        </TabsContent>
+            {/* Enums */}
+            <TabsContent value="enums">
+              <div className="mb-5 flex items-start gap-3">
+                <span className="mt-0.5 h-3 w-3 shrink-0 rounded-full bg-indigo-500" />
+                <div>
+                  <p className="font-semibold text-slate-950">Enum warnings</p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Removed enums and removed values. Value removals require mapping existing rows to a replacement before migration.
+                  </p>
+                </div>
+              </div>
+              {pair ? (
+                <WarningsPanel projectId={projectId} fromVersion={pair.from} toVersion={pair.to} entityKind="enum" />
+              ) : <p className="text-sm text-slate-500">Select a version transition above.</p>}
+            </TabsContent>
 
-        {/* Restrictions */}
-        <TabsContent value="restrictions" className="mt-4">
-          <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 border-b border-slate-100 pb-4">
-              <h4 className="font-semibold text-slate-950">Restriction warnings</h4>
-              <p className="mt-0.5 text-xs text-slate-500">
-                UNIQUE and INDEX constraint changes.
-              </p>
-            </div>
-            <WarningsPanel projectId={projectId} fromVersion={pair?.from ?? ""} toVersion={pair?.to ?? ""} entityKind="restriction" />
+            {/* Schema */}
+            <TabsContent value="schema">
+              <div className="mb-5 flex items-start gap-3">
+                <span className="mt-0.5 h-3 w-3 shrink-0 rounded-full bg-rose-500" />
+                <div>
+                  <p className="font-semibold text-slate-950">Schema field warnings</p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Type changes, nullability changes, and default removals that carry data risk.
+                  </p>
+                </div>
+              </div>
+              {pair ? (
+                <WarningsPanel projectId={projectId} fromVersion={pair.from} toVersion={pair.to} entityKind="field" />
+              ) : <p className="text-sm text-slate-500">Select a version transition above.</p>}
+            </TabsContent>
+
+            {/* Relations */}
+            <TabsContent value="relations">
+              <div className="mb-5 flex items-start gap-3">
+                <span className="mt-0.5 h-3 w-3 shrink-0 rounded-full bg-violet-500" />
+                <div>
+                  <p className="font-semibold text-slate-950">Relation warnings</p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Removed relations that may leave orphaned foreign key data.
+                  </p>
+                </div>
+              </div>
+              {pair ? (
+                <WarningsPanel projectId={projectId} fromVersion={pair.from} toVersion={pair.to} entityKind="relation" />
+              ) : <p className="text-sm text-slate-500">Select a version transition above.</p>}
+            </TabsContent>
+
+            {/* Restrictions */}
+            <TabsContent value="restrictions">
+              <div className="mb-5 flex items-start gap-3">
+                <span className="mt-0.5 h-3 w-3 shrink-0 rounded-full bg-blue-500" />
+                <div>
+                  <p className="font-semibold text-slate-950">Restriction warnings</p>
+                  <p className="mt-0.5 text-xs text-slate-500">UNIQUE and INDEX constraint changes.</p>
+                </div>
+              </div>
+              <WarningsPanel
+                projectId={projectId}
+                fromVersion={pair?.from ?? ""}
+                toVersion={pair?.to ?? ""}
+                entityKind="restriction"
+              />
+            </TabsContent>
+
           </div>
-        </TabsContent>
+        </div>
       </Tabs>
 
       {/* ── Legend ── */}
