@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { db } from "@/lib/db/client";
+import { getWarnings } from "@/lib/schema-warnings-store";
 import { baseProcedure, createTRPCRouter } from "../init";
 import {
   formatDefault,
@@ -10,6 +11,14 @@ import {
 
 export type { DefaultChange, DefaultChangeKind, TrackingEntry };
 export { formatDefault };
+
+// resolution → severity order for sorting (lower = higher priority)
+function resolutionOrder(resolution: string, approvedAt: string | null): number {
+  if (approvedAt) return 4;
+  if (resolution === "data_deleted") return 0;
+  if (resolution === "lossy_convert" || resolution === "precision_loss" || resolution === "backfill_required") return 1;
+  return 2; // safe / info
+}
 
 type VersionRow = { id: number; name: string };
 
@@ -196,6 +205,76 @@ function enumEntries(fromVer: VersionRow, toVer: VersionRow): TrackingEntry[] {
 // ─── router ───────────────────────────────────────────────────────────────────
 
 export const trackingRouter = createTRPCRouter({
+  // Sorted warnings for a specific entity kind + version pair.
+  // Includes enumValuesMap (target version enum name → values) for replacement pickers.
+  warningsByKind: baseProcedure
+    .input(z.object({
+      projectId: z.string(),
+      fromVersion: z.string(),
+      toVersion: z.string(),
+      entityKind: z.enum(["table", "field", "enum", "relation"]),
+    }))
+    .query(({ input }) => {
+      const all = getWarnings(input.projectId, input.fromVersion, input.toVersion);
+      const filtered = all
+        .filter((w) => w.entityKind === input.entityKind)
+        .sort((a, b) =>
+          resolutionOrder(a.resolution, a.approvedAt) -
+          resolutionOrder(b.resolution, b.approvedAt),
+        );
+
+      // Build enumValuesMap from target version for replacement pickers
+      const enumValuesMap: Record<string, string[]> = {};
+      if (input.entityKind === "enum") {
+        type Row = { enum_name: string; value_name: string };
+        const pidRow = db
+          .prepare("SELECT id FROM projects WHERE id = ?")
+          .get(input.projectId) as { id: string } | undefined;
+        if (pidRow) {
+          const rows = db
+            .prepare(
+              `SELECT se.name AS enum_name, sev.name AS value_name
+               FROM schema_enum_values sev
+               JOIN schema_enums se ON sev.enum_id = se.id
+               JOIN project_versions pv ON se.version_id = pv.id
+               WHERE pv.project_id = ? AND pv.name = ?
+               ORDER BY se.name, sev.sort_order`,
+            )
+            .all(input.projectId, input.toVersion) as Row[];
+          for (const r of rows) {
+            if (!enumValuesMap[r.enum_name]) enumValuesMap[r.enum_name] = [];
+            enumValuesMap[r.enum_name]!.push(r.value_name);
+          }
+        }
+      }
+
+      return { warnings: filtered, enumValuesMap };
+    }),
+
+  // Pending count per entity kind — used for tab badges.
+  pendingCounts: baseProcedure
+    .input(z.object({ projectId: z.string(), fromVersion: z.string(), toVersion: z.string() }))
+    .query(({ input }) => {
+      type Row = { entity_kind: string; n: number };
+      const rows = db
+        .prepare(
+          `SELECT entity_kind, COUNT(*) as n
+           FROM schema_warnings
+           WHERE project_id = ? AND from_version = ? AND to_version = ? AND approved_at IS NULL
+           GROUP BY entity_kind`,
+        )
+        .all(input.projectId, input.fromVersion, input.toVersion) as Row[];
+      const counts: Record<string, number> = {};
+      for (const r of rows) counts[r.entity_kind] = r.n;
+      return {
+        table:    counts["table"]    ?? 0,
+        field:    counts["field"]    ?? 0,
+        enum:     counts["enum"]     ?? 0,
+        relation: counts["relation"] ?? 0,
+        total:    Object.values(counts).reduce((s, n) => s + n, 0),
+      };
+    }),
+
   allChanges: baseProcedure
     .input(z.object({ projectId: z.string() }))
     .query(({ input }) => {
