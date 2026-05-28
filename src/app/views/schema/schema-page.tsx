@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
+import { useVersionDiffLookup } from "../shared/use-version-diff";
+import { VersionDiffBadge, FieldDiffTooltip } from "../shared/version-diff-badge";
 import { classNames } from "../shared/dashboard-data";
 import { IconCheck, IconChevronDown, IconChevronLeft, IconChevronRight, IconPlus, IconTrash } from "@tabler/icons-react";
 import type {
@@ -130,6 +132,7 @@ function templateToInput(template: FieldTemplate): FieldTemplateInput {
 
 export function SchemaPageContent() {
   const { projectName, version, hasProject, provider: projectProvider } = useProjectInfo();
+  const { diffByFieldKey, diffByTableKey } = useVersionDiffLookup(projectName, version);
   const activeProject = hasProject;
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -772,9 +775,20 @@ export function SchemaPageContent() {
                       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                         Selected Table
                       </p>
-                      <h4 className="mt-1 text-lg font-semibold text-slate-950">
-                        {selectedModelName}
-                      </h4>
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <h4 className="text-lg font-semibold text-slate-950">
+                          {selectedModelName}
+                        </h4>
+                        {(() => {
+                          const td = selectedModelKey ? diffByTableKey.get(selectedModelKey) : null;
+                          return td ? (
+                            <VersionDiffBadge
+                              severity={td.severity}
+                              title={td.message}
+                            />
+                          ) : null;
+                        })()}
+                      </div>
                     </div>
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                       <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
@@ -1093,6 +1107,10 @@ export function SchemaPageContent() {
                                       placeholder="FK companies"
                                     />
                                   </label>
+                                  {(() => {
+                                    const fd = diffByFieldKey.get(field.key);
+                                    return fd ? <FieldDiffTooltip diff={fd} /> : null;
+                                  })()}
                                 </div>
                                 <div className="flex w-1/5 min-w-0 flex-col gap-1.5">
                                   <button

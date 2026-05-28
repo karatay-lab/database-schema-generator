@@ -6,6 +6,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
 import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
+import { useVersionDiffLookup } from "../shared/use-version-diff";
+import { TableDiffSummary } from "../shared/version-diff-badge";
 import type { PrismaModel } from "@/lib/schema-store";
 
 type ProviderKey = "postgresql" | "mysql" | "sqlite";
@@ -115,6 +117,7 @@ export function TablesPageContent() {
   const { projectName, version, provider, hasProject } = useProjectInfo();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const { diffByTableKey } = useVersionDiffLookup(projectName, version);
 
   const listQuery = useQuery(
     trpc.tables.list.queryOptions(
@@ -524,13 +527,17 @@ export function TablesPageContent() {
                         key={model.key}
                         className="flex items-center justify-between rounded-lg border border-slate-200 bg-white p-4 hover:border-cyan-300 transition"
                       >
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="font-semibold text-slate-950">
                             {model.name}
                           </span>
                           <span className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ${fieldTypeBadgeClass(model.pkType || "String")}`}>
                             {model.pkType || "String"}
                           </span>
+                          {(() => {
+                            const td = diffByTableKey.get(model.key);
+                            return td ? <TableDiffSummary tableDiff={td} /> : null;
+                          })()}
                         </div>
                         <button
                           type="button"
