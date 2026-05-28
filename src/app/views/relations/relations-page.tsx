@@ -10,7 +10,8 @@ import { fieldTypeBadgeClass } from "@/lib/badge-utils";
 import { toCamelCaseIdentifier } from "@/lib/schema-naming";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useVersionDiffLookup } from "../shared/use-version-diff";
-import { VersionDiffBadge } from "../shared/version-diff-badge";
+import { FkTypeDetailModal, VersionDiffBadge } from "../shared/version-diff-badge";
+import type { FkTypeMismatch } from "../shared/version-diff-badge";
 import type {
   PrismaField,
   PrismaModel,
@@ -87,7 +88,7 @@ function relationKindClass(kind: PrismaRelation["kind"]) {
 
 
 export function RelationsPageContent() {
-  const { projectName, version, hasProject } = useProjectInfo();
+  const { projectName, version, hasProject, projectId, versions } = useProjectInfo();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -113,6 +114,11 @@ export function RelationsPageContent() {
   const [modalTableSearch, setModalTableSearch] = useState("");
   const [modalTablePage, setModalTablePage] = useState(1);
   const [error, setError] = useState("");
+  const [fkDetailModal, setFkDetailModal] = useState<{
+    relationName: string;
+    targetTableName: string;
+    mismatches: FkTypeMismatch[];
+  } | null>(null);
   const lastEditedKeyRef = useRef("");
   const modalTablesPerPage = 12;
   const relationsPerPage = 6;
@@ -666,9 +672,17 @@ export function RelationsPageContent() {
                               <VersionDiffBadge severity="info" label="new" />
                             ) : null}
                             {hasFkTypeMismatch ? (
-                              <span title={fkTypeMismatches.map((m) => `${m.fieldName}: ${m.fromType} → ${m.toType} (${m.targetTableName} PK changed)`).join("; ")}>
+                              <button
+                                type="button"
+                                onClick={() => setFkDetailModal({
+                                  relationName: relation.name,
+                                  targetTableName: relation.targetModel,
+                                  mismatches: fkTypeMismatches,
+                                })}
+                                className="cursor-pointer"
+                              >
                                 <VersionDiffBadge severity="breaking" label="FK type" />
-                              </span>
+                              </button>
                             ) : null}
                             {fksMissing ? (
                               <span
@@ -1368,6 +1382,19 @@ export function RelationsPageContent() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {fkDetailModal ? (
+        <FkTypeDetailModal
+          relationName={fkDetailModal.relationName}
+          sourceTableName={selectedModelName}
+          targetTableName={fkDetailModal.targetTableName}
+          mismatches={fkDetailModal.mismatches}
+          fromVersion={versions[versions.indexOf(version) - 1] ?? ""}
+          toVersion={version}
+          projectId={projectId}
+          onClose={() => setFkDetailModal(null)}
+        />
       ) : null}
     </div>
   );
