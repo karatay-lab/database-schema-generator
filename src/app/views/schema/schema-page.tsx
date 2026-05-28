@@ -7,6 +7,7 @@ import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useVersionDiffLookup } from "../shared/use-version-diff";
 import { VersionDiffBadge, FieldDiffTooltip } from "../shared/version-diff-badge";
+import type { FieldDiff } from "@/lib/version-diff/detect-changes";
 import { classNames } from "../shared/dashboard-data";
 import { IconCheck, IconChevronDown, IconChevronLeft, IconChevronRight, IconPlus, IconTrash } from "@tabler/icons-react";
 import type {
@@ -187,6 +188,11 @@ export function SchemaPageContent() {
     [models, selectedModelName],
   );
   const selectedModelKey = selectedModel?.key ?? "";
+
+  const removedFieldDiffs = useMemo(() => {
+    const td = selectedModelKey ? diffByTableKey.get(selectedModelKey) : null;
+    return (td?.fieldDiffs ?? []).filter((fd) => fd.changeKind === "removed" && !fd.isPk);
+  }, [selectedModelKey, diffByTableKey]);
 
   const fieldsQuery = useQuery(
     trpc.fields.list.queryOptions(
@@ -459,6 +465,23 @@ export function SchemaPageContent() {
       projectName, version,
       modelKey: selectedModelKey, modelName: selectedModelName,
       fieldKey: field.key, fieldName: field.name,
+    });
+  };
+
+  const displayTypeToInputType: Record<string, string> = {
+    String: "String", Int: "Int", Boolean: "Boolean", Float: "Float",
+    BigInt: "BigInt", Decimal: "Decimal", DateTime: "DateTime",
+    Uuid: "String", Json: "Json", Bytes: "Bytes",
+  };
+
+  const restoreRemovedField = (fd: FieldDiff) => {
+    if (!selectedModelName) return;
+    const type = displayTypeToInputType[fd.from] ?? "String";
+    setError("");
+    createFieldMutation.mutate({
+      projectName, version,
+      modelKey: selectedModelKey, modelName: selectedModelName,
+      name: fd.fieldName, type, nullable: true, unique: false, defaultValue: "", comment: "",
     });
   };
 
@@ -1018,11 +1041,17 @@ export function SchemaPageContent() {
                             draft.unique !== field.unique ||
                             (draft.defaultValue ?? "") !== (field.defaultValue ?? "") ||
                             (draft.comment ?? "") !== (field.comment ?? "");
+                          const fieldDiff = diffByFieldKey.get(field.key);
+                          const cardBorder = fieldDiff
+                            ? fieldDiff.severity === "breaking" ? "border-red-300"
+                              : fieldDiff.severity === "warning" ? "border-amber-300"
+                              : "border-sky-300"
+                            : "border-slate-200";
 
                           return (
                             <div
                               key={field.key}
-                              className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm"
+                              className={classNames("rounded-lg border bg-white p-3 shadow-sm", cardBorder)}
                             >
                               <div className="flex gap-3">
                                 <div className="min-w-0 flex-1 grid gap-2">
@@ -1054,6 +1083,11 @@ export function SchemaPageContent() {
                                         ))}
                                         <option value="Enum" disabled={enumTypes.length === 0}>Enum</option>
                                       </select>
+                                      {fieldDiff && fieldDiff.from && fieldDiff.to && fieldDiff.from !== fieldDiff.to && (
+                                        <span className="mt-0.5 block font-semibold normal-case tracking-normal text-amber-600">
+                                          was: {fieldDiff.from}
+                                        </span>
+                                      )}
                                     </label>
                                     {enumTypes.includes(draft.type) ? (
                                       <label className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
@@ -1107,10 +1141,7 @@ export function SchemaPageContent() {
                                       placeholder="FK companies"
                                     />
                                   </label>
-                                  {(() => {
-                                    const fd = diffByFieldKey.get(field.key);
-                                    return fd ? <FieldDiffTooltip diff={fd} /> : null;
-                                  })()}
+                                  {fieldDiff ? <FieldDiffTooltip diff={fieldDiff} /> : null}
                                 </div>
                                 <div className="flex w-1/5 min-w-0 flex-col gap-1.5">
                                   <button
@@ -1194,6 +1225,50 @@ export function SchemaPageContent() {
                     </div>
                   )}
               </div>
+
+              {removedFieldDiffs.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-red-600">
+                      Removed since previous version
+                    </p>
+                    <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
+                      {removedFieldDiffs.length}
+                    </span>
+                  </div>
+                  <div className="grid gap-3 xl:grid-cols-2 2xl:grid-cols-3">
+                    {removedFieldDiffs.map((fd) => (
+                      <div
+                        key={fd.fieldId}
+                        className="rounded-lg border border-dashed border-red-200 bg-red-50/40 p-3"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-red-500">
+                              Removed field
+                            </p>
+                            <p className="mt-0.5 font-semibold text-slate-800">{fd.fieldName}</p>
+                            <div className="mt-1 flex items-center gap-1.5">
+                              <span className={classNames("rounded px-1.5 py-0.5 text-[10px] font-semibold", typeBadgeClass(fd.from))}>
+                                {fd.from}
+                              </span>
+                            </div>
+                            <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">{fd.message}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => restoreRemovedField(fd)}
+                            disabled={createFieldMutation.isPending}
+                            className="shrink-0 rounded-md border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Restore
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {error ? (
                 <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
