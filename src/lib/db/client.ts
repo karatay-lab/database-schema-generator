@@ -416,6 +416,14 @@ if (!global._appDb) {
     );
   }
 
+  // One-time schema upgrade: add replacement_value to schema_warnings for enum value remapping.
+  const schemaWarningCols = sqlite.prepare("PRAGMA table_info(schema_warnings)").all() as { name: string }[];
+  if (schemaWarningCols.length > 0 && !schemaWarningCols.some((c) => c.name === "replacement_value")) {
+    sqlite.exec("ALTER TABLE schema_warnings ADD COLUMN replacement_value TEXT;");
+    // Remove old aggregate enum warnings — they are replaced by per-value "value_removed" rows.
+    sqlite.exec("DELETE FROM schema_warnings WHERE entity_kind = 'enum' AND change_kind = 'values_changed';");
+  }
+
   // One-time schema upgrade: add enum_key to schema_enums (existing rows get id as the key).
   const schemaEnumCols = sqlite.prepare("PRAGMA table_info(schema_enums)").all() as { name: string }[];
   if (schemaEnumCols.length > 0 && !schemaEnumCols.some((c) => c.name === "enum_key")) {
@@ -605,6 +613,24 @@ db.exec(`
     status TEXT NOT NULL,
     content TEXT NOT NULL,
     created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS schema_warnings (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    from_version TEXT NOT NULL,
+    to_version TEXT NOT NULL,
+    entity_kind TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    entity_name TEXT NOT NULL,
+    change_kind TEXT NOT NULL,
+    resolution TEXT NOT NULL,
+    from_value TEXT,
+    to_value TEXT,
+    message TEXT NOT NULL,
+    approved_at TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE(project_id, from_version, to_version, entity_kind, entity_id, change_kind)
   );
 
   CREATE TABLE IF NOT EXISTS migration_snapshot_data (

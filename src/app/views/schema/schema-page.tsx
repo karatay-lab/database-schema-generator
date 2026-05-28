@@ -5,6 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
+import { useVersionDiffLookup } from "../shared/use-version-diff";
+import { useSchemaWarnings } from "../shared/use-schema-warnings";
+import { VersionDiffBadge, FieldDiffTooltip, ApproveWarningButton } from "../shared/version-diff-badge";
+import type { FieldDiff } from "@/lib/version-diff/detect-changes";
 import { classNames } from "../shared/dashboard-data";
 import { IconCheck, IconChevronDown, IconChevronLeft, IconChevronRight, IconPlus, IconTrash } from "@tabler/icons-react";
 import type {
@@ -129,7 +133,11 @@ function templateToInput(template: FieldTemplate): FieldTemplateInput {
 }
 
 export function SchemaPageContent() {
-  const { projectName, version, hasProject, provider: projectProvider } = useProjectInfo();
+  const { projectName, version, versions, hasProject, provider: projectProvider, projectId } = useProjectInfo();
+  const { diffByFieldKey, diffByTableKey } = useVersionDiffLookup(projectName, version);
+  const versionIdx = versions.indexOf(version);
+  const previousVersion = versionIdx > 0 ? versions[versionIdx - 1]! : "";
+  const { getWarning, approve } = useSchemaWarnings(projectId, previousVersion, version);
   const activeProject = hasProject;
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -184,6 +192,11 @@ export function SchemaPageContent() {
     [models, selectedModelName],
   );
   const selectedModelKey = selectedModel?.key ?? "";
+
+  const removedFieldDiffs = useMemo(() => {
+    const td = selectedModelKey ? diffByTableKey.get(selectedModelKey) : null;
+    return (td?.fieldDiffs ?? []).filter((fd) => fd.changeKind === "removed" && !fd.isPk);
+  }, [selectedModelKey, diffByTableKey]);
 
   const fieldsQuery = useQuery(
     trpc.fields.list.queryOptions(
@@ -456,6 +469,23 @@ export function SchemaPageContent() {
       projectName, version,
       modelKey: selectedModelKey, modelName: selectedModelName,
       fieldKey: field.key, fieldName: field.name,
+    });
+  };
+
+  const displayTypeToInputType: Record<string, string> = {
+    String: "String", Int: "Int", Boolean: "Boolean", Float: "Float",
+    BigInt: "BigInt", Decimal: "Decimal", DateTime: "DateTime",
+    Uuid: "String", Json: "Json", Bytes: "Bytes",
+  };
+
+  const restoreRemovedField = (fd: FieldDiff) => {
+    if (!selectedModelName) return;
+    const type = displayTypeToInputType[fd.from] ?? "String";
+    setError("");
+    createFieldMutation.mutate({
+      projectName, version,
+      modelKey: selectedModelKey, modelName: selectedModelName,
+      name: fd.fieldName, type, nullable: true, unique: false, defaultValue: "", comment: "",
     });
   };
 
@@ -772,9 +802,20 @@ export function SchemaPageContent() {
                       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                         Selected Table
                       </p>
-                      <h4 className="mt-1 text-lg font-semibold text-slate-950">
-                        {selectedModelName}
-                      </h4>
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <h4 className="text-lg font-semibold text-slate-950">
+                          {selectedModelName}
+                        </h4>
+                        {(() => {
+                          const td = selectedModelKey ? diffByTableKey.get(selectedModelKey) : null;
+                          return td ? (
+                            <VersionDiffBadge
+                              severity={td.severity}
+                              title={td.message}
+                            />
+                          ) : null;
+                        })()}
+                      </div>
                     </div>
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                       <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
@@ -903,9 +944,17 @@ export function SchemaPageContent() {
                                         Default
                                         <input
                                           value={draft.input.defaultValue}
-                                          onChange={(event) => updateNewFieldDraft(draft.id, { defaultValue: event.target.value })}
-                                          className="mt-1 h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium normal-case tracking-normal text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-600"
-                                          placeholder="Default value"
+                                          readOnly={enumTypes.includes(draft.input.type)}
+                                          onChange={(event) => {
+                                            if (!enumTypes.includes(draft.input.type)) updateNewFieldDraft(draft.id, { defaultValue: event.target.value });
+                                          }}
+                                          className={classNames(
+                                            "mt-1 h-8 w-full rounded-md border px-2.5 text-xs font-medium normal-case tracking-normal text-slate-950 outline-none transition",
+                                            enumTypes.includes(draft.input.type)
+                                              ? "cursor-default border-indigo-100 bg-indigo-50/60 text-indigo-700"
+                                              : "border-slate-300 bg-white placeholder:text-slate-400 focus:border-cyan-600",
+                                          )}
+                                          placeholder={enumTypes.includes(draft.input.type) ? "Pick a value ↓" : "Default value"}
                                         />
                                       </label>
                                     </div>
@@ -916,11 +965,22 @@ export function SchemaPageContent() {
                                           <span className="text-[10px] font-medium text-indigo-300">No values defined</span>
                                         ) : (
                                           <>
-                                            {getEnumValues(draft.input.type).slice(0, 12).map((v) => (
-                                              <span key={v.valueId} className="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
-                                                {v.name}
-                                              </span>
-                                            ))}
+                                            {getEnumValues(draft.input.type).slice(0, 12).map((v) => {
+                                              const isActive = draft.input.defaultValue === `"${v.name}"`;
+                                              return (
+                                                <button
+                                                  key={v.valueId}
+                                                  type="button"
+                                                  onClick={() => updateNewFieldDraft(draft.id, { defaultValue: isActive ? "" : `"${v.name}"` })}
+                                                  className={classNames(
+                                                    "rounded px-1.5 py-0.5 text-[10px] font-semibold transition",
+                                                    isActive ? "bg-indigo-600 text-white" : "bg-indigo-100 text-indigo-700 hover:bg-indigo-200",
+                                                  )}
+                                                >
+                                                  {v.name}
+                                                </button>
+                                              );
+                                            })}
                                             {getEnumValues(draft.input.type).length > 12 ? (
                                               <span className="text-[10px] font-medium text-indigo-400">+{getEnumValues(draft.input.type).length - 12} more</span>
                                             ) : null}
@@ -1004,11 +1064,17 @@ export function SchemaPageContent() {
                             draft.unique !== field.unique ||
                             (draft.defaultValue ?? "") !== (field.defaultValue ?? "") ||
                             (draft.comment ?? "") !== (field.comment ?? "");
+                          const fieldDiff = diffByFieldKey.get(field.key);
+                          const cardBorder = fieldDiff
+                            ? fieldDiff.severity === "breaking" ? "border-red-300"
+                              : fieldDiff.severity === "warning" ? "border-amber-300"
+                              : "border-sky-300"
+                            : "border-slate-200";
 
                           return (
                             <div
                               key={field.key}
-                              className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm"
+                              className={classNames("rounded-lg border bg-white p-3 shadow-sm", cardBorder)}
                             >
                               <div className="flex gap-3">
                                 <div className="min-w-0 flex-1 grid gap-2">
@@ -1040,6 +1106,11 @@ export function SchemaPageContent() {
                                         ))}
                                         <option value="Enum" disabled={enumTypes.length === 0}>Enum</option>
                                       </select>
+                                      {fieldDiff && fieldDiff.from && fieldDiff.to && fieldDiff.from !== fieldDiff.to && (
+                                        <span className="mt-0.5 block font-semibold normal-case tracking-normal text-amber-600">
+                                          was: {fieldDiff.from}
+                                        </span>
+                                      )}
                                     </label>
                                     {enumTypes.includes(draft.type) ? (
                                       <label className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
@@ -1059,9 +1130,17 @@ export function SchemaPageContent() {
                                       Default
                                       <input
                                         value={draft.defaultValue}
-                                        onChange={(event) => updateDraft(field.key, { defaultValue: event.target.value })}
-                                        className="mt-1 h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium normal-case tracking-normal text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-600"
-                                        placeholder="Default value"
+                                        readOnly={enumTypes.includes(draft.type)}
+                                        onChange={(event) => {
+                                          if (!enumTypes.includes(draft.type)) updateDraft(field.key, { defaultValue: event.target.value });
+                                        }}
+                                        className={classNames(
+                                          "mt-1 h-8 w-full rounded-md border px-2.5 text-xs font-medium normal-case tracking-normal text-slate-950 outline-none transition",
+                                          enumTypes.includes(draft.type)
+                                            ? "cursor-default border-indigo-100 bg-indigo-50/60 text-indigo-700"
+                                            : "border-slate-300 bg-white placeholder:text-slate-400 focus:border-cyan-600",
+                                        )}
+                                        placeholder={enumTypes.includes(draft.type) ? "Pick a value ↓" : "Default value"}
                                       />
                                     </label>
                                   </div>
@@ -1072,11 +1151,22 @@ export function SchemaPageContent() {
                                         <span className="text-[10px] font-medium text-indigo-300">No values defined</span>
                                       ) : (
                                         <>
-                                          {getEnumValues(draft.type).slice(0, 12).map((v) => (
-                                            <span key={v.valueId} className="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
-                                              {v.name}
-                                            </span>
-                                          ))}
+                                          {getEnumValues(draft.type).slice(0, 12).map((v) => {
+                                            const isActive = draft.defaultValue === `"${v.name}"`;
+                                            return (
+                                              <button
+                                                key={v.valueId}
+                                                type="button"
+                                                onClick={() => updateDraft(field.key, { defaultValue: isActive ? "" : `"${v.name}"` })}
+                                                className={classNames(
+                                                  "rounded px-1.5 py-0.5 text-[10px] font-semibold transition",
+                                                  isActive ? "bg-indigo-600 text-white" : "bg-indigo-100 text-indigo-700 hover:bg-indigo-200",
+                                                )}
+                                              >
+                                                {v.name}
+                                              </button>
+                                            );
+                                          })}
                                           {getEnumValues(draft.type).length > 12 ? (
                                             <span className="text-[10px] font-medium text-indigo-400">+{getEnumValues(draft.type).length - 12} more</span>
                                           ) : null}
@@ -1093,6 +1183,17 @@ export function SchemaPageContent() {
                                       placeholder="FK companies"
                                     />
                                   </label>
+                                  {fieldDiff ? (
+                                    <div className="flex items-start gap-2">
+                                      <div className="flex-1">
+                                        <FieldDiffTooltip diff={fieldDiff} />
+                                      </div>
+                                      <ApproveWarningButton
+                                        warning={getWarning("field", fieldDiff.fieldId, fieldDiff.changeKind)}
+                                        onApprove={approve}
+                                      />
+                                    </div>
+                                  ) : null}
                                 </div>
                                 <div className="flex w-1/5 min-w-0 flex-col gap-1.5">
                                   <button
@@ -1176,6 +1277,56 @@ export function SchemaPageContent() {
                     </div>
                   )}
               </div>
+
+              {removedFieldDiffs.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-red-600">
+                      Removed since previous version
+                    </p>
+                    <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
+                      {removedFieldDiffs.length}
+                    </span>
+                  </div>
+                  <div className="grid gap-3 xl:grid-cols-2 2xl:grid-cols-3">
+                    {removedFieldDiffs.map((fd) => (
+                      <div
+                        key={fd.fieldId}
+                        className="rounded-lg border border-dashed border-red-200 bg-red-50/40 p-3"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-red-500">
+                              Removed field
+                            </p>
+                            <p className="mt-0.5 font-semibold text-slate-800">{fd.fieldName}</p>
+                            <div className="mt-1 flex items-center gap-1.5">
+                              <span className={classNames("rounded px-1.5 py-0.5 text-[10px] font-semibold", typeBadgeClass(fd.from))}>
+                                {fd.from}
+                              </span>
+                            </div>
+                            <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">{fd.message}</p>
+                          </div>
+                          <div className="flex shrink-0 flex-col items-end gap-1.5">
+                            <ApproveWarningButton
+                              warning={getWarning("field", fd.fieldId, fd.changeKind)}
+                              onApprove={approve}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => restoreRemovedField(fd)}
+                              disabled={createFieldMutation.isPending}
+                              className="rounded-md border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Restore
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {error ? (
                 <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">

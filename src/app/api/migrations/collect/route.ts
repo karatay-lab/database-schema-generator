@@ -200,9 +200,10 @@ export async function POST(request: Request) {
   let syncContent: string;
   let migrationOrder: ReturnType<typeof computeMigrationOrder> = [];
   let referencesByModelName = new Map<string, Array<{ targetTable: string; fields: string[] }>>();
+  let syncGraph: ReturnType<typeof readProjectVersionGraph> | null = null;
   try {
     ({ content: syncContent } = renderMigrationPrismaSchema(projectName, syncVersion));
-    const syncGraph = readProjectVersionGraph(projectName, syncVersion);
+    syncGraph = readProjectVersionGraph(projectName, syncVersion);
     migrationOrder = computeMigrationOrder(syncGraph);
 
     const tableById = new Map(syncGraph.tables.map((table) => [table.id, table]));
@@ -308,6 +309,42 @@ export async function POST(request: Request) {
   const snapshotId = randomUUID();
   const pidRow = appDb.prepare("SELECT id FROM projects WHERE name = ?").get(projectName) as { id: string } | undefined;
 
+  // Build enum value replacement maps from approved warnings.
+  // For each removed enum value that has been mapped (e.g. CANCELLED → DELIVERED),
+  // rewrite matching field values in the collected records before storing.
+  type ReplacementRow = { entity_name: string; from_value: string; replacement_value: string };
+  const enumValueReplacements = new Map<string, Map<string, string>>(); // enumName → { oldValue → newValue }
+  if (pidRow) {
+    const rows = appDb.prepare(`
+      SELECT entity_name, from_value, replacement_value FROM schema_warnings
+      WHERE project_id = ? AND from_version = ? AND to_version = ?
+        AND entity_kind = 'enum' AND change_kind = 'value_removed'
+        AND approved_at IS NOT NULL AND replacement_value IS NOT NULL AND replacement_value != ''
+    `).all(pidRow.id, syncVersion, targetVersion) as ReplacementRow[];
+    for (const row of rows) {
+      const enumName = row.entity_name.split(".")[0];
+      if (!enumName) continue;
+      const inner = enumValueReplacements.get(enumName) ?? new Map<string, string>();
+      inner.set(row.from_value, row.replacement_value);
+      enumValueReplacements.set(enumName, inner);
+    }
+  }
+
+  // Map: modelName → { dbColumnName → enumName } for fields typed as a replaced enum.
+  const fieldEnumByModel = new Map<string, Map<string, string>>();
+  if (enumValueReplacements.size > 0 && syncGraph) {
+    const tableById = new Map(syncGraph.tables.map((t) => [t.id, t]));
+    for (const field of syncGraph.fields) {
+      if (!enumValueReplacements.has(field.logicalType)) continue;
+      const table = tableById.get(field.tableId);
+      if (!table) continue;
+      const dbCol = field.dbName ?? field.name;
+      const inner = fieldEnumByModel.get(table.name) ?? new Map<string, string>();
+      inner.set(dbCol, field.logicalType);
+      fieldEnumByModel.set(table.name, inner);
+    }
+  }
+
   const tables: { name: string; count: number }[] = [];
   const tableMismatches: { schemaTable: string; resolvedTable: string | null }[] = [];
   let totalRecords = 0;
@@ -319,7 +356,23 @@ export async function POST(request: Request) {
     const tableId = syncTableIdByModelName.get(modelName) ?? null;
     const targetInfo = tableId ? targetInfoByTableId.get(tableId) : null;
     const relationRefs = referencesByModelName.get(modelName) ?? [];
-    const recordsWithReferences = records.map((record, index) => {
+
+    // Remap removed enum values to their approved replacements.
+    const fieldEnumMap = fieldEnumByModel.get(modelName);
+    const remappedRecords = fieldEnumMap
+      ? records.map((record) => {
+          const patched: Record<string, unknown> = { ...record };
+          for (const [dbCol, enumName] of fieldEnumMap) {
+            const oldVal = record[dbCol];
+            if (typeof oldVal !== "string") continue;
+            const replacement = enumValueReplacements.get(enumName)?.get(oldVal);
+            if (replacement !== undefined) patched[dbCol] = replacement;
+          }
+          return patched;
+        })
+      : records;
+
+    const recordsWithReferences = remappedRecords.map((record, index) => {
       const refs = Object.fromEntries(
         relationRefs.map((relation) => [
           relation.targetTable,

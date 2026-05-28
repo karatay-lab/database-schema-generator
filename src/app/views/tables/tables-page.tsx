@@ -6,6 +6,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
 import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
+import { useVersionDiffLookup } from "../shared/use-version-diff";
+import { useSchemaWarnings } from "../shared/use-schema-warnings";
+import { TableDiffSummary, TableDiffDetailModal } from "../shared/version-diff-badge";
+import type { TableDiff } from "@/lib/version-diff/detect-changes";
 import type { PrismaModel } from "@/lib/schema-store";
 
 type ProviderKey = "postgresql" | "mysql" | "sqlite";
@@ -112,9 +116,14 @@ function CloseIcon() {
 }
 
 export function TablesPageContent() {
-  const { projectName, version, provider, hasProject } = useProjectInfo();
+  const { projectName, version, versions, provider, hasProject, projectId } = useProjectInfo();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const { diffByTableKey } = useVersionDiffLookup(projectName, version);
+  const [diffDetail, setDiffDetail] = useState<TableDiff | null>(null);
+  const versionIdx = versions.indexOf(version);
+  const previousVersion = versionIdx > 0 ? versions[versionIdx - 1]! : "";
+  const { getWarning, approveMany } = useSchemaWarnings(projectId, previousVersion, version);
 
   const listQuery = useQuery(
     trpc.tables.list.queryOptions(
@@ -524,13 +533,25 @@ export function TablesPageContent() {
                         key={model.key}
                         className="flex items-center justify-between rounded-lg border border-slate-200 bg-white p-4 hover:border-cyan-300 transition"
                       >
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="font-semibold text-slate-950">
                             {model.name}
                           </span>
                           <span className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ${fieldTypeBadgeClass(model.pkType || "String")}`}>
                             {model.pkType || "String"}
                           </span>
+                          {(() => {
+                            const td = diffByTableKey.get(model.key);
+                            return td ? (
+                              <button
+                                type="button"
+                                onClick={() => setDiffDetail(td)}
+                                className="shrink-0"
+                              >
+                                <TableDiffSummary tableDiff={td} />
+                              </button>
+                            ) : null;
+                          })()}
                         </div>
                         <button
                           type="button"
@@ -665,6 +686,24 @@ export function TablesPageContent() {
             )}
           </div>
         </div>
+      ) : null}
+
+      {diffDetail ? (
+        <TableDiffDetailModal
+          tableDiff={diffDetail}
+          fromVersion={previousVersion}
+          toVersion={version}
+          pendingWarningIds={[
+            // Table-level warning (removed)
+            getWarning("table", diffDetail.tableId, diffDetail.changeKind),
+            // PK field-level warnings
+            ...diffDetail.fieldDiffs.filter(fd => fd.isPk).map(fd =>
+              getWarning("field", fd.fieldId, fd.changeKind)
+            ),
+          ].filter((w): w is NonNullable<typeof w> => !!w && !w.approvedAt).map(w => w.id)}
+          onApproveAll={approveMany}
+          onClose={() => setDiffDetail(null)}
+        />
       ) : null}
     </div>
   );

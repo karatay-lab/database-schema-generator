@@ -9,6 +9,10 @@ import { classNames } from "../shared/dashboard-data";
 import { fieldTypeBadgeClass } from "@/lib/badge-utils";
 import { toCamelCaseIdentifier } from "@/lib/schema-naming";
 import { useProjectInfo } from "../shared/project-info-context";
+import { useVersionDiffLookup } from "../shared/use-version-diff";
+import { FkTypeDetailModal, VersionDiffBadge, ApproveWarningButton } from "../shared/version-diff-badge";
+import type { FkTypeMismatch } from "../shared/version-diff-badge";
+import { useSchemaWarnings } from "../shared/use-schema-warnings";
 import type {
   PrismaField,
   PrismaModel,
@@ -85,7 +89,9 @@ function relationKindClass(kind: PrismaRelation["kind"]) {
 
 
 export function RelationsPageContent() {
-  const { projectName, version, hasProject } = useProjectInfo();
+  const { projectName, version, hasProject, projectId, versions } = useProjectInfo();
+  const previousVersion = versions[versions.indexOf(version) - 1] ?? "";
+  const { getWarning, approve } = useSchemaWarnings(projectId, previousVersion, version);
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -111,9 +117,17 @@ export function RelationsPageContent() {
   const [modalTableSearch, setModalTableSearch] = useState("");
   const [modalTablePage, setModalTablePage] = useState(1);
   const [error, setError] = useState("");
+  const [fkDetailModal, setFkDetailModal] = useState<{
+    relationName: string;
+    targetTableName: string;
+    mismatches: FkTypeMismatch[];
+  } | null>(null);
   const lastEditedKeyRef = useRef("");
   const modalTablesPerPage = 12;
   const relationsPerPage = 6;
+
+  const { fkCascadeMap, relationDiffs, diffByRelationId } = useVersionDiffLookup(projectName, version);
+  const removedRelationDiffs = relationDiffs.filter((d) => d.changeKind === "removed");
 
   const tablesQuery = useQuery(
     trpc.tables.list.queryOptions(
@@ -501,6 +515,36 @@ export function RelationsPageContent() {
                 </div>
               </div>
 
+              {removedRelationDiffs.filter((d) => d.sourceTableName === selectedModelName).length > 0 && (
+                <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                  <div className="flex items-center justify-between gap-3">
+                    <span>
+                      {removedRelationDiffs.filter((d) => d.sourceTableName === selectedModelName).length === 1
+                        ? "1 relation removed since the previous version"
+                        : `${removedRelationDiffs.filter((d) => d.sourceTableName === selectedModelName).length} relations removed since the previous version`}
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {removedRelationDiffs
+                        .filter((d) => d.sourceTableName === selectedModelName)
+                        .map((d) => (
+                          <ApproveWarningButton
+                            key={d.relationId}
+                            warning={getWarning("relation", d.relationId, d.changeKind)}
+                            onApprove={approve}
+                          />
+                        ))}
+                    </div>
+                  </div>
+                  <ul className="mt-1.5 list-disc pl-4 text-xs font-normal text-red-600">
+                    {removedRelationDiffs
+                      .filter((d) => d.sourceTableName === selectedModelName)
+                      .map((d) => (
+                        <li key={d.relationId}>{d.message}</li>
+                      ))}
+                  </ul>
+                </div>
+              )}
+
               <div className="mb-4 flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-1.5 md:flex-row md:items-center md:justify-between">
                   <div className="flex flex-wrap gap-2">
                     {[
@@ -589,13 +633,23 @@ export function RelationsPageContent() {
                         relation.fields.length > 0 &&
                         sourceFields.length > 0 &&
                         relation.fields.some((f) => !sourceFieldNames.has(f));
+                      const modelCascadeHints = fkCascadeMap.get(selectedModelName);
+                      const fkTypeMismatches = activeRelationTab === "relations"
+                        ? relation.fields.flatMap((f) => {
+                            const info = modelCascadeHints?.get(f);
+                            return info ? [{ fieldName: f, ...info }] : [];
+                          })
+                        : [];
+                      const hasFkTypeMismatch = fkTypeMismatches.length > 0;
+                      const relationDiff = diffByRelationId.get(relation.key);
+                      const isNewRelation = relationDiff?.changeKind === "added";
                       return (
                       <div
                         key={relation.key}
                         id={`relation-card-${relation.key}`}
                         className={classNames(
                           "rounded-lg border bg-white p-3 shadow-sm",
-                          fksMissing ? "border-amber-300" : "border-slate-200",
+                          hasFkTypeMismatch ? "border-red-300" : isNewRelation ? "border-sky-300" : fksMissing ? "border-amber-300" : "border-slate-200",
                         )}
                       >
                         {/* Row 1: kind + name → target + backref + actions */}
@@ -632,6 +686,22 @@ export function RelationsPageContent() {
                             ) : null}
                           </div>
                           <div className="flex shrink-0 items-center gap-1">
+                            {isNewRelation ? (
+                              <VersionDiffBadge severity="info" label="new" />
+                            ) : null}
+                            {hasFkTypeMismatch ? (
+                              <button
+                                type="button"
+                                onClick={() => setFkDetailModal({
+                                  relationName: relation.name,
+                                  targetTableName: relation.targetModel,
+                                  mismatches: fkTypeMismatches,
+                                })}
+                                className="cursor-pointer"
+                              >
+                                <VersionDiffBadge severity="breaking" label="FK type" />
+                              </button>
+                            ) : null}
                             {fksMissing ? (
                               <span
                                 title={`FK column "${relation.fields.find((f) => !sourceFieldNames.has(f))}" not found on ${selectedModelName}`}
@@ -668,9 +738,23 @@ export function RelationsPageContent() {
                         <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
                           <div className="flex flex-wrap items-center gap-1">
                             {relation.fields.length > 0 ? (
-                              relation.fields.map((f) => (
-                                <span key={f} className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-700">{f}</span>
-                              ))
+                              relation.fields.map((f) => {
+                                const mismatch = modelCascadeHints?.get(f);
+                                return (
+                                  <span
+                                    key={f}
+                                    title={mismatch ? `Update to ${mismatch.toType} — ${mismatch.targetTableName} PK changed from ${mismatch.fromType}` : undefined}
+                                    className={classNames(
+                                      "rounded border px-1.5 py-0.5 text-xs font-semibold",
+                                      mismatch
+                                        ? "border-red-300 bg-red-50 text-red-700"
+                                        : "border-transparent bg-slate-100 text-slate-700",
+                                    )}
+                                  >
+                                    {f}
+                                  </span>
+                                );
+                              })
                             ) : (
                               <span className="text-xs text-slate-400">implicit</span>
                             )}
@@ -1316,6 +1400,18 @@ export function RelationsPageContent() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {fkDetailModal ? (
+        <FkTypeDetailModal
+          relationName={fkDetailModal.relationName}
+          sourceTableName={selectedModelName}
+          targetTableName={fkDetailModal.targetTableName}
+          mismatches={fkDetailModal.mismatches}
+          fromVersion={previousVersion}
+          toVersion={version}
+          onClose={() => setFkDetailModal(null)}
+        />
       ) : null}
     </div>
   );
