@@ -21,6 +21,8 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
+import { useVersionDiff, useVersionDiffLookup } from "../shared/use-version-diff";
+import { VersionDiffBadge } from "../shared/version-diff-badge";
 
 type EnumValue = { valueId: string; name: string };
 type CanonicalEnum = { enumId: string; name: string; values: EnumValue[] };
@@ -382,6 +384,9 @@ export function EnumsPageContent() {
   const [search, setSearch] = useState("");
   const [confirmDeleteName, setConfirmDeleteName] = useState("");
 
+  const { data: versionDiff } = useVersionDiff(projectName, version);
+  const { diffByEnumId } = useVersionDiffLookup(projectName, version);
+
   const listQuery = useQuery(
     trpc.enums.list.queryOptions(
       { projectName, version },
@@ -423,6 +428,8 @@ export function EnumsPageContent() {
   const filteredEnums = search
     ? enums.filter((e) => e.name.toLowerCase().includes(search.toLowerCase()))
     : enums;
+
+  const removedEnumDiffs = versionDiff?.enumDiffs.filter((d) => d.changeKind === "removed") ?? [];
 
   if (!hasProject) {
     return (
@@ -564,26 +571,63 @@ export function EnumsPageContent() {
                   />
                 </div>
 
+                {removedEnumDiffs.length > 0 && (
+                  <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+                    <p className="text-sm font-semibold text-red-800">
+                      {removedEnumDiffs.length} enum{removedEnumDiffs.length > 1 ? "s" : ""} removed since {versionDiff?.fromVersion}
+                    </p>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {removedEnumDiffs.map((d) => (
+                        <span key={d.enumId} className="rounded border border-red-300 bg-white px-2 py-0.5 font-mono text-[11px] font-semibold text-red-700 line-through">
+                          {d.enumName}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {filteredEnums.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">
                     No enums match your search.
                   </div>
                 ) : (
                   <div className="grid gap-3 sm:grid-cols-2">
-                    {filteredEnums.map((enumEntry) => (
+                    {filteredEnums.map((enumEntry) => {
+                      const enumDiff = diffByEnumId.get(enumEntry.enumId);
+                      const addedValueNames = new Set(enumDiff?.addedValues ?? []);
+                      const removedValueNames = enumDiff?.removedValues ?? [];
+                      const cardBorder = enumDiff
+                        ? enumDiff.severity === "breaking"
+                          ? "border-red-300"
+                          : enumDiff.severity === "warning"
+                            ? "border-amber-300"
+                            : "border-sky-300"
+                        : "border-slate-200";
+                      return (
                       <div
                         key={enumEntry.name}
-                        className="rounded-lg border border-slate-200 bg-white p-4 transition hover:border-indigo-200"
+                        className={`rounded-lg border bg-white p-4 transition hover:border-indigo-200 ${cardBorder}`}
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             <span className="block truncate font-semibold text-slate-950">
                               {enumEntry.name}
                             </span>
-                            <span className="mt-1 inline-flex items-center rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700">
-                              {enumEntry.values.length}{" "}
-                              {enumEntry.values.length === 1 ? "value" : "values"}
-                            </span>
+                            <div className="mt-1 flex flex-wrap items-center gap-1">
+                              <span className="inline-flex items-center rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700">
+                                {enumEntry.values.length}{" "}
+                                {enumEntry.values.length === 1 ? "value" : "values"}
+                              </span>
+                              {enumDiff?.changeKind === "added" && (
+                                <VersionDiffBadge severity="info" label="new" />
+                              )}
+                              {removedValueNames.length > 0 && (
+                                <VersionDiffBadge severity="breaking" label={`${removedValueNames.length} removed`} />
+                              )}
+                              {addedValueNames.size > 0 && enumDiff?.changeKind !== "added" && (
+                                <VersionDiffBadge severity="warning" label={`${addedValueNames.size} added`} />
+                              )}
+                            </div>
                           </div>
                           <div className="flex shrink-0 items-center gap-1">
                             <button
@@ -606,19 +650,39 @@ export function EnumsPageContent() {
                         </div>
 
                         {enumEntry.values.length > 0 ? (
-                          <div className="mt-3 flex flex-wrap gap-1.5">
-                            {enumEntry.values.slice(0, 6).map((v) => (
-                              <span
-                                key={v.valueId}
-                                className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 font-mono text-[11px] font-semibold text-slate-700"
-                              >
-                                {v.name}
-                              </span>
-                            ))}
-                            {enumEntry.values.length > 6 && (
-                              <span className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-500">
-                                +{enumEntry.values.length - 6} more
-                              </span>
+                          <div className="mt-3 space-y-1.5">
+                            <div className="flex flex-wrap gap-1.5">
+                              {enumEntry.values.slice(0, 6).map((v) => (
+                                <span
+                                  key={v.valueId}
+                                  className={
+                                    addedValueNames.has(v.name)
+                                      ? "rounded border border-sky-200 bg-sky-50 px-2 py-0.5 font-mono text-[11px] font-semibold text-sky-700"
+                                      : "rounded border border-slate-200 bg-slate-50 px-2 py-0.5 font-mono text-[11px] font-semibold text-slate-700"
+                                  }
+                                >
+                                  {v.name}
+                                </span>
+                              ))}
+                              {enumEntry.values.length > 6 && (
+                                <span className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-500">
+                                  +{enumEntry.values.length - 6} more
+                                </span>
+                              )}
+                            </div>
+                            {removedValueNames.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5">
+                                {removedValueNames.slice(0, 4).map((v) => (
+                                  <span key={v} className="rounded border border-red-200 bg-red-50 px-2 py-0.5 font-mono text-[11px] font-semibold text-red-500 line-through">
+                                    {v}
+                                  </span>
+                                ))}
+                                {removedValueNames.length > 4 && (
+                                  <span className="rounded border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-500">
+                                    +{removedValueNames.length - 4} removed
+                                  </span>
+                                )}
+                              </div>
                             )}
                           </div>
                         ) : (
@@ -631,7 +695,7 @@ export function EnumsPageContent() {
                           </button>
                         )}
                       </div>
-                    ))}
+                    );})}
                   </div>
                 )}
               </>

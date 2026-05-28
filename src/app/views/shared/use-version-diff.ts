@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import type { TableDiff, FieldDiff, VersionDiff } from "@/lib/version-diff/detect-changes";
+import type { TableDiff, FieldDiff, EnumDiff, VersionDiff } from "@/lib/version-diff/detect-changes";
 
 type DiffResponse = {
   success: boolean;
@@ -45,6 +45,8 @@ export type VersionDiffLookup = {
   diffByFieldKey: Map<string, FieldDiff>;
   // tableName → fieldName → FkCascadeInfo (Relations workflow: FK type mismatches)
   fkCascadeMap: Map<string, Map<string, FkCascadeInfo>>;
+  // enumKey → EnumDiff (Enums workflow)
+  diffByEnumId: Map<string, EnumDiff>;
   hasAny: boolean;
   hasBreaking: boolean;
 };
@@ -57,8 +59,12 @@ export function useVersionDiffLookup(projectName: string, version: string): Vers
   const diffByFieldId = new Map<string, FieldDiff>();
   const diffByFieldKey = new Map<string, FieldDiff>();
   const fkCascadeMap = new Map<string, Map<string, FkCascadeInfo>>();
+  const diffByEnumId = new Map<string, EnumDiff>();
 
   if (diff) {
+    for (const ed of diff.enumDiffs) {
+      diffByEnumId.set(ed.enumId, ed);
+    }
     for (const td of diff.tableDiffs) {
       diffByTableId.set(td.tableId, td);
       diffByTableKey.set(td.tableKey, td);
@@ -82,6 +88,7 @@ export function useVersionDiffLookup(projectName: string, version: string): Vers
     diffByFieldId,
     diffByFieldKey,
     fkCascadeMap,
+    diffByEnumId,
     hasAny: Boolean(diff && (diff.tableDiffs.length > 0 || diff.enumDiffs.length > 0)),
     hasBreaking: diff?.hasBreaking ?? false,
   };
