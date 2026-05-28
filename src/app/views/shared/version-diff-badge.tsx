@@ -120,7 +120,9 @@ export function TableDiffDetailModal({
     info: "",
   };
 
-  const isTableEvent = tableDiff.fieldDiffs.length === 0;
+  // Tables workflow scope: only PK-field and table-rename/add/remove events.
+  const visibleDiffs = tableDiff.fieldDiffs.filter((d) => d.isPk);
+  const isTableEvent = visibleDiffs.length === 0;
 
   return (
     <div
@@ -166,7 +168,7 @@ export function TableDiffDetailModal({
             </div>
           ) : (
             <ul className="divide-y divide-slate-100">
-              {tableDiff.fieldDiffs.map((fd) => (
+              {visibleDiffs.map((fd) => (
                 <li key={fd.fieldId} className={`px-5 py-3 ${rowBg[fd.severity]}`}>
                   <div className="flex flex-wrap items-start gap-2">
                     <VersionDiffBadge severity={fd.severity} />
@@ -235,19 +237,34 @@ export function TableDiffDetailModal({
   );
 }
 
-// Summary banner for a table showing count of changes.
+// Summary banner for a table showing only PK/table-level changes (Tables workflow scope).
 export function TableDiffSummary({ tableDiff }: { tableDiff: TableDiff }) {
-  const { fieldDiffs, severity } = tableDiff;
-  const breaking = fieldDiffs.filter((d) => d.severity === "breaking").length;
-  const warnings = fieldDiffs.filter((d) => d.severity === "warning").length;
-  const infos = fieldDiffs.filter((d) => d.severity === "info").length;
+  // Tables workflow only surfaces PK-field and table-rename changes.
+  const pkDiffs = tableDiff.fieldDiffs.filter((d) => d.isPk);
+  const isRename = tableDiff.changeKind === "renamed";
+
+  if (pkDiffs.length === 0 && !isRename && tableDiff.changeKind !== "added" && tableDiff.changeKind !== "removed") {
+    return null;
+  }
+
+  const severity = tableDiff.changeKind === "removed"
+    ? "breaking"
+    : pkDiffs.some((d) => d.severity === "breaking")
+      ? "breaking"
+      : pkDiffs.some((d) => d.severity === "warning")
+        ? "warning"
+        : "info";
 
   const parts: string[] = [];
+  const breaking = pkDiffs.filter((d) => d.severity === "breaking").length;
+  const warnings = pkDiffs.filter((d) => d.severity === "warning").length;
+  if (tableDiff.changeKind === "renamed") parts.push("renamed");
+  if (tableDiff.changeKind === "added") parts.push("added");
+  if (tableDiff.changeKind === "removed") parts.push("removed");
   if (breaking > 0) parts.push(`${breaking} breaking`);
   if (warnings > 0) parts.push(`${warnings} changed`);
-  if (infos > 0) parts.push(`${infos} new`);
 
-  const label = parts.length > 0 ? parts.join(", ") : tableDiff.message;
+  const label = parts.join(", ") || tableDiff.message;
 
   return (
     <VersionDiffBadge

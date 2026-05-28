@@ -30,6 +30,7 @@ export type FieldDiff = {
   to: string;
   message: string;
   cascade: CascadeHint[];
+  isPk: boolean;
 };
 
 export type TableDiff = {
@@ -152,6 +153,7 @@ function compareFields(
           ? `Required field "${toField.name}" added with no default — existing rows will need backfill.`
           : `Field "${toField.name}" added.`,
         cascade: [],
+        isPk: false,
       });
       continue;
     }
@@ -167,6 +169,7 @@ function compareFields(
         to: "",
         message: `Field "${fromField.name}" was removed.`,
         cascade: [],
+        isPk: stableFieldId === pkStableFieldId,
       });
       continue;
     }
@@ -232,6 +235,7 @@ function compareFields(
       to: toDisplayType(toType),
       message: changes.join("; "),
       cascade,
+      isPk: stableFieldId === pkStableFieldId,
     });
   }
 
