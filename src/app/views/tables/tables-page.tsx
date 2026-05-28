@@ -115,7 +115,7 @@ function CloseIcon() {
 }
 
 export function TablesPageContent() {
-  const { projectName, projectId, version, versions, provider, hasProject } = useProjectInfo();
+  const { projectName, version, versions, provider, hasProject } = useProjectInfo();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const { diffByTableKey } = useVersionDiffLookup(projectName, version);
@@ -691,7 +691,6 @@ export function TablesPageContent() {
           tableDiff={diffDetail}
           fromVersion={previousVersion}
           toVersion={version}
-          projectId={projectId}
           onClose={() => setDiffDetail(null)}
         />
       ) : null}

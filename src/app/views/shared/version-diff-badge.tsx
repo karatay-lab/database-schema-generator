@@ -101,13 +101,11 @@ export function TableDiffDetailModal({
   tableDiff,
   fromVersion,
   toVersion,
-  projectId,
   onClose,
 }: {
   tableDiff: TableDiff;
   fromVersion: string;
   toVersion: string;
-  projectId: string;
   onClose: () => void;
 }) {
   useEffect(() => {
@@ -197,7 +195,7 @@ export function TableDiffDetailModal({
                                 <span className="text-slate-400">{hint.tableName}</span>.{hint.fieldName}
                               </span>
                               <Link
-                                href={`/${projectId}/schema?table=${hint.tableName}`}
+                                href={`/schema?table=${hint.tableName}`}
                                 onClick={onClose}
                                 className="shrink-0 text-[10px] font-semibold text-cyan-600 transition hover:underline"
                               >
@@ -218,7 +216,7 @@ export function TableDiffDetailModal({
         {/* Footer */}
         <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-5 py-3">
           <Link
-            href={`/${projectId}/schema?table=${tableDiff.tableName}`}
+            href={`/schema?table=${tableDiff.tableName}`}
             onClick={onClose}
             className="text-sm font-semibold text-cyan-600 transition hover:underline"
           >
