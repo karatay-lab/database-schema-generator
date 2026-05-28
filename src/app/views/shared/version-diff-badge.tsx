@@ -121,6 +121,7 @@ export function TableDiffDetailModal({
 
   // Tables workflow scope: only PK-field and table-rename/add/remove events.
   const visibleDiffs = tableDiff.fieldDiffs.filter((d) => d.isPk);
+  const wasRenamed = tableDiff.fromName !== "" && tableDiff.fromName !== tableDiff.tableName;
   const isTableEvent = visibleDiffs.length === 0;
 
   return (
@@ -138,7 +139,7 @@ export function TableDiffDetailModal({
               Schema Changes
             </p>
             <h3 className="mt-0.5 text-lg font-semibold text-slate-950">
-              {tableDiff.changeKind === "renamed"
+              {tableDiff.fromName && tableDiff.fromName !== tableDiff.tableName
                 ? `${tableDiff.fromName} → ${tableDiff.tableName}`
                 : tableDiff.tableName}
             </h3>
@@ -161,10 +162,22 @@ export function TableDiffDetailModal({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto">
-          {isTableEvent ? (
-            <div className="px-5 py-6 text-center text-sm text-slate-500">
-              {tableDiff.message}
+          {wasRenamed && (
+            <div className="flex items-center gap-2 border-b border-slate-100 bg-amber-50/60 px-5 py-3">
+              <VersionDiffBadge severity="warning" label="renamed" />
+              <span className="font-mono text-sm text-slate-700">
+                <span className="text-slate-400">{tableDiff.fromName}</span>
+                {" → "}
+                <span className="font-semibold">{tableDiff.tableName}</span>
+              </span>
             </div>
+          )}
+          {isTableEvent ? (
+            !wasRenamed && (
+              <div className="px-5 py-6 text-center text-sm text-slate-500">
+                {tableDiff.message}
+              </div>
+            )
           ) : (
             <ul className="divide-y divide-slate-100">
               {visibleDiffs.map((fd) => (
@@ -215,11 +228,11 @@ export function TableDiffDetailModal({
 
 // Summary banner for a table showing only PK/table-level changes (Tables workflow scope).
 export function TableDiffSummary({ tableDiff }: { tableDiff: TableDiff }) {
-  // Tables workflow only surfaces PK-field and table-rename changes.
+  // Tables workflow only surfaces PK-field and table-rename/add/remove changes.
   const pkDiffs = tableDiff.fieldDiffs.filter((d) => d.isPk);
-  const isRename = tableDiff.changeKind === "renamed";
+  const wasRenamed = tableDiff.fromName !== "" && tableDiff.fromName !== tableDiff.tableName;
 
-  if (pkDiffs.length === 0 && !isRename && tableDiff.changeKind !== "added" && tableDiff.changeKind !== "removed") {
+  if (pkDiffs.length === 0 && !wasRenamed && tableDiff.changeKind !== "added" && tableDiff.changeKind !== "removed") {
     return null;
   }
 
@@ -227,14 +240,14 @@ export function TableDiffSummary({ tableDiff }: { tableDiff: TableDiff }) {
     ? "breaking"
     : pkDiffs.some((d) => d.severity === "breaking")
       ? "breaking"
-      : pkDiffs.some((d) => d.severity === "warning")
+      : pkDiffs.some((d) => d.severity === "warning") || wasRenamed
         ? "warning"
         : "info";
 
   const parts: string[] = [];
   const breaking = pkDiffs.filter((d) => d.severity === "breaking").length;
   const warnings = pkDiffs.filter((d) => d.severity === "warning").length;
-  if (tableDiff.changeKind === "renamed") parts.push("renamed");
+  if (wasRenamed) parts.push("renamed");
   if (tableDiff.changeKind === "added") parts.push("added");
   if (tableDiff.changeKind === "removed") parts.push("removed");
   if (breaking > 0) parts.push(`${breaking} breaking`);
