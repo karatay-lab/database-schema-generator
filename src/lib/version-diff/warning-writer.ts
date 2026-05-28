@@ -85,23 +85,47 @@ function fieldWarnings(projectId: string, fromVersion: string, toVersion: string
   return results;
 }
 
-function enumWarning(projectId: string, fromVersion: string, toVersion: string, ed: EnumDiff): NewSchemaWarning | null {
-  if (ed.changeKind === "added") return null;
-  if (ed.changeKind === "values_changed" && ed.removedValues.length === 0) return null;
-  return {
-    id: randomUUID(),
-    projectId,
-    fromVersion,
-    toVersion,
-    entityKind: "enum",
-    entityId: ed.enumId,
-    entityName: ed.enumName,
-    changeKind: ed.changeKind,
-    resolution: "data_deleted",
-    fromValue: ed.removedValues.length > 0 ? ed.removedValues.join(", ") : null,
-    toValue: ed.addedValues.length > 0 ? ed.addedValues.join(", ") : null,
-    message: ed.message,
-  };
+function enumWarnings(projectId: string, fromVersion: string, toVersion: string, ed: EnumDiff): NewSchemaWarning[] {
+  if (ed.changeKind === "added") return [];
+
+  // Whole-enum deletion: one warning for the enum entity itself.
+  if (ed.changeKind === "removed") {
+    return [{
+      id: randomUUID(),
+      projectId,
+      fromVersion,
+      toVersion,
+      entityKind: "enum",
+      entityId: ed.enumId,
+      entityName: ed.enumName,
+      changeKind: "removed",
+      resolution: "data_deleted",
+      fromValue: null,
+      toValue: null,
+      message: ed.message,
+    }];
+  }
+
+  // values_changed: one warning per removed value so each gets its own replacement mapping.
+  if (ed.changeKind === "values_changed") {
+    return ed.removedValues.map((removedValue) => ({
+      id: randomUUID(),
+      projectId,
+      fromVersion,
+      toVersion,
+      entityKind: "enum",
+      // Composite entity ID keeps lookup stable across re-renders.
+      entityId: `${ed.enumId}:${removedValue}`,
+      entityName: `${ed.enumName}.${removedValue}`,
+      changeKind: "value_removed",
+      resolution: "data_deleted",
+      fromValue: removedValue,
+      toValue: null,
+      message: `Enum value "${removedValue}" was removed from "${ed.enumName}". Existing rows with this value will need a replacement.`,
+    }));
+  }
+
+  return [];
 }
 
 function relationWarning(projectId: string, fromVersion: string, toVersion: string, rd: RelationDiff): NewSchemaWarning | null {
@@ -141,8 +165,7 @@ export function writeWarningsForDiff(
   }
 
   for (const ed of diff.enumDiffs) {
-    const ew = enumWarning(projectId, fromVersion, toVersion, ed);
-    if (ew) warnings.push(ew);
+    warnings.push(...enumWarnings(projectId, fromVersion, toVersion, ed));
   }
 
   for (const rd of diff.relationDiffs) {

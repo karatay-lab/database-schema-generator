@@ -14,6 +14,7 @@ export type SchemaWarning = {
   fromValue: string | null;
   toValue: string | null;
   message: string;
+  replacementValue: string | null;
   approvedAt: string | null;
   createdAt: string;
 };
@@ -31,6 +32,7 @@ type WarningRow = {
   from_value: string | null;
   to_value: string | null;
   message: string;
+  replacement_value: string | null;
   approved_at: string | null;
   created_at: string;
 };
@@ -49,19 +51,20 @@ function rowToWarning(r: WarningRow): SchemaWarning {
     fromValue: r.from_value,
     toValue: r.to_value,
     message: r.message,
+    replacementValue: r.replacement_value,
     approvedAt: r.approved_at,
     createdAt: r.created_at,
   };
 }
 
-export type NewSchemaWarning = Omit<SchemaWarning, "approvedAt" | "createdAt">;
+export type NewSchemaWarning = Omit<SchemaWarning, "approvedAt" | "createdAt" | "replacementValue">;
 
 export function upsertWarnings(warnings: NewSchemaWarning[]): void {
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO schema_warnings
       (id, project_id, from_version, to_version, entity_kind, entity_id, entity_name,
-       change_kind, resolution, from_value, to_value, message, approved_at, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+       change_kind, resolution, from_value, to_value, message, replacement_value, approved_at, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)
   `);
   const now = new Date().toISOString();
   db.transaction((rows: NewSchemaWarning[]) => {
@@ -76,10 +79,11 @@ export function upsertWarnings(warnings: NewSchemaWarning[]): void {
   })(warnings);
 }
 
-export function approveWarning(id: string): boolean {
+export function approveWarning(id: string, replacementValue?: string | null): boolean {
   const result = db.prepare(`
-    UPDATE schema_warnings SET approved_at = ? WHERE id = ? AND approved_at IS NULL
-  `).run(new Date().toISOString(), id);
+    UPDATE schema_warnings SET approved_at = ?, replacement_value = ?
+    WHERE id = ? AND approved_at IS NULL
+  `).run(new Date().toISOString(), replacementValue ?? null, id);
   return result.changes > 0;
 }
 

@@ -47,8 +47,12 @@ export function useSchemaWarnings(projectId: string, fromVersion: string, toVers
     return warningLookup.get(`${entityKind}:${entityId}:${changeKind}`);
   }
 
-  async function approve(id: string) {
-    await fetch(`/api/schema-warnings/${id}`, { method: "PATCH" });
+  async function approve(id: string, replacementValue?: string) {
+    await fetch(`/api/schema-warnings/${id}`, {
+      method: "PATCH",
+      headers: replacementValue ? { "Content-Type": "application/json" } : {},
+      body: replacementValue ? JSON.stringify({ replacementValue }) : undefined,
+    });
     await queryClient.invalidateQueries({ queryKey: ["schema-warnings"] });
   }
 

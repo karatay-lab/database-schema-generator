@@ -23,7 +23,7 @@ import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useVersionDiff, useVersionDiffLookup } from "../shared/use-version-diff";
 import { useSchemaWarnings } from "../shared/use-schema-warnings";
-import { VersionDiffBadge, ApproveWarningButton } from "../shared/version-diff-badge";
+import { VersionDiffBadge, ApproveWarningButton, EnumValueReplacementPicker } from "../shared/version-diff-badge";
 
 type EnumValue = { valueId: string; name: string };
 type CanonicalEnum = { enumId: string; name: string; values: EnumValue[] };
@@ -645,9 +645,9 @@ export function EnumsPageContent() {
                             </div>
                           </div>
                           <div className="flex shrink-0 items-center gap-1">
-                            {enumDiff && (enumDiff.changeKind === "removed" || (enumDiff.changeKind === "values_changed" && removedValueNames.length > 0)) && (
+                            {enumDiff?.changeKind === "removed" && (
                               <ApproveWarningButton
-                                warning={getWarning("enum", enumEntry.enumId, enumDiff.changeKind)}
+                                warning={getWarning("enum", enumEntry.enumId, "removed")}
                                 onApprove={approve}
                               />
                             )}
@@ -693,16 +693,15 @@ export function EnumsPageContent() {
                             </div>
                             {removedValueNames.length > 0 && (
                               <div className="flex flex-wrap gap-1.5">
-                                {removedValueNames.slice(0, 4).map((v) => (
-                                  <span key={v} className="rounded border border-red-200 bg-red-50 px-2 py-0.5 font-mono text-[11px] font-semibold text-red-500 line-through">
-                                    {v}
-                                  </span>
+                                {removedValueNames.map((v) => (
+                                  <EnumValueReplacementPicker
+                                    key={v}
+                                    warning={getWarning("enum", `${enumEntry.enumId}:${v}`, "value_removed")}
+                                    removedValue={v}
+                                    availableValues={enumEntry.values.map((ev) => ev.name)}
+                                    onApprove={approve}
+                                  />
                                 ))}
-                                {removedValueNames.length > 4 && (
-                                  <span className="rounded border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-500">
-                                    +{removedValueNames.length - 4} removed
-                                  </span>
-                                )}
                               </div>
                             )}
                           </div>

@@ -416,6 +416,14 @@ if (!global._appDb) {
     );
   }
 
+  // One-time schema upgrade: add replacement_value to schema_warnings for enum value remapping.
+  const schemaWarningCols = sqlite.prepare("PRAGMA table_info(schema_warnings)").all() as { name: string }[];
+  if (schemaWarningCols.length > 0 && !schemaWarningCols.some((c) => c.name === "replacement_value")) {
+    sqlite.exec("ALTER TABLE schema_warnings ADD COLUMN replacement_value TEXT;");
+    // Remove old aggregate enum warnings — they are replaced by per-value "value_removed" rows.
+    sqlite.exec("DELETE FROM schema_warnings WHERE entity_kind = 'enum' AND change_kind = 'values_changed';");
+  }
+
   // One-time schema upgrade: add enum_key to schema_enums (existing rows get id as the key).
   const schemaEnumCols = sqlite.prepare("PRAGMA table_info(schema_enums)").all() as { name: string }[];
   if (schemaEnumCols.length > 0 && !schemaEnumCols.some((c) => c.name === "enum_key")) {

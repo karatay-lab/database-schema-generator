@@ -78,6 +78,93 @@ export function ApproveWarningButton({
   );
 }
 
+// Inline replacement picker for a removed enum value.
+// Shows the removed value (strikethrough chip) with a select + confirm button.
+// Once approved, shows a static "→ REPLACEMENT" indicator.
+export function EnumValueReplacementPicker({
+  warning,
+  removedValue,
+  availableValues,
+  onApprove,
+}: {
+  warning: SchemaWarning | undefined;
+  removedValue: string;
+  availableValues: string[];
+  onApprove: (id: string, replacementValue: string) => Promise<void>;
+}) {
+  const [selected, setSelected] = useState(availableValues[0] ?? "");
+  const [busy, setBusy] = useState(false);
+
+  if (!warning) {
+    return (
+      <span className="rounded border border-red-200 bg-red-50 px-2 py-0.5 font-mono text-[11px] font-semibold text-red-500 line-through">
+        {removedValue}
+      </span>
+    );
+  }
+
+  if (warning.approvedAt) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-mono text-[11px] font-semibold text-emerald-700">
+        <span className="line-through text-red-400">{removedValue}</span>
+        <span className="text-emerald-500">→</span>
+        <span>{warning.replacementValue ?? "—"}</span>
+      </span>
+    );
+  }
+
+  const canConfirm = availableValues.length > 0;
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      <span className="rounded border border-red-200 bg-red-50 px-2 py-0.5 font-mono text-[11px] font-semibold text-red-500 line-through">
+        {removedValue}
+      </span>
+      <span className="text-[10px] font-semibold text-slate-400">→</span>
+      {canConfirm ? (
+        <>
+          <select
+            value={selected}
+            onChange={(e) => setSelected(e.target.value)}
+            disabled={busy}
+            className="h-6 rounded border border-amber-300 bg-white px-1 font-mono text-[11px] font-semibold text-slate-800 outline-none focus:border-amber-500 disabled:opacity-50"
+          >
+            {availableValues.map((v) => (
+              <option key={v} value={v}>{v}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            disabled={busy || !selected}
+            onClick={async () => {
+              setBusy(true);
+              await onApprove(warning.id, selected);
+              setBusy(false);
+            }}
+            className="inline-flex items-center gap-0.5 rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy ? "…" : "✓ Map"}
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            await onApprove(warning.id, "");
+            setBusy(false);
+          }}
+          className="inline-flex items-center gap-0.5 rounded border border-slate-300 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-500 transition hover:bg-slate-50 disabled:opacity-50"
+          title="No replacement values available — acknowledge data loss"
+        >
+          {busy ? "…" : "✓ Acknowledge"}
+        </button>
+      )}
+    </span>
+  );
+}
+
 // Compact inline badge showing severity + short label.
 export function VersionDiffBadge({
   severity,
