@@ -27,6 +27,12 @@ export function useVersionDiff(projectName: string, version: string) {
   });
 }
 
+export type FkCascadeInfo = {
+  targetTableName: string;
+  fromType: string;
+  toType: string;
+};
+
 // Convenience lookup maps derived from the diff result.
 export type VersionDiffLookup = {
   // stable tableId → TableDiff
@@ -37,6 +43,8 @@ export type VersionDiffLookup = {
   diffByFieldId: Map<string, FieldDiff>;
   // canonical fieldKey → FieldDiff (matches PrismaField.key)
   diffByFieldKey: Map<string, FieldDiff>;
+  // tableName → fieldName → FkCascadeInfo (Relations workflow: FK type mismatches)
+  fkCascadeMap: Map<string, Map<string, FkCascadeInfo>>;
   hasAny: boolean;
   hasBreaking: boolean;
 };
@@ -48,6 +56,7 @@ export function useVersionDiffLookup(projectName: string, version: string): Vers
   const diffByTableKey = new Map<string, TableDiff>();
   const diffByFieldId = new Map<string, FieldDiff>();
   const diffByFieldKey = new Map<string, FieldDiff>();
+  const fkCascadeMap = new Map<string, Map<string, FkCascadeInfo>>();
 
   if (diff) {
     for (const td of diff.tableDiffs) {
@@ -56,6 +65,13 @@ export function useVersionDiffLookup(projectName: string, version: string): Vers
       for (const fd of td.fieldDiffs) {
         diffByFieldId.set(fd.fieldId, fd);
         diffByFieldKey.set(fd.fieldKey, fd);
+        if (fd.isPk && fd.severity === "breaking" && fd.cascade.length > 0) {
+          for (const hint of fd.cascade) {
+            let inner = fkCascadeMap.get(hint.tableName);
+            if (!inner) { inner = new Map(); fkCascadeMap.set(hint.tableName, inner); }
+            inner.set(hint.fieldName, { targetTableName: td.tableName, fromType: fd.from, toType: fd.to });
+          }
+        }
       }
     }
   }
@@ -65,6 +81,7 @@ export function useVersionDiffLookup(projectName: string, version: string): Vers
     diffByTableKey,
     diffByFieldId,
     diffByFieldKey,
+    fkCascadeMap,
     hasAny: Boolean(diff && (diff.tableDiffs.length > 0 || diff.enumDiffs.length > 0)),
     hasBreaking: diff?.hasBreaking ?? false,
   };

@@ -9,6 +9,8 @@ import { classNames } from "../shared/dashboard-data";
 import { fieldTypeBadgeClass } from "@/lib/badge-utils";
 import { toCamelCaseIdentifier } from "@/lib/schema-naming";
 import { useProjectInfo } from "../shared/project-info-context";
+import { useVersionDiffLookup } from "../shared/use-version-diff";
+import { VersionDiffBadge } from "../shared/version-diff-badge";
 import type {
   PrismaField,
   PrismaModel,
@@ -114,6 +116,8 @@ export function RelationsPageContent() {
   const lastEditedKeyRef = useRef("");
   const modalTablesPerPage = 12;
   const relationsPerPage = 6;
+
+  const { fkCascadeMap } = useVersionDiffLookup(projectName, version);
 
   const tablesQuery = useQuery(
     trpc.tables.list.queryOptions(
@@ -589,13 +593,21 @@ export function RelationsPageContent() {
                         relation.fields.length > 0 &&
                         sourceFields.length > 0 &&
                         relation.fields.some((f) => !sourceFieldNames.has(f));
+                      const modelCascadeHints = fkCascadeMap.get(selectedModelName);
+                      const fkTypeMismatches = activeRelationTab === "relations"
+                        ? relation.fields.flatMap((f) => {
+                            const info = modelCascadeHints?.get(f);
+                            return info ? [{ fieldName: f, ...info }] : [];
+                          })
+                        : [];
+                      const hasFkTypeMismatch = fkTypeMismatches.length > 0;
                       return (
                       <div
                         key={relation.key}
                         id={`relation-card-${relation.key}`}
                         className={classNames(
                           "rounded-lg border bg-white p-3 shadow-sm",
-                          fksMissing ? "border-amber-300" : "border-slate-200",
+                          hasFkTypeMismatch ? "border-red-300" : fksMissing ? "border-amber-300" : "border-slate-200",
                         )}
                       >
                         {/* Row 1: kind + name → target + backref + actions */}
@@ -632,6 +644,11 @@ export function RelationsPageContent() {
                             ) : null}
                           </div>
                           <div className="flex shrink-0 items-center gap-1">
+                            {hasFkTypeMismatch ? (
+                              <span title={fkTypeMismatches.map((m) => `${m.fieldName}: ${m.fromType} → ${m.toType} (${m.targetTableName} PK changed)`).join("; ")}>
+                                <VersionDiffBadge severity="breaking" label="FK type" />
+                              </span>
+                            ) : null}
                             {fksMissing ? (
                               <span
                                 title={`FK column "${relation.fields.find((f) => !sourceFieldNames.has(f))}" not found on ${selectedModelName}`}
@@ -668,9 +685,23 @@ export function RelationsPageContent() {
                         <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
                           <div className="flex flex-wrap items-center gap-1">
                             {relation.fields.length > 0 ? (
-                              relation.fields.map((f) => (
-                                <span key={f} className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-700">{f}</span>
-                              ))
+                              relation.fields.map((f) => {
+                                const mismatch = modelCascadeHints?.get(f);
+                                return (
+                                  <span
+                                    key={f}
+                                    title={mismatch ? `Update to ${mismatch.toType} — ${mismatch.targetTableName} PK changed from ${mismatch.fromType}` : undefined}
+                                    className={classNames(
+                                      "rounded border px-1.5 py-0.5 text-xs font-semibold",
+                                      mismatch
+                                        ? "border-red-300 bg-red-50 text-red-700"
+                                        : "border-transparent bg-slate-100 text-slate-700",
+                                    )}
+                                  >
+                                    {f}
+                                  </span>
+                                );
+                              })
                             ) : (
                               <span className="text-xs text-slate-400">implicit</span>
                             )}
