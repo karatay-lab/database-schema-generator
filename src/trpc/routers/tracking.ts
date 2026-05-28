@@ -1,12 +1,19 @@
 import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { baseProcedure, createTRPCRouter } from "../init";
-import { formatDefault, type DefaultChange, type DefaultChangeKind } from "@/lib/tracking-utils";
+import {
+  formatDefault,
+  type DefaultChange,
+  type DefaultChangeKind,
+  type TrackingEntry,
+} from "@/lib/tracking-utils";
 
-export type { DefaultChange, DefaultChangeKind };
+export type { DefaultChange, DefaultChangeKind, TrackingEntry };
 export { formatDefault };
 
 type VersionRow = { id: number; name: string };
+
+// ─── field default diff ───────────────────────────────────────────────────────
 
 type FieldDiffRow = {
   table_name: string;
@@ -18,14 +25,178 @@ type FieldDiffRow = {
   to_value: string;
 };
 
-function classifyChange(fromKind: string, toKind: string): DefaultChangeKind {
+function classifyDefault(fromKind: string, toKind: string): DefaultChangeKind {
   if (fromKind === "none" && toKind !== "none") return "added";
   if (fromKind !== "none" && toKind === "none") return "removed";
   return "changed";
 }
 
+function fieldEntries(fromVer: VersionRow, toVer: VersionRow): TrackingEntry[] {
+  const rows = db
+    .prepare(
+      `SELECT
+         st_from.name           AS table_name,
+         sf_from.name           AS field_name,
+         sf_from.field_id       AS field_id,
+         sf_from.default_kind   AS from_kind,
+         sf_from.default_value  AS from_value,
+         sf_to.default_kind     AS to_kind,
+         sf_to.default_value    AS to_value
+       FROM schema_fields sf_from
+       JOIN schema_tables st_from ON sf_from.table_id = st_from.id
+       JOIN schema_tables st_to
+         ON st_to.version_id = ? AND st_to.name = st_from.name
+       JOIN schema_fields sf_to
+         ON sf_to.table_id = st_to.id AND sf_to.field_id = sf_from.field_id
+       WHERE st_from.version_id = ?
+         AND (sf_from.default_kind != sf_to.default_kind
+              OR sf_from.default_value != sf_to.default_value)
+       ORDER BY st_from.name, sf_from.name`,
+    )
+    .all(toVer.id, fromVer.id) as FieldDiffRow[];
+
+  return rows.map((row) => ({
+    fromVersion: fromVer.name,
+    toVersion: toVer.name,
+    entityKind: "field_default",
+    entityName: row.table_name,
+    subName: row.field_name,
+    changeKind: classifyDefault(row.from_kind, row.to_kind),
+    fromDisplay: formatDefault(row.from_kind, row.from_value),
+    toDisplay: formatDefault(row.to_kind, row.to_value),
+  }));
+}
+
+// ─── enum diff ────────────────────────────────────────────────────────────────
+
+type EnumRow = { enum_key: string; enum_name: string };
+type EnumValueRow = { enum_key: string; enum_name: string; value_key: string; value_name: string };
+
+function enumEntries(fromVer: VersionRow, toVer: VersionRow): TrackingEntry[] {
+  const entries: TrackingEntry[] = [];
+
+  // whole-enum added (in to, not in from)
+  const added = db
+    .prepare(
+      `SELECT se.enum_key, se.name AS enum_name
+       FROM schema_enums se
+       WHERE se.version_id = ?
+         AND NOT EXISTS (
+           SELECT 1 FROM schema_enums se2
+           WHERE se2.version_id = ? AND se2.enum_key = se.enum_key
+         )
+       ORDER BY se.name`,
+    )
+    .all(toVer.id, fromVer.id) as EnumRow[];
+  for (const r of added) {
+    entries.push({
+      fromVersion: fromVer.name, toVersion: toVer.name,
+      entityKind: "enum", entityName: r.enum_name, subName: null,
+      changeKind: "added", fromDisplay: "—", toDisplay: r.enum_name,
+    });
+  }
+
+  // whole-enum removed (in from, not in to)
+  const removed = db
+    .prepare(
+      `SELECT se.enum_key, se.name AS enum_name
+       FROM schema_enums se
+       WHERE se.version_id = ?
+         AND NOT EXISTS (
+           SELECT 1 FROM schema_enums se2
+           WHERE se2.version_id = ? AND se2.enum_key = se.enum_key
+         )
+       ORDER BY se.name`,
+    )
+    .all(fromVer.id, toVer.id) as EnumRow[];
+  for (const r of removed) {
+    entries.push({
+      fromVersion: fromVer.name, toVersion: toVer.name,
+      entityKind: "enum", entityName: r.enum_name, subName: null,
+      changeKind: "removed", fromDisplay: r.enum_name, toDisplay: "—",
+    });
+  }
+
+  // enum renamed (same enum_key, different name)
+  type RenameRow = { from_name: string; to_name: string };
+  const renamed = db
+    .prepare(
+      `SELECT se_from.name AS from_name, se_to.name AS to_name
+       FROM schema_enums se_from
+       JOIN schema_enums se_to
+         ON se_to.version_id = ? AND se_to.enum_key = se_from.enum_key
+       WHERE se_from.version_id = ?
+         AND se_from.name != se_to.name
+       ORDER BY se_from.name`,
+    )
+    .all(toVer.id, fromVer.id) as RenameRow[];
+  for (const r of renamed) {
+    entries.push({
+      fromVersion: fromVer.name, toVersion: toVer.name,
+      entityKind: "enum", entityName: r.to_name, subName: null,
+      changeKind: "renamed", fromDisplay: r.from_name, toDisplay: r.to_name,
+    });
+  }
+
+  // value added (in to enum, not in from enum — matched by value_key within matching enum)
+  const valAdded = db
+    .prepare(
+      `SELECT se_to.name AS enum_name, se_to.enum_key, sev.value_key, sev.name AS value_name
+       FROM schema_enum_values sev
+       JOIN schema_enums se_to ON sev.enum_id = se_to.id AND se_to.version_id = ?
+       WHERE EXISTS (
+         SELECT 1 FROM schema_enums se_from
+         WHERE se_from.version_id = ? AND se_from.enum_key = se_to.enum_key
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM schema_enum_values sev2
+         JOIN schema_enums se_from ON sev2.enum_id = se_from.id AND se_from.version_id = ?
+         WHERE se_from.enum_key = se_to.enum_key AND sev2.value_key = sev.value_key
+       )
+       ORDER BY se_to.name, sev.name`,
+    )
+    .all(toVer.id, fromVer.id, fromVer.id) as EnumValueRow[];
+  for (const r of valAdded) {
+    entries.push({
+      fromVersion: fromVer.name, toVersion: toVer.name,
+      entityKind: "enum_value", entityName: r.enum_name, subName: r.value_name,
+      changeKind: "value_added", fromDisplay: "—", toDisplay: r.value_name,
+    });
+  }
+
+  // value removed (in from enum, not in to enum)
+  const valRemoved = db
+    .prepare(
+      `SELECT se_from.name AS enum_name, se_from.enum_key, sev.value_key, sev.name AS value_name
+       FROM schema_enum_values sev
+       JOIN schema_enums se_from ON sev.enum_id = se_from.id AND se_from.version_id = ?
+       WHERE EXISTS (
+         SELECT 1 FROM schema_enums se_to
+         WHERE se_to.version_id = ? AND se_to.enum_key = se_from.enum_key
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM schema_enum_values sev2
+         JOIN schema_enums se_to ON sev2.enum_id = se_to.id AND se_to.version_id = ?
+         WHERE se_to.enum_key = se_from.enum_key AND sev2.value_key = sev.value_key
+       )
+       ORDER BY se_from.name, sev.name`,
+    )
+    .all(fromVer.id, toVer.id, toVer.id) as EnumValueRow[];
+  for (const r of valRemoved) {
+    entries.push({
+      fromVersion: fromVer.name, toVersion: toVer.name,
+      entityKind: "enum_value", entityName: r.enum_name, subName: r.value_name,
+      changeKind: "value_removed", fromDisplay: r.value_name, toDisplay: "—",
+    });
+  }
+
+  return entries;
+}
+
+// ─── router ───────────────────────────────────────────────────────────────────
+
 export const trackingRouter = createTRPCRouter({
-  defaultChanges: baseProcedure
+  allChanges: baseProcedure
     .input(z.object({ projectId: z.string() }))
     .query(({ input }) => {
       const versions = db
@@ -34,53 +205,18 @@ export const trackingRouter = createTRPCRouter({
         )
         .all(input.projectId) as VersionRow[];
 
-      if (versions.length < 2) return { changes: [] as DefaultChange[] };
+      if (versions.length < 2) return { entries: [] as TrackingEntry[] };
 
-      const changes: DefaultChange[] = [];
+      const entries: TrackingEntry[] = [];
 
       for (let i = 0; i < versions.length - 1; i++) {
         const fromVer = versions[i]!;
         const toVer = versions[i + 1]!;
 
-        const rows = db
-          .prepare(
-            `SELECT
-               st_from.name           AS table_name,
-               sf_from.name           AS field_name,
-               sf_from.field_id       AS field_id,
-               sf_from.default_kind   AS from_kind,
-               sf_from.default_value  AS from_value,
-               sf_to.default_kind     AS to_kind,
-               sf_to.default_value    AS to_value
-             FROM schema_fields sf_from
-             JOIN schema_tables st_from ON sf_from.table_id = st_from.id
-             JOIN schema_tables st_to
-               ON st_to.version_id = ? AND st_to.name = st_from.name
-             JOIN schema_fields sf_to
-               ON sf_to.table_id = st_to.id AND sf_to.field_id = sf_from.field_id
-             WHERE st_from.version_id = ?
-               AND (sf_from.default_kind != sf_to.default_kind
-                    OR sf_from.default_value != sf_to.default_value)
-             ORDER BY st_from.name, sf_from.name`,
-          )
-          .all(toVer.id, fromVer.id) as FieldDiffRow[];
-
-        for (const row of rows) {
-          changes.push({
-            fromVersion: fromVer.name,
-            toVersion: toVer.name,
-            tableName: row.table_name,
-            fieldName: row.field_name,
-            fieldId: row.field_id,
-            fromKind: row.from_kind,
-            fromValue: row.from_value,
-            toKind: row.to_kind,
-            toValue: row.to_value,
-            changeType: classifyChange(row.from_kind, row.to_kind),
-          });
-        }
+        entries.push(...fieldEntries(fromVer, toVer));
+        entries.push(...enumEntries(fromVer, toVer));
       }
 
-      return { changes };
+      return { entries };
     }),
 });
