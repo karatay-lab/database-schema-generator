@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect } from "react";
-import Link from "next/link";
 import type { ChangeSeverity, FieldDiff, TableDiff } from "@/lib/version-diff/detect-changes";
 
 const severityStyles: Record<ChangeSeverity, { badge: string; dot: string; label: string }> = {
@@ -187,25 +186,9 @@ export function TableDiffDetailModal({
                       </div>
                       <p className="mt-0.5 text-xs text-slate-500">{fd.message}</p>
                       {fd.cascade.length > 0 && (
-                        <ul className="mt-1.5 space-y-1 pl-2 border-l-2 border-red-200">
-                          {fd.cascade.map((hint) => (
-                            <li
-                              key={`${hint.tableId}-${hint.fieldId}`}
-                              className="flex items-center justify-between gap-2 text-xs"
-                            >
-                              <span className="font-mono text-slate-600">
-                                <span className="text-slate-400">{hint.tableName}</span>.{hint.fieldName}
-                              </span>
-                              <Link
-                                href={`/schema?table=${hint.tableName}`}
-                                onClick={onClose}
-                                className="shrink-0 text-[10px] font-semibold text-cyan-600 transition hover:underline"
-                              >
-                                Schema →
-                              </Link>
-                            </li>
-                          ))}
-                        </ul>
+                        <p className="mt-1 text-xs text-slate-400">
+                          {fd.cascade.length} FK field{fd.cascade.length > 1 ? "s" : ""} affected — check the <span className="font-semibold">Relations</span> workflow.
+                        </p>
                       )}
                     </div>
                   </div>
@@ -216,14 +199,7 @@ export function TableDiffDetailModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-5 py-3">
-          <Link
-            href={`/schema?table=${tableDiff.tableName}`}
-            onClick={onClose}
-            className="text-sm font-semibold text-cyan-600 transition hover:underline"
-          >
-            View {tableDiff.tableName} in Schema →
-          </Link>
+        <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-5 py-3">
           <button
             type="button"
             onClick={onClose}
