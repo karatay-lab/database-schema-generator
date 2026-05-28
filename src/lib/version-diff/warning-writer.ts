@@ -24,8 +24,10 @@ function fieldResolution(fd: FieldDiff): Resolution | null {
       return fd.message.includes("Made required") ? "backfill_required" : null;
     case "default_changed":
       return "backfill_required";
-    case "type_changed":
-      return getTypeResolution(fd.from, fd.to) === "safe" ? null : getTypeResolution(fd.from, fd.to);
+    case "type_changed": {
+      const r = getTypeResolution(fd.from, fd.to);
+      return r === "safe" ? null : r;
+    }
     case "pk_type_changed": {
       const r = getPkTypeResolution(fd.from, fd.to);
       return r === "safe" ? null : r;

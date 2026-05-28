@@ -1408,7 +1408,7 @@ export function RelationsPageContent() {
           sourceTableName={selectedModelName}
           targetTableName={fkDetailModal.targetTableName}
           mismatches={fkDetailModal.mismatches}
-          fromVersion={versions[versions.indexOf(version) - 1] ?? ""}
+          fromVersion={previousVersion}
           toVersion={version}
           onClose={() => setFkDetailModal(null)}
         />
