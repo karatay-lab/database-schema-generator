@@ -7,7 +7,8 @@ import { Trash2 } from "lucide-react";
 import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useVersionDiffLookup } from "../shared/use-version-diff";
-import { TableDiffSummary } from "../shared/version-diff-badge";
+import { TableDiffSummary, TableDiffDetailModal } from "../shared/version-diff-badge";
+import type { TableDiff } from "@/lib/version-diff/detect-changes";
 import type { PrismaModel } from "@/lib/schema-store";
 
 type ProviderKey = "postgresql" | "mysql" | "sqlite";
@@ -114,10 +115,13 @@ function CloseIcon() {
 }
 
 export function TablesPageContent() {
-  const { projectName, version, provider, hasProject } = useProjectInfo();
+  const { projectName, projectId, version, versions, provider, hasProject } = useProjectInfo();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const { diffByTableKey } = useVersionDiffLookup(projectName, version);
+  const [diffDetail, setDiffDetail] = useState<TableDiff | null>(null);
+  const versionIdx = versions.indexOf(version);
+  const previousVersion = versionIdx > 0 ? versions[versionIdx - 1]! : "";
 
   const listQuery = useQuery(
     trpc.tables.list.queryOptions(
@@ -536,7 +540,15 @@ export function TablesPageContent() {
                           </span>
                           {(() => {
                             const td = diffByTableKey.get(model.key);
-                            return td ? <TableDiffSummary tableDiff={td} /> : null;
+                            return td ? (
+                              <button
+                                type="button"
+                                onClick={() => setDiffDetail(td)}
+                                className="shrink-0"
+                              >
+                                <TableDiffSummary tableDiff={td} />
+                              </button>
+                            ) : null;
                           })()}
                         </div>
                         <button
@@ -672,6 +684,16 @@ export function TablesPageContent() {
             )}
           </div>
         </div>
+      ) : null}
+
+      {diffDetail ? (
+        <TableDiffDetailModal
+          tableDiff={diffDetail}
+          fromVersion={previousVersion}
+          toVersion={version}
+          projectId={projectId}
+          onClose={() => setDiffDetail(null)}
+        />
       ) : null}
     </div>
   );

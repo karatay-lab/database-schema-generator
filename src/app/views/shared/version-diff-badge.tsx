@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+import Link from "next/link";
 import type { ChangeSeverity, FieldDiff, TableDiff } from "@/lib/version-diff/detect-changes";
 
 const severityStyles: Record<ChangeSeverity, { badge: string; dot: string; label: string }> = {
@@ -90,6 +92,147 @@ export function FieldDiffTooltip({ diff }: { diff: FieldDiff }) {
           </ul>
         </div>
       )}
+    </div>
+  );
+}
+
+// Detail modal opened by clicking a table diff badge.
+export function TableDiffDetailModal({
+  tableDiff,
+  fromVersion,
+  toVersion,
+  projectId,
+  onClose,
+}: {
+  tableDiff: TableDiff;
+  fromVersion: string;
+  toVersion: string;
+  projectId: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const rowBg: Record<ChangeSeverity, string> = {
+    breaking: "bg-red-50/70",
+    warning: "bg-amber-50/70",
+    info: "",
+  };
+
+  const isTableEvent = tableDiff.fieldDiffs.length === 0;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6"
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+              Schema Changes
+            </p>
+            <h3 className="mt-0.5 text-lg font-semibold text-slate-950">
+              {tableDiff.changeKind === "renamed"
+                ? `${tableDiff.fromName} → ${tableDiff.tableName}`
+                : tableDiff.tableName}
+            </h3>
+            {fromVersion && (
+              <p className="mt-0.5 font-mono text-[11px] text-slate-400">
+                {fromVersion} → {toVersion}
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-4 w-4">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto">
+          {isTableEvent ? (
+            <div className="px-5 py-6 text-center text-sm text-slate-500">
+              {tableDiff.message}
+            </div>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {tableDiff.fieldDiffs.map((fd) => (
+                <li key={fd.fieldId} className={`px-5 py-3 ${rowBg[fd.severity]}`}>
+                  <div className="flex flex-wrap items-start gap-2">
+                    <VersionDiffBadge severity={fd.severity} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                        <span className="font-semibold text-slate-900 text-sm">
+                          {fd.fieldName}
+                        </span>
+                        {fd.from && fd.to && (
+                          <span className="font-mono text-xs text-slate-500">
+                            <span className="text-slate-400">{fd.from}</span>
+                            {" → "}
+                            <span className="font-semibold text-slate-700">{fd.to}</span>
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 text-xs text-slate-500">{fd.message}</p>
+                      {fd.cascade.length > 0 && (
+                        <ul className="mt-1.5 space-y-1 pl-2 border-l-2 border-red-200">
+                          {fd.cascade.map((hint) => (
+                            <li
+                              key={`${hint.tableId}-${hint.fieldId}`}
+                              className="flex items-center justify-between gap-2 text-xs"
+                            >
+                              <span className="font-mono text-slate-600">
+                                <span className="text-slate-400">{hint.tableName}</span>.{hint.fieldName}
+                              </span>
+                              <Link
+                                href={`/${projectId}/schema?table=${hint.tableName}`}
+                                onClick={onClose}
+                                className="shrink-0 text-[10px] font-semibold text-cyan-600 transition hover:underline"
+                              >
+                                Schema →
+                              </Link>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-5 py-3">
+          <Link
+            href={`/${projectId}/schema?table=${tableDiff.tableName}`}
+            onClick={onClose}
+            className="text-sm font-semibold text-cyan-600 transition hover:underline"
+          >
+            View {tableDiff.tableName} in Schema →
+          </Link>
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-8 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-800"
+          >
+            Close
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
