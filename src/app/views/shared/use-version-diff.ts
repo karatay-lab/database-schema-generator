@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import type { TableDiff, FieldDiff, EnumDiff, VersionDiff } from "@/lib/version-diff/detect-changes";
+import type { TableDiff, FieldDiff, EnumDiff, RelationDiff, VersionDiff } from "@/lib/version-diff/detect-changes";
 
 type DiffResponse = {
   success: boolean;
@@ -47,6 +47,10 @@ export type VersionDiffLookup = {
   fkCascadeMap: Map<string, Map<string, FkCascadeInfo>>;
   // enumKey → EnumDiff (Enums workflow)
   diffByEnumId: Map<string, EnumDiff>;
+  // stable relationId → RelationDiff (Relations workflow: added/removed relations)
+  relationDiffs: RelationDiff[];
+  // stable relationId → RelationDiff (for per-card lookup on relation cards)
+  diffByRelationId: Map<string, RelationDiff>;
   hasAny: boolean;
   hasBreaking: boolean;
 };
@@ -60,8 +64,12 @@ export function useVersionDiffLookup(projectName: string, version: string): Vers
   const diffByFieldKey = new Map<string, FieldDiff>();
   const fkCascadeMap = new Map<string, Map<string, FkCascadeInfo>>();
   const diffByEnumId = new Map<string, EnumDiff>();
+  const diffByRelationId = new Map<string, RelationDiff>();
 
   if (diff) {
+    for (const rd of diff.relationDiffs) {
+      diffByRelationId.set(rd.relationId, rd);
+    }
     for (const ed of diff.enumDiffs) {
       diffByEnumId.set(ed.enumId, ed);
     }
@@ -89,7 +97,9 @@ export function useVersionDiffLookup(projectName: string, version: string): Vers
     diffByFieldKey,
     fkCascadeMap,
     diffByEnumId,
-    hasAny: Boolean(diff && (diff.tableDiffs.length > 0 || diff.enumDiffs.length > 0)),
+    relationDiffs: diff?.relationDiffs ?? [],
+    diffByRelationId,
+    hasAny: Boolean(diff && (diff.tableDiffs.length > 0 || diff.enumDiffs.length > 0 || diff.relationDiffs.length > 0)),
     hasBreaking: diff?.hasBreaking ?? false,
   };
 }

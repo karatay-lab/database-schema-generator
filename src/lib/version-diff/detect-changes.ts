@@ -54,11 +54,23 @@ export type EnumDiff = {
   removedValues: string[];
 };
 
+export type RelationDiff = {
+  relationId: string;
+  changeKind: "added" | "removed";
+  severity: ChangeSeverity;
+  message: string;
+  // For removed: the table and field names as they were in the previous version
+  sourceTableName: string;
+  targetTableName: string;
+  fieldName: string;
+};
+
 export type VersionDiff = {
   fromVersion: string;
   toVersion: string;
   tableDiffs: TableDiff[];
   enumDiffs: EnumDiff[];
+  relationDiffs: RelationDiff[];
   hasBreaking: boolean;
   hasWarnings: boolean;
 };
@@ -425,12 +437,57 @@ export function detectVersionChanges(
     });
   }
 
+  // Compare relations by stable relationId
+  const fromRelationMap = new Map(fromGraph.relations.map((r) => [r.relationId, r]));
+  const toRelationMap = new Map(toGraph.relations.map((r) => [r.relationId, r]));
+  const allRelationIds = new Set([...fromRelationMap.keys(), ...toRelationMap.keys()]);
+
+  const relationDiffs: RelationDiff[] = [];
+
+  for (const stableRelationId of allRelationIds) {
+    const fromRel = fromRelationMap.get(stableRelationId);
+    const toRel = toRelationMap.get(stableRelationId);
+
+    if (!fromRel && toRel) {
+      const sourceTable = toTableByRowId.get(toRel.sourceTableId);
+      const targetTable = toTableByRowId.get(toRel.targetTableId);
+      const ownerSide = toRel.sides.find((s) => s.isOwner);
+      relationDiffs.push({
+        relationId: stableRelationId,
+        changeKind: "added",
+        severity: "info",
+        message: `Relation "${ownerSide?.fieldName ?? toRel.name}" was added.`,
+        sourceTableName: sourceTable?.name ?? "",
+        targetTableName: targetTable?.name ?? "",
+        fieldName: ownerSide?.fieldName ?? "",
+      });
+      continue;
+    }
+
+    if (fromRel && !toRel) {
+      const fromTableByRowId = new Map(fromGraph.tables.map((t) => [t.id, t]));
+      const sourceTable = fromTableByRowId.get(fromRel.sourceTableId);
+      const targetTable = fromTableByRowId.get(fromRel.targetTableId);
+      const ownerSide = fromRel.sides.find((s) => s.isOwner);
+      relationDiffs.push({
+        relationId: stableRelationId,
+        changeKind: "removed",
+        severity: "warning",
+        message: `Relation "${ownerSide?.fieldName ?? fromRel.name}" (${sourceTable?.name ?? "?"} → ${targetTable?.name ?? "?"}) was removed.`,
+        sourceTableName: sourceTable?.name ?? "",
+        targetTableName: targetTable?.name ?? "",
+        fieldName: ownerSide?.fieldName ?? "",
+      });
+    }
+  }
+
   const hasBreaking =
     tableDiffs.some((d) => d.severity === "breaking") ||
     enumDiffs.some((d) => d.severity === "breaking");
   const hasWarnings =
     tableDiffs.some((d) => d.severity === "warning") ||
-    enumDiffs.some((d) => d.severity === "warning");
+    enumDiffs.some((d) => d.severity === "warning") ||
+    relationDiffs.some((d) => d.severity === "warning");
 
-  return { fromVersion, toVersion, tableDiffs, enumDiffs, hasBreaking, hasWarnings };
+  return { fromVersion, toVersion, tableDiffs, enumDiffs, relationDiffs, hasBreaking, hasWarnings };
 }

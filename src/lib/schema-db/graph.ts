@@ -104,6 +104,7 @@ export type SchemaGraphConstraint = {
 
 export type SchemaGraphRelation = {
   id: string;
+  relationId: string;
   versionId: number;
   name: string;
   sourceTableId: string;
@@ -195,6 +196,7 @@ type ConstraintFieldRow = {
 
 type RelationRow = {
   id: string;
+  relation_id: string;
   version_id: number;
   name: string;
   source_table_id: string;
@@ -450,7 +452,7 @@ function migrateLegacyStore(project: DbProject, version: DbVersion, store: Canon
       }
 
       insertRelationSide.run(
-        field.key,
+        randomUUID(),
         relationId,
         tableIdByModelName.get(sourceModel.name)!,
         field.name,
@@ -524,7 +526,7 @@ function migrateLegacyStore(project: DbProject, version: DbVersion, store: Canon
       }
 
       insertRelationSide.run(
-        field.key,
+        randomUUID(),
         relationId,
         tableIdByModelName.get(sourceModel.name)!,
         field.name,
@@ -690,6 +692,7 @@ export function readProjectVersionGraph(projectName: string, versionName: string
     })),
     relations: relationRows.map((relation) => ({
       id: relation.id,
+      relationId: relation.relation_id,
       versionId: relation.version_id,
       name: relation.name,
       sourceTableId: relation.source_table_id,

@@ -117,7 +117,8 @@ export function RelationsPageContent() {
   const modalTablesPerPage = 12;
   const relationsPerPage = 6;
 
-  const { fkCascadeMap } = useVersionDiffLookup(projectName, version);
+  const { fkCascadeMap, relationDiffs, diffByRelationId } = useVersionDiffLookup(projectName, version);
+  const removedRelationDiffs = relationDiffs.filter((d) => d.changeKind === "removed");
 
   const tablesQuery = useQuery(
     trpc.tables.list.queryOptions(
@@ -505,6 +506,21 @@ export function RelationsPageContent() {
                 </div>
               </div>
 
+              {removedRelationDiffs.filter((d) => d.sourceTableName === selectedModelName).length > 0 && (
+                <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                  {removedRelationDiffs.filter((d) => d.sourceTableName === selectedModelName).length === 1
+                    ? "1 relation removed since the previous version"
+                    : `${removedRelationDiffs.filter((d) => d.sourceTableName === selectedModelName).length} relations removed since the previous version`}
+                  <ul className="mt-1.5 list-disc pl-4 text-xs font-normal text-red-600">
+                    {removedRelationDiffs
+                      .filter((d) => d.sourceTableName === selectedModelName)
+                      .map((d) => (
+                        <li key={d.relationId}>{d.message}</li>
+                      ))}
+                  </ul>
+                </div>
+              )}
+
               <div className="mb-4 flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-1.5 md:flex-row md:items-center md:justify-between">
                   <div className="flex flex-wrap gap-2">
                     {[
@@ -601,13 +617,15 @@ export function RelationsPageContent() {
                           })
                         : [];
                       const hasFkTypeMismatch = fkTypeMismatches.length > 0;
+                      const relationDiff = diffByRelationId.get(relation.key);
+                      const isNewRelation = relationDiff?.changeKind === "added";
                       return (
                       <div
                         key={relation.key}
                         id={`relation-card-${relation.key}`}
                         className={classNames(
                           "rounded-lg border bg-white p-3 shadow-sm",
-                          hasFkTypeMismatch ? "border-red-300" : fksMissing ? "border-amber-300" : "border-slate-200",
+                          hasFkTypeMismatch ? "border-red-300" : isNewRelation ? "border-sky-300" : fksMissing ? "border-amber-300" : "border-slate-200",
                         )}
                       >
                         {/* Row 1: kind + name → target + backref + actions */}
@@ -644,6 +662,9 @@ export function RelationsPageContent() {
                             ) : null}
                           </div>
                           <div className="flex shrink-0 items-center gap-1">
+                            {isNewRelation ? (
+                              <VersionDiffBadge severity="info" label="new" />
+                            ) : null}
                             {hasFkTypeMismatch ? (
                               <span title={fkTypeMismatches.map((m) => `${m.fieldName}: ${m.fromType} → ${m.toType} (${m.targetTableName} PK changed)`).join("; ")}>
                                 <VersionDiffBadge severity="breaking" label="FK type" />

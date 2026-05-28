@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { db } from "@/lib/db/client";
-import { readProjectVersionGraph, replaceNormalizedSchemaFromCanonicalStore } from "@/lib/schema-db/graph";
+import { ensureNormalizedSchema, readProjectVersionGraph, replaceNormalizedSchemaFromCanonicalStore } from "@/lib/schema-db/graph";
 import { isInternalMigrationField, normalizeDatabaseIdentifier, toCamelCaseIdentifier } from "@/lib/schema-naming";
 import { renderPrismaSchemaFromGraph } from "@/lib/schema-renderers/prisma";
 
@@ -1854,6 +1854,8 @@ export async function readModelRelations(
   modelName: string,
   modelKey = "",
 ): Promise<PrismaModelRelations> {
+  ensureNormalizedSchema(projectName, version);
+
   // Resolve project + version IDs from SQLite
   const projectRow = db
     .prepare("SELECT id FROM projects WHERE name = ?")
