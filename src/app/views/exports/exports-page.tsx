@@ -6,115 +6,10 @@ import { IconCopy, IconCheck, IconX, IconDownload, IconChevronLeft, IconChevronR
 import { useTRPC } from "@/trpc/client";
 import { classNames } from "../shared/dashboard-data";
 import { useProjectInfo } from "../shared/project-info-context";
-
-// ─── syntax highlighter ───────────────────────────────────────────────────────
-
-const TS_KEYWORDS = new Set([
-  "import", "export", "from", "const", "let", "var", "function", "return",
-  "type", "interface", "extends", "as", "if", "else", "for", "while",
-  "true", "false", "null", "undefined", "new", "class", "static",
-]);
-
-const TS_TYPES = new Set([
-  "string", "number", "boolean", "void", "never", "unknown", "object",
-  "any", "bigint",
-]);
-
-const PRISMA_KEYWORDS = new Set([
-  "model", "datasource", "generator", "enum", "type",
-]);
-
-const PRISMA_TYPES = new Set([
-  "String", "Int", "BigInt", "Float", "Decimal", "Boolean",
-  "DateTime", "Bytes", "Json",
-]);
-
-function highlightCode(code: string, lang: "ts" | "prisma"): React.ReactNode {
-  const keywords = lang === "prisma" ? PRISMA_KEYWORDS : TS_KEYWORDS;
-  const types = lang === "prisma" ? PRISMA_TYPES : TS_TYPES;
-
-  return code.split("\n").map((line, lineIndex) => {
-    const parts: React.ReactNode[] = [];
-    const tokens: { start: number; end: number; kind: string; text: string }[] = [];
-
-    let match: RegExpExecArray | null;
-
-    // Strings
-    const stringRe = /("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)/g;
-    while ((match = stringRe.exec(line)) !== null) {
-      tokens.push({ start: match.index, end: match.index + match[0].length, kind: "string", text: match[0] });
-    }
-
-    // Comments
-    const commentRe = /(\/\/.*$)/g;
-    while ((match = commentRe.exec(line)) !== null) {
-      tokens.push({ start: match.index, end: match.index + match[0].length, kind: "comment", text: match[0] });
-    }
-
-    // Prisma @attributes
-    if (lang === "prisma") {
-      const attrRe = /(@{1,2}[a-zA-Z_][a-zA-Z0-9_]*)/g;
-      while ((match = attrRe.exec(line)) !== null) {
-        tokens.push({ start: match.index, end: match.index + match[0].length, kind: "attribute", text: match[0] });
-      }
-    }
-
-    // Words (keywords / types)
-    const wordRe = /\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g;
-    while ((match = wordRe.exec(line)) !== null) {
-      const word = match[1];
-      if (keywords.has(word)) {
-        tokens.push({ start: match.index, end: match.index + word.length, kind: "keyword", text: word });
-      } else if (types.has(word)) {
-        tokens.push({ start: match.index, end: match.index + word.length, kind: "type", text: word });
-      }
-    }
-
-    // Sort, deduplicate overlapping tokens (first wins)
-    tokens.sort((a, b) => a.start - b.start);
-    const dedupedTokens: typeof tokens = [];
-    let cursor = 0;
-    for (const token of tokens) {
-      if (token.start >= cursor) {
-        dedupedTokens.push(token);
-        cursor = token.end;
-      }
-    }
-
-    let lastIndex = 0;
-    for (const token of dedupedTokens) {
-      if (token.start > lastIndex) {
-        parts.push(<span key={`t-${lastIndex}`}>{line.slice(lastIndex, token.start)}</span>);
-      }
-      const cls =
-        token.kind === "keyword" ? "text-purple-600 font-semibold"
-        : token.kind === "type" ? "text-blue-600 font-semibold"
-        : token.kind === "string" ? "text-green-600"
-        : token.kind === "attribute" ? "text-rose-500 font-semibold"
-        : token.kind === "comment" ? "text-slate-400 italic"
-        : "";
-      parts.push(<span key={`t-${token.start}`} className={cls}>{token.text}</span>);
-      lastIndex = token.end;
-    }
-
-    if (lastIndex < line.length) {
-      parts.push(<span key="t-end">{line.slice(lastIndex)}</span>);
-    }
-
-    return (
-      <div key={lineIndex} className="leading-6">
-        <span className="mr-4 select-none text-slate-400">
-          {String(lineIndex + 1).padStart(3, " ")}
-        </span>
-        {parts.length > 0 ? parts : <span>&nbsp;</span>}
-      </div>
-    );
-  });
-}
+import { highlightCode } from "./highlight-code";
+import { EXPORT_OPTIONS, type ExportType } from "@/constants/exports";
 
 // ─── types ────────────────────────────────────────────────────────────────────
-
-type ExportType = "prisma" | "drizzle" | "pickle-version" | "pickle-project";
 
 type ExportResponse = {
   code?: string;
@@ -132,54 +27,6 @@ type DialogState = {
   tableCount: number;
   enumCount: number;
 };
-
-// ─── export option cards ──────────────────────────────────────────────────────
-
-const EXPORT_OPTIONS: Array<{
-  type: ExportType;
-  label: string;
-  fileLabel: string;
-  description: string;
-  accent: string;
-  badgeClass: string;
-}> = [
-  {
-    type: "prisma",
-    label: "Prisma Schema",
-    fileLabel: ".prisma",
-    description:
-      "Export the generated Prisma schema for the selected project version. Includes datasource, generator, models, relations, and constraints.",
-    accent: "border-blue-200 bg-blue-50",
-    badgeClass: "bg-blue-100 text-blue-700",
-  },
-  {
-    type: "drizzle",
-    label: "Drizzle TypeScript",
-    fileLabel: ".ts",
-    description:
-      "Generate a Drizzle ORM TypeScript schema from the canonical model. Includes table definitions, column types, foreign key references, and index helpers.",
-    accent: "border-emerald-200 bg-emerald-50",
-    badgeClass: "bg-emerald-100 text-emerald-700",
-  },
-  {
-    type: "pickle-version",
-    label: "Version Pickle",
-    fileLabel: ".json",
-    description:
-      "Download a full JSON backup of the current version's schema — tables, fields, relations, restrictions, and enums. Downloads directly as a file.",
-    accent: "border-amber-200 bg-amber-50",
-    badgeClass: "bg-amber-100 text-amber-700",
-  },
-  {
-    type: "pickle-project",
-    label: "Project Pickle",
-    fileLabel: ".json",
-    description:
-      "Download a full JSON backup of all versions in this project. Every schema version's complete graph in one file.",
-    accent: "border-orange-200 bg-orange-50",
-    badgeClass: "bg-orange-100 text-orange-700",
-  },
-];
 
 // ─── component ────────────────────────────────────────────────────────────────
 
