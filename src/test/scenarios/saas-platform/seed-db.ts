@@ -14,7 +14,7 @@
 import { Client } from "pg";
 import {
   organizations, users, workspaces, projects, tasks, comments, labels, attachments,
-} from "../mocks/saas-platform/index.js";
+} from "../../mocks/saas-platform/index.js";
 
 const dataset = process.argv[2];
 const urlArg  = process.argv[3];

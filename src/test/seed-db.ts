@@ -12,10 +12,10 @@ if (!dataset) {
   process.exit(1);
 }
 
-import(`./${dataset}/seed-db.ts`).catch((err: unknown) => {
+import(`./scenarios/${dataset}/seed-db.ts`).catch((err: unknown) => {
   const msg = err instanceof Error ? err.message : String(err);
   if (msg.includes("Cannot find module") || msg.includes("ERR_MODULE_NOT_FOUND")) {
-    console.error(`Dataset folder not found: src/test/${dataset}/`);
+    console.error(`Dataset folder not found: src/test/scenarios/${dataset}/`);
     console.error("Make sure the folder exists and contains a seed-db.ts file.");
   } else {
     console.error(msg);

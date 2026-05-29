@@ -8,7 +8,7 @@ if (!workflow) {
   process.exit(1);
 }
 
-const path = `./${workflow}/run.ts`;
+const path = `./scenarios/${workflow}/run.ts`;
 
 import(path).catch((err: unknown) => {
   const msg = err instanceof Error ? err.message : String(err);

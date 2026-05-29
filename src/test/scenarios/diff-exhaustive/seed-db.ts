@@ -14,7 +14,7 @@
 import { Client } from "pg";
 import {
   customers, legacyLogs, invoices, coupons, products,
-} from "../mocks/diff-exhaustive/index.js";
+} from "../../mocks/diff-exhaustive/index.js";
 
 const dataset = process.argv[2];
 const urlArg  = process.argv[3];

@@ -13,7 +13,7 @@
 import { Client } from "pg";
 import {
   users, categories, tags, media, posts, comments,
-} from "../mocks/blog-platform/index.js";
+} from "../../mocks/blog-platform/index.js";
 
 const dataset = process.argv[2];
 const urlArg  = process.argv[3];

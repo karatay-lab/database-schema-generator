@@ -14,7 +14,7 @@
 import mysql from "mysql2/promise";
 import {
   categories, products, customers, orders, orderItems,
-} from "../mocks/shop-mysql/index.js";
+} from "../../mocks/shop-mysql/index.js";
 
 const dataset = process.argv[2];
 const urlArg  = process.argv[3];
