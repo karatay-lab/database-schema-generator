@@ -371,7 +371,21 @@ const STRATEGIES_BY_KIND: Record<string, StrategyName[]> = {
   restriction: ["Acknowledged"],
 };
 
-function StrategyLegend({ entityKind }: { entityKind: string }) {
+function StrategyLegend({
+  entityKind,
+  title,
+  description,
+  color,
+  pendingCount,
+  incompleteCount,
+}: {
+  entityKind: string;
+  title?: string;
+  description?: string;
+  color?: string;
+  pendingCount?: number;
+  incompleteCount?: number;
+}) {
   const names = STRATEGIES_BY_KIND[entityKind] ?? Object.keys(strategyStyle) as StrategyName[];
   const allStrategies: { name: StrategyName; desc: string }[] = [
     { name: "Unique Prefix + UUID", desc: "Your prefix + a random UUID per row — each row gets a distinct value. Used for unique String fields." },
@@ -384,8 +398,33 @@ function StrategyLegend({ entityKind }: { entityKind: string }) {
   ];
   const visible = allStrategies.filter((s) => names.includes(s.name));
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-      <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Resolution Strategies</p>
+    <div className={`rounded-lg border p-4 ${
+      (pendingCount ?? 0) > 0 ? "border-red-200 bg-red-50/50" :
+      (incompleteCount ?? 0) > 0 ? "border-amber-200 bg-amber-50/50" :
+      "border-slate-200 bg-slate-50"
+    }`}>
+      {/* Merged resolver header */}
+      {title && (
+        <div className="mb-3 flex items-start justify-between gap-4">
+          <div className="flex items-start gap-2.5">
+            {color && <span className={`mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full ${color}`} />}
+            <div>
+              <p className="font-semibold text-slate-950">{title}</p>
+              {description && <p className="mt-0.5 text-xs text-slate-500 leading-relaxed">{description}</p>}
+            </div>
+          </div>
+          {((pendingCount ?? 0) > 0 || (incompleteCount ?? 0) > 0) && (
+            <span className={`shrink-0 rounded-md border px-2.5 py-1 text-xs font-semibold ${
+              (pendingCount ?? 0) > 0 ? "border-red-200 bg-white text-red-700" : "border-amber-200 bg-white text-amber-700"
+            }`}>
+              {(pendingCount ?? 0) > 0
+                ? `${pendingCount} need${pendingCount === 1 ? "s" : ""} approval`
+                : `${incompleteCount} need${incompleteCount === 1 ? "s" : ""} default value`}
+            </span>
+          )}
+        </div>
+      )}
+      <p className={`${title ? "mt-3 pt-3 border-t border-slate-200/70" : ""} mb-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400`}>Resolution Strategies</p>
       <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 lg:grid-cols-4">
         {visible.map(({ name, desc }) => {
           const { cls } = strategyStyle[name];
@@ -644,20 +683,6 @@ function WarningRow({
 }
 
 
-// ─── restriction placeholder ──────────────────────────────────────────────────
-
-const RESTRICTION_PLACEHOLDER = (
-  <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
-    <p className="text-sm font-semibold text-slate-600">
-      No restriction warnings tracked.
-    </p>
-    <p className="mt-1 text-xs text-slate-400">
-      Unique constraint and index changes are surfaced in the Restrictions
-      workflow. Approval-gate tracking for restrictions is not yet implemented.
-    </p>
-  </div>
-);
-
 // ─── panel ────────────────────────────────────────────────────────────────────
 
 export type WarningEntityKind =
@@ -672,11 +697,21 @@ export function WarningsPanel({
   fromVersion,
   toVersion,
   entityKind,
+  title,
+  description,
+  color,
+  pendingCount: externalPendingCount,
+  incompleteCount: externalIncompleteCount,
 }: {
   projectId: string;
   fromVersion: string;
   toVersion: string;
   entityKind: WarningEntityKind;
+  title?: string;
+  description?: string;
+  color?: string;
+  pendingCount?: number;
+  incompleteCount?: number;
 }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -780,7 +815,6 @@ export function WarningsPanel({
     setBulkBusy(false);
   }
 
-  // Restrictions now tracked — fall through to full panel rendering
 
   if (isLoading) {
     return (
@@ -793,7 +827,14 @@ export function WarningsPanel({
   if (warnings.length === 0) {
     return (
       <div className="space-y-4">
-        <StrategyLegend entityKind={entityKind} />
+        <StrategyLegend
+          entityKind={entityKind}
+          title={title}
+          description={description}
+          color={color}
+          pendingCount={externalPendingCount}
+          incompleteCount={externalIncompleteCount}
+        />
         <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
           <p className="text-sm font-semibold text-slate-600">No warnings for this category.</p>
           <p className="mt-1 text-xs text-slate-400">
@@ -818,8 +859,15 @@ export function WarningsPanel({
 
   return (
     <div className="space-y-3">
-      {/* ── Resolution Strategies — always on top ── */}
-      <StrategyLegend entityKind={entityKind} />
+      {/* ── Resolver header + Resolution Strategies — always on top ── */}
+      <StrategyLegend
+        entityKind={entityKind}
+        title={title}
+        description={description}
+        color={color}
+        pendingCount={externalPendingCount}
+        incompleteCount={externalIncompleteCount}
+      />
 
       {/* ── Bulk action bar ── */}
       <div className="flex items-center justify-between gap-3">

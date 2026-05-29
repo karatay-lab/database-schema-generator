@@ -330,51 +330,6 @@ function AllChangesTab({
 
 // ─── main page ────────────────────────────────────────────────────────────────
 
-function ResolverPanelHeader({
-  color, title, description, pendingCount, incompleteCount,
-}: {
-  color: string;
-  title: string;
-  description: string;
-  pendingCount: number;
-  incompleteCount: number;
-}) {
-  const hasIssues = pendingCount > 0 || incompleteCount > 0;
-  return (
-    <div className={`mb-5 rounded-lg border p-4 ${
-      pendingCount > 0 ? "border-red-200 bg-red-50/50" :
-      incompleteCount > 0 ? "border-amber-200 bg-amber-50/50" :
-      "border-emerald-200 bg-emerald-50/40"
-    }`}>
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${color}`} />
-          <p className="font-semibold text-slate-950">{title}</p>
-        </div>
-        <span className={`rounded-md border px-2.5 py-1 text-xs font-semibold ${
-          pendingCount > 0 ? "border-red-200 bg-white text-red-700" :
-          incompleteCount > 0 ? "border-amber-200 bg-white text-amber-700" :
-          "border-emerald-200 bg-white text-emerald-700"
-        }`}>
-          {pendingCount > 0
-            ? `${pendingCount} need${pendingCount === 1 ? "s" : ""} approval`
-            : incompleteCount > 0
-              ? `${incompleteCount} need${incompleteCount === 1 ? "s" : ""} default value`
-              : "All resolved ✓"}
-        </span>
-      </div>
-      <p className="mt-2 text-xs text-slate-600 leading-relaxed">{description}</p>
-      {hasIssues && (
-        <p className={`mt-2 text-[10px] font-semibold uppercase tracking-wider ${
-          pendingCount > 0 ? "text-red-500" : "text-amber-500"
-        }`}>
-          {pendingCount > 0 ? "↓ Approve each item below" : "↓ Set default values below"}
-        </p>
-      )}
-    </div>
-  );
-}
-
 const VALID_TABS = ["all", "tables", "enums", "schema", "relations", "restrictions"] as const;
 type TrackingTab = typeof VALID_TABS[number];
 
@@ -547,62 +502,41 @@ export function TrackingPageContent() {
 
             {/* Tables */}
             <TabsContent value="tables">
-              <ResolverPanelHeader
-                color="bg-cyan-500"
-                title="Table Resolver"
+              <WarningsPanel projectId={projectId} fromVersion={fromVersion} toVersion={toVersion} entityKind="table"
+                color="bg-cyan-500" title="Table Resolver"
                 description="Approve table removals and PK type changes. Removed tables will have all their rows permanently dropped on migration."
-                pendingCount={pending.table}
-                incompleteCount={incompleteByKind.table}
-              />
-              <WarningsPanel projectId={projectId} fromVersion={fromVersion} toVersion={toVersion} entityKind="table" />
+                pendingCount={pending.table} incompleteCount={incompleteByKind.table} />
             </TabsContent>
 
             {/* Enums */}
             <TabsContent value="enums">
-              <ResolverPanelHeader
-                color="bg-indigo-500"
-                title="Enum Resolver"
+              <WarningsPanel projectId={projectId} fromVersion={fromVersion} toVersion={toVersion} entityKind="enum"
+                color="bg-indigo-500" title="Enum Resolver"
                 description="Map removed enum values to replacements. Any row holding a removed value must be remapped — otherwise the insert will fail."
-                pendingCount={pending.enum}
-                incompleteCount={incompleteByKind.enum}
-              />
-              <WarningsPanel projectId={projectId} fromVersion={fromVersion} toVersion={toVersion} entityKind="enum" />
+                pendingCount={pending.enum} incompleteCount={incompleteByKind.enum} />
             </TabsContent>
 
             {/* Schema */}
             <TabsContent value="schema">
-              <ResolverPanelHeader
-                color="bg-rose-500"
-                title="Schema Field Resolver"
+              <WarningsPanel projectId={projectId} fromVersion={fromVersion} toVersion={toVersion} entityKind="field"
+                color="bg-rose-500" title="Schema Field Resolver"
                 description="Set default values for new required fields and type-incompatible changes. Without an explicit default, migration will auto-generate a placeholder — which is almost never what you want."
-                pendingCount={pending.field}
-                incompleteCount={incompleteByKind.field}
-              />
-              <WarningsPanel projectId={projectId} fromVersion={fromVersion} toVersion={toVersion} entityKind="field" />
+                pendingCount={pending.field} incompleteCount={incompleteByKind.field} />
             </TabsContent>
 
             {/* Relations */}
             <TabsContent value="relations">
-              <ResolverPanelHeader
-                color="bg-violet-500"
-                title="Relation Resolver"
+              <WarningsPanel projectId={projectId} fromVersion={fromVersion} toVersion={toVersion} entityKind="relation"
+                color="bg-violet-500" title="Relation Resolver"
                 description="Approve removed relations. The FK column and its values will be dropped on migration."
-                pendingCount={pending.relation}
-                incompleteCount={incompleteByKind.relation}
-              />
-              <WarningsPanel projectId={projectId} fromVersion={fromVersion} toVersion={toVersion} entityKind="relation" />
+                pendingCount={pending.relation} incompleteCount={incompleteByKind.relation} />
             </TabsContent>
 
             {/* Restrictions */}
             <TabsContent value="restrictions">
-              <div className="mb-5 flex items-start gap-3">
-                <span className="mt-0.5 h-3 w-3 shrink-0 rounded-full bg-blue-500" />
-                <div>
-                  <p className="font-semibold text-slate-950">Restriction warnings</p>
-                  <p className="mt-0.5 text-xs text-slate-500">UNIQUE and INDEX constraint changes.</p>
-                </div>
-              </div>
-              <WarningsPanel projectId={projectId} fromVersion={fromVersion} toVersion={toVersion} entityKind="restriction" />
+              <WarningsPanel projectId={projectId} fromVersion={fromVersion} toVersion={toVersion} entityKind="restriction"
+                color="bg-blue-500" title="Restriction Resolver"
+                description="Approve UNIQUE constraint additions. Migration fails if duplicate values exist in the column — deduplicate before proceeding." />
             </TabsContent>
 
           </div>
