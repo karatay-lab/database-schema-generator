@@ -91,7 +91,7 @@ function relationKindClass(kind: PrismaRelation["kind"]) {
 export function RelationsPageContent() {
   const { projectName, version, hasProject, projectId, versions } = useProjectInfo();
   const previousVersion = versions[versions.indexOf(version) - 1] ?? "";
-  const { getWarning, approve } = useSchemaWarnings(projectId, previousVersion, version);
+  const { getWarning, approve, unapprove } = useSchemaWarnings(projectId, previousVersion, version);
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -531,6 +531,7 @@ export function RelationsPageContent() {
                             key={d.relationId}
                             warning={getWarning("relation", d.relationId, d.changeKind)}
                             onApprove={approve}
+                            onUnapprove={unapprove}
                           />
                         ))}
                     </div>

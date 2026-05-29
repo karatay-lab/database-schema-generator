@@ -137,7 +137,7 @@ export function SchemaPageContent() {
   const { diffByFieldKey, diffByTableKey } = useVersionDiffLookup(projectName, version);
   const versionIdx = versions.indexOf(version);
   const previousVersion = versionIdx > 0 ? versions[versionIdx - 1]! : "";
-  const { getWarning, approve } = useSchemaWarnings(projectId, previousVersion, version);
+  const { getWarning, approve, unapprove } = useSchemaWarnings(projectId, previousVersion, version);
   const activeProject = hasProject;
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -1191,6 +1191,7 @@ export function SchemaPageContent() {
                                       <ApproveWarningButton
                                         warning={getWarning("field", fieldDiff.fieldId, fieldDiff.changeKind)}
                                         onApprove={approve}
+                                        onUnapprove={unapprove}
                                       />
                                     </div>
                                   ) : null}
@@ -1311,6 +1312,7 @@ export function SchemaPageContent() {
                             <ApproveWarningButton
                               warning={getWarning("field", fd.fieldId, fd.changeKind)}
                               onApprove={approve}
+                              onUnapprove={unapprove}
                             />
                             <button
                               type="button"

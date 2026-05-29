@@ -193,7 +193,7 @@ async function checkMySQL(connectionUrl: string, modelInfos: ModelInfo[]): Promi
     const [tableRows] = await conn.execute<mysql.RowDataPacket[]>(
       `SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE' ORDER BY table_name`,
     );
-    const dbTables = tableRows.map((r) => r.table_name as string);
+    const dbTables = tableRows.map((r) => (r.TABLE_NAME ?? r.table_name) as string);
     const schemaTableNames = modelInfos.map((m) => m.tableName);
     const missingTables: string[] = [];
     const columnIssues: { table: string; missingColumns: string[] }[] = [];
@@ -205,7 +205,7 @@ async function checkMySQL(connectionUrl: string, modelInfos: ModelInfo[]): Promi
         `SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ?`,
         [resolved],
       );
-      const dbCols = colRows.map((r) => (r.column_name as string).toLowerCase());
+      const dbCols = colRows.map((r) => ((r.COLUMN_NAME ?? r.column_name) as string).toLowerCase());
       const missing = model.fieldDbNames.filter((f) => !dbCols.includes(f.toLowerCase()));
       if (missing.length > 0) columnIssues.push({ table: model.tableName, missingColumns: missing });
     }

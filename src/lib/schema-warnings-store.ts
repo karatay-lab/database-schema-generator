@@ -17,6 +17,11 @@ export type SchemaWarning = {
   replacementValue: string | null;
   approvedAt: string | null;
   createdAt: string;
+  // Populated for field warnings only: whether the target-version field is nullable.
+  // null = not applicable (non-field warning or field not found in target schema).
+  targetNullable: boolean | null;
+  // Populated for field warnings only: whether the target-version field has a single-column UNIQUE constraint.
+  targetUnique: boolean | null;
 };
 
 type WarningRow = {
@@ -35,6 +40,8 @@ type WarningRow = {
   replacement_value: string | null;
   approved_at: string | null;
   created_at: string;
+  target_nullable: number | null;
+  target_unique: number | null;
 };
 
 function rowToWarning(r: WarningRow): SchemaWarning {
@@ -54,10 +61,12 @@ function rowToWarning(r: WarningRow): SchemaWarning {
     replacementValue: r.replacement_value,
     approvedAt: r.approved_at,
     createdAt: r.created_at,
+    targetNullable: r.target_nullable === null ? null : r.target_nullable === 1,
+    targetUnique: r.target_unique === null ? null : r.target_unique === 1,
   };
 }
 
-export type NewSchemaWarning = Omit<SchemaWarning, "approvedAt" | "createdAt" | "replacementValue">;
+export type NewSchemaWarning = Omit<SchemaWarning, "approvedAt" | "createdAt" | "replacementValue" | "targetNullable" | "targetUnique">;
 
 export function upsertWarnings(warnings: NewSchemaWarning[]): void {
   const stmt = db.prepare(`
@@ -97,6 +106,20 @@ export function approveWarnings(ids: string[]): void {
   })(ids);
 }
 
+export function unapproveWarning(id: string): boolean {
+  const result = db.prepare(
+    "UPDATE schema_warnings SET approved_at = NULL, replacement_value = NULL WHERE id = ?",
+  ).run(id);
+  return result.changes > 0;
+}
+
+export function remapWarning(id: string, replacementValue: string): boolean {
+  const result = db.prepare(
+    "UPDATE schema_warnings SET replacement_value = ? WHERE id = ? AND approved_at IS NOT NULL",
+  ).run(replacementValue || null, id);
+  return result.changes > 0;
+}
+
 export function unapproveWarnings(ids: string[]): void {
   const stmt = db.prepare(
     "UPDATE schema_warnings SET approved_at = NULL, replacement_value = NULL WHERE id = ?",
@@ -111,10 +134,36 @@ export function getWarnings(
   fromVersion: string,
   toVersion: string,
 ): SchemaWarning[] {
+  // For field warnings, join with the target-version schema to get nullable status.
+  // entity_name format for fields: "ModelName.fieldName"
+  // The LEFT JOIN resolves NULL for non-field warnings (tables, enums, relations).
   const rows = db.prepare(`
-    SELECT * FROM schema_warnings
-    WHERE project_id = ? AND from_version = ? AND to_version = ?
-    ORDER BY created_at
+    SELECT sw.*,
+      sf.nullable AS target_nullable,
+      CASE WHEN EXISTS (
+        SELECT 1 FROM schema_constraints sc
+        JOIN schema_constraint_fields scf ON scf.constraint_id = sc.id
+        WHERE sc.table_id = st.id
+          AND sc.type = 'UNIQUE'
+          AND scf.field_id = sf.id
+          AND (SELECT COUNT(*) FROM schema_constraint_fields scf2 WHERE scf2.constraint_id = sc.id) = 1
+      ) THEN 1 ELSE 0 END AS target_unique
+    FROM schema_warnings sw
+    LEFT JOIN project_versions pv
+      ON pv.project_id = sw.project_id AND pv.name = sw.to_version
+    LEFT JOIN schema_tables st
+      ON st.version_id = pv.id
+      AND sw.entity_kind = 'field'
+      AND st.name = CASE WHEN instr(sw.entity_name, '.') > 0
+                         THEN substr(sw.entity_name, 1, instr(sw.entity_name, '.') - 1)
+                         ELSE NULL END
+    LEFT JOIN schema_fields sf
+      ON sf.table_id = st.id
+      AND lower(sf.name) = lower(CASE WHEN instr(sw.entity_name, '.') > 0
+                                      THEN substr(sw.entity_name, instr(sw.entity_name, '.') + 1)
+                                      ELSE NULL END)
+    WHERE sw.project_id = ? AND sw.from_version = ? AND sw.to_version = ?
+    ORDER BY sw.created_at
   `).all(projectId, fromVersion, toVersion) as WarningRow[];
   return rows.map(rowToWarning);
 }

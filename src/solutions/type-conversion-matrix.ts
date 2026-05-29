@@ -132,8 +132,22 @@ const MATRIX: Partial<Record<string, Partial<Record<string, Resolution>>>> = {
   },
 };
 
+// Known scalar type names (both Prisma-style and canonical).
+const KNOWN_SCALAR_NAMES = new Set([
+  "String","Int","BigInt","Float","Decimal","Boolean","DateTime","Json","Bytes",
+  "string","integer","bigint","float","decimal","boolean","timestamp","json","bytes","text","uuid",
+]);
+
 export function getTypeResolution(from: string, to: string): Resolution {
   if (from === to) return "safe";
+  // Non-scalar target (enum type name): only values that are valid enum members survive.
+  // String source → lossy_convert (valid members pass, others fail or null).
+  // Any other source → data_deleted (no conversion path to an enum value).
+  if (!KNOWN_SCALAR_NAMES.has(to)) {
+    return (from === "String" || from === "string" || from === "text")
+      ? "lossy_convert"
+      : "data_deleted";
+  }
   return MATRIX[from]?.[to] ?? "data_deleted";
 }
 

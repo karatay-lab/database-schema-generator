@@ -34,6 +34,21 @@ export function useSchemaWarnings(projectId: string, fromVersion: string, toVers
   const pendingWarnings = warnings.filter((w) => !w.approvedAt);
   const pendingCount = pendingWarnings.length;
 
+  // Field changes that are approved but missing a required replacement/backfill value.
+  // Covers two cases:
+  //   1. lossy_convert / precision_loss on non-nullable target → silent 0/null is wrong
+  //   2. backfill_required (new required field, optional→required) → silent uuid/0/false is wrong
+  const defaultsRequiredCount = warnings.filter(
+    (w) =>
+      w.entityKind === "field" &&
+      w.approvedAt !== null &&
+      !w.replacementValue &&
+      (
+        ((w.resolution === "lossy_convert" || w.resolution === "precision_loss") && w.targetNullable === false) ||
+        (w.resolution === "backfill_required" && w.targetNullable === false)
+      ),
+  ).length;
+
   // Lookup key: "entityKind:entityId:changeKind" → warning
   const warningLookup = new Map(
     warnings.map((w) => [`${w.entityKind}:${w.entityId}:${w.changeKind}`, w]),
@@ -56,6 +71,15 @@ export function useSchemaWarnings(projectId: string, fromVersion: string, toVers
     await queryClient.invalidateQueries({ queryKey: ["schema-warnings"] });
   }
 
+  async function unapprove(id: string) {
+    await fetch(`/api/schema-warnings/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "unapprove" }),
+    });
+    await queryClient.invalidateQueries({ queryKey: ["schema-warnings"] });
+  }
+
   async function approveMany(ids: string[]) {
     if (ids.length === 0) return;
     await fetch("/api/schema-warnings/bulk-approve", {
@@ -70,9 +94,11 @@ export function useSchemaWarnings(projectId: string, fromVersion: string, toVers
     warnings,
     pendingWarnings,
     pendingCount,
+    defaultsRequiredCount,
     isLoading,
     getWarning,
     approve,
+    unapprove,
     approveMany,
   };
 }

@@ -3,10 +3,12 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { WarningsPanel } from "./warnings-panel";
+import { useSchemaWarnings } from "../shared/use-schema-warnings";
 import { formatDefault } from "@/lib/tracking-utils";
 import type { TrackingEntry, TrackingEntryKind, TrackingChangeKind } from "@/lib/tracking-utils";
 
@@ -46,12 +48,6 @@ function ValueDisplay({ text }: { text: string }) {
   return <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-700">{text}</code>;
 }
 
-function VersionPill({ name }: { name: string }) {
-  return (
-    <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">{name}</span>
-  );
-}
-
 // ─── tab trigger helpers ──────────────────────────────────────────────────────
 
 const tabMeta: Record<string, { dot: string; label: string }> = {
@@ -76,37 +72,70 @@ const tabAccent: Record<string, string> = {
 function TabTrigger({
   value,
   count,
+  incompleteCount,
+  allClear,
 }: {
   value: string;
   count?: number;
+  incompleteCount?: number;
+  allClear?: boolean;
 }) {
   const meta = tabMeta[value]!;
+  const hasPending   = (count ?? 0) > 0;
+  const hasIncomplete = !hasPending && (incompleteCount ?? 0) > 0;
+  const isResolver = value !== "all";
+
+  // Status line only when action is needed — green bg already signals all resolved
+  const statusLine = hasPending
+    ? <span className="text-[10px] font-semibold text-red-500">{count} pending</span>
+    : hasIncomplete
+      ? <span className="text-[10px] font-semibold text-amber-500">needs value</span>
+      : null;
+
+  const dotCls = allClear && isResolver ? "bg-emerald-500"
+    : hasPending    ? "bg-red-500"
+    : hasIncomplete ? "bg-amber-500"
+    : meta.dot;
+
+  // Use inline style for bg — dynamic Tailwind classes aren't JIT-scanned
+  const bgColor = !isResolver ? undefined
+    : allClear      ? "#f0fdf4"   // emerald-50
+    : hasPending    ? "#fef2f2"   // red-50
+    : hasIncomplete ? "#fffbeb"   // amber-50
+    : undefined;
+
+  const borderColor = !isResolver ? undefined
+    : allClear      ? "#22c55e"   // emerald-500
+    : hasPending    ? "#ef4444"   // red-500
+    : hasIncomplete ? "#f59e0b"   // amber-500
+    : undefined;
+
   return (
     <TabsTrigger
       value={value}
+      style={{
+        ...(bgColor ? { backgroundColor: bgColor } : {}),
+        ...(borderColor ? { "--tab-accent": borderColor } as React.CSSProperties : {}),
+      }}
       className={[
-        // Reset flex-1 (shadcn default) so tabs don't stretch
-        "flex-none",
-        // Shape
-        "h-11 rounded-none border-b-2 border-transparent bg-transparent px-5",
-        "text-sm font-medium text-slate-500 shadow-none",
-        "hover:bg-slate-50/80 hover:text-slate-800 transition-colors",
-        // Active state
-        "data-active:bg-transparent data-active:text-slate-950 data-active:font-semibold data-active:shadow-none",
-        tabAccent[value] ?? "data-active:border-slate-700",
-        // Sit on top of the card's bottom border
+        "flex-1 flex-col justify-center gap-0.5 py-0",
+        "rounded-none border-b-2 border-transparent px-2",
+        "text-sm font-medium text-slate-600 shadow-none transition-colors",
+        "hover:brightness-95",
+        "data-active:text-slate-950 data-active:font-semibold data-active:shadow-none",
+        borderColor
+          ? "data-active:[border-bottom-color:var(--tab-accent)]"
+          : (tabAccent[value] ?? "data-active:border-slate-700"),
         "-mb-px",
       ].join(" ")}
     >
-      <span className="flex items-center gap-2">
-        <span className={`h-2 w-2 shrink-0 rounded-full ${meta.dot}`} />
-        {meta.label}
-        {count != null && count > 0 && (
-          <span className="min-w-[18px] rounded-full bg-red-500 px-1 py-0.5 text-center text-[10px] font-bold leading-[14px] text-white">
-            {count}
-          </span>
-        )}
+      {/* Label row */}
+      <span className="flex items-center gap-1.5">
+        <span className={`h-2 w-2 shrink-0 rounded-full transition-colors ${dotCls}`} />
+        <span className="text-xs font-semibold tracking-wide">{meta.label}</span>
       </span>
+      {/* Status sub-line */}
+      {statusLine}
     </TabsTrigger>
   );
 }
@@ -115,11 +144,14 @@ function TabTrigger({
 
 function AllChangesTab({
   projectId,
+  fromVersion,
+  toVersion,
 }: {
   projectId: string;
+  fromVersion: string;
+  toVersion: string;
 }) {
   const trpc = useTRPC();
-  const [versionFilter, setVersionFilter] = useState("all");
   const [kindFilter, setKindFilter] = useState<TrackingEntryKind | "all">("all");
   const [changeFilter, setChangeFilter] = useState<TrackingChangeKind | "all">("all");
   const [entityFilter, setEntityFilter] = useState("all");
@@ -128,17 +160,13 @@ function AllChangesTab({
     trpc.tracking.allChanges.queryOptions({ projectId }, { enabled: !!projectId }),
   );
 
-  const allEntries: TrackingEntry[] = data?.entries ?? [];
-
-  const versionPairs = useMemo(() => {
-    const seen = new Set<string>();
-    const pairs: { key: string; label: string }[] = [];
-    for (const e of allEntries) {
-      const key = `${e.fromVersion}__${e.toVersion}`;
-      if (!seen.has(key)) { seen.add(key); pairs.push({ key, label: `${e.fromVersion} → ${e.toVersion}` }); }
-    }
-    return pairs;
-  }, [allEntries]);
+  // Only entries for the current version transition
+  const allEntries: TrackingEntry[] = useMemo(() => {
+    if (!data?.entries) return [];
+    return data.entries.filter(
+      (e) => e.fromVersion === fromVersion && e.toVersion === toVersion,
+    );
+  }, [data?.entries, fromVersion, toVersion]);
 
   const entityNames = useMemo(() => {
     const seen = new Set<string>();
@@ -147,12 +175,11 @@ function AllChangesTab({
   }, [allEntries]);
 
   const filtered = useMemo(() => allEntries.filter((e) => {
-    if (versionFilter !== "all" && `${e.fromVersion}__${e.toVersion}` !== versionFilter) return false;
     if (kindFilter !== "all" && e.entityKind !== kindFilter) return false;
     if (changeFilter !== "all" && e.changeKind !== changeFilter) return false;
     if (entityFilter !== "all" && e.entityName !== entityFilter) return false;
     return true;
-  }), [allEntries, versionFilter, kindFilter, changeFilter, entityFilter]);
+  }), [allEntries, kindFilter, changeFilter, entityFilter]);
 
   const counts = useMemo(() => {
     const c = { field_default: 0, enum: 0, enum_value: 0 };
@@ -160,16 +187,16 @@ function AllChangesTab({
     return c;
   }, [allEntries]);
 
-  const anyFilter = versionFilter !== "all" || kindFilter !== "all" || changeFilter !== "all" || entityFilter !== "all";
-  const reset = () => { setVersionFilter("all"); setKindFilter("all"); setChangeFilter("all"); setEntityFilter("all"); };
+  const anyFilter = kindFilter !== "all" || changeFilter !== "all" || entityFilter !== "all";
+  const reset = () => { setKindFilter("all"); setChangeFilter("all"); setEntityFilter("all"); };
 
   if (isLoading) return <div className="py-12 text-center text-sm font-medium text-slate-500">Loading…</div>;
 
   if (allEntries.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
-        <p className="text-sm font-semibold text-slate-600">No schema changes detected between versions.</p>
-        <p className="mt-1 text-xs text-slate-400">Add a second version and modify field defaults or enums to see entries here.</p>
+        <p className="text-sm font-semibold text-slate-600">No schema changes detected for this version.</p>
+        <p className="mt-1 text-xs text-slate-400">Modify field defaults or enums between {fromVersion} and {toVersion} to see entries here.</p>
       </div>
     );
   }
@@ -195,43 +222,56 @@ function AllChangesTab({
         )}
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-100 bg-slate-50/50 px-4 py-2.5">
-        <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Filter</span>
-        <select value={versionFilter} onChange={(e) => setVersionFilter(e.target.value)}
-          className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-400">
-          <option value="all">All versions</option>
-          {versionPairs.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
-        </select>
-        <select value={kindFilter} onChange={(e) => setKindFilter(e.target.value as TrackingEntryKind | "all")}
-          className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-400">
-          <option value="all">All kinds</option>
-          <option value="field_default">Field defaults</option>
-          <option value="enum">Enums</option>
-          <option value="enum_value">Enum values</option>
-        </select>
-        <select value={changeFilter} onChange={(e) => setChangeFilter(e.target.value as TrackingChangeKind | "all")}
-          className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-400">
-          <option value="all">All changes</option>
-          <option value="added">Added</option>
-          <option value="removed">Removed</option>
-          <option value="changed">Changed</option>
-          <option value="renamed">Renamed</option>
-          <option value="value_added">Value added</option>
-          <option value="value_removed">Value removed</option>
-        </select>
+      {/* Filters — full-width button groups */}
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+        {/* Kind */}
+        <div className="flex items-center gap-3">
+          <span className="w-14 shrink-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Kind</span>
+          <div className="flex flex-1 divide-x divide-slate-200 overflow-hidden rounded-md border border-slate-200">
+            {([ ["all", "All"], ["field_default", "Field defaults"], ["enum", "Enums"], ["enum_value", "Enum values"] ] as [TrackingEntryKind | "all", string][]).map(([v, label]) => (
+              <button key={v} type="button" onClick={() => setKindFilter(v)}
+                className={`flex-1 py-1.5 text-xs font-medium transition ${kindFilter === v ? "bg-slate-800 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Change */}
+        <div className="flex items-center gap-3">
+          <span className="w-14 shrink-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Change</span>
+          <div className="flex flex-1 divide-x divide-slate-200 overflow-hidden rounded-md border border-slate-200">
+            {([ ["all","All"], ["added","Added"], ["removed","Removed"], ["changed","Changed"], ["renamed","Renamed"], ["value_added","Val. added"], ["value_removed","Val. removed"] ] as [TrackingChangeKind | "all", string][]).map(([v, label]) => (
+              <button key={v} type="button" onClick={() => setChangeFilter(v)}
+                className={`flex-1 py-1.5 text-xs font-medium transition ${changeFilter === v ? "bg-slate-800 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Entity (only when multiple) */}
         {entityNames.length > 1 && (
-          <select value={entityFilter} onChange={(e) => setEntityFilter(e.target.value)}
-            className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-400">
-            <option value="all">All entities</option>
-            {entityNames.map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
+          <div className="flex items-center gap-3">
+            <span className="w-14 shrink-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Entity</span>
+            <div className="flex flex-1 divide-x divide-slate-200 overflow-hidden rounded-md border border-slate-200">
+              {(["all", ...entityNames] as string[]).map((v) => (
+                <button key={v} type="button" onClick={() => setEntityFilter(v)}
+                  className={`flex-1 py-1.5 text-xs font-medium transition truncate ${entityFilter === v ? "bg-slate-800 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>
+                  {v === "all" ? "All" : v}
+                </button>
+              ))}
+            </div>
+          </div>
         )}
-        {anyFilter && (
-          <button type="button" onClick={reset}
-            className="text-xs font-medium text-slate-400 underline underline-offset-2 hover:text-slate-700">Reset</button>
-        )}
-        <span className="ml-auto text-xs font-medium text-slate-400">{filtered.length} of {allEntries.length}</span>
+
+        {/* Footer row */}
+        <div className="flex items-center justify-between pt-0.5">
+          {anyFilter
+            ? <button type="button" onClick={reset} className="text-[10px] font-medium text-slate-400 underline underline-offset-2 hover:text-slate-700">Reset filters</button>
+            : <span />}
+          <span className="text-[10px] font-semibold text-slate-400">{filtered.length} of {allEntries.length} entries</span>
+        </div>
       </div>
 
       {filtered.length === 0 ? (
@@ -243,7 +283,7 @@ function AllChangesTab({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-200">
-                {(["Transition", "Entity", "Kind", "Change", "From", "To", "View"] as const).map((h) => (
+                {(["Entity", "Kind", "Change", "From", "To", "View"] as const).map((h) => (
                   <th key={h} className="pb-2 pr-4 text-left text-xs font-semibold uppercase tracking-[0.14em] text-slate-400 last:pr-0">{h}</th>
                 ))}
               </tr>
@@ -253,13 +293,6 @@ function AllChangesTab({
                 const isField = entry.entityKind === "field_default";
                 return (
                   <tr key={idx} className={`${rowTint[entry.changeKind] ?? ""} transition-colors`}>
-                    <td className="py-2.5 pr-4 align-middle">
-                      <div className="flex items-center gap-1.5 whitespace-nowrap">
-                        <VersionPill name={entry.fromVersion} />
-                        <span className="text-slate-400">→</span>
-                        <VersionPill name={entry.toVersion} />
-                      </div>
-                    </td>
                     <td className="py-2.5 pr-4 align-middle">
                       <span className="font-semibold text-slate-800">{entry.entityName}</span>
                       {entry.subName && (
@@ -297,32 +330,112 @@ function AllChangesTab({
 
 // ─── main page ────────────────────────────────────────────────────────────────
 
+function ResolverPanelHeader({
+  color, title, description, pendingCount, incompleteCount,
+}: {
+  color: string;
+  title: string;
+  description: string;
+  pendingCount: number;
+  incompleteCount: number;
+}) {
+  const hasIssues = pendingCount > 0 || incompleteCount > 0;
+  return (
+    <div className={`mb-5 rounded-lg border p-4 ${
+      pendingCount > 0 ? "border-red-200 bg-red-50/50" :
+      incompleteCount > 0 ? "border-amber-200 bg-amber-50/50" :
+      "border-emerald-200 bg-emerald-50/40"
+    }`}>
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${color}`} />
+          <p className="font-semibold text-slate-950">{title}</p>
+        </div>
+        <span className={`rounded-md border px-2.5 py-1 text-xs font-semibold ${
+          pendingCount > 0 ? "border-red-200 bg-white text-red-700" :
+          incompleteCount > 0 ? "border-amber-200 bg-white text-amber-700" :
+          "border-emerald-200 bg-white text-emerald-700"
+        }`}>
+          {pendingCount > 0
+            ? `${pendingCount} need${pendingCount === 1 ? "s" : ""} approval`
+            : incompleteCount > 0
+              ? `${incompleteCount} need${incompleteCount === 1 ? "s" : ""} default value`
+              : "All resolved ✓"}
+        </span>
+      </div>
+      <p className="mt-2 text-xs text-slate-600 leading-relaxed">{description}</p>
+      {hasIssues && (
+        <p className={`mt-2 text-[10px] font-semibold uppercase tracking-wider ${
+          pendingCount > 0 ? "text-red-500" : "text-amber-500"
+        }`}>
+          {pendingCount > 0 ? "↓ Approve each item below" : "↓ Set default values below"}
+        </p>
+      )}
+    </div>
+  );
+}
+
+const VALID_TABS = ["all", "tables", "enums", "schema", "relations", "restrictions"] as const;
+type TrackingTab = typeof VALID_TABS[number];
+
 export function TrackingPageContent() {
-  const { projectId, projectName, versions, hasProject } = useProjectInfo();
+  const { projectId, projectName, versions, version, hasProject } = useProjectInfo();
   const trpc = useTRPC();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
-  // Default to latest consecutive pair
-  const versionPairs = useMemo(() => {
-    const pairs: { from: string; to: string; label: string }[] = [];
-    for (let i = 0; i < versions.length - 1; i++) {
-      pairs.push({ from: versions[i]!, to: versions[i + 1]!, label: `${versions[i]} → ${versions[i + 1]}` });
+  const resolveParam = searchParams.get("resolve") as TrackingTab | null;
+  const activeTab: TrackingTab = VALID_TABS.includes(resolveParam as TrackingTab)
+    ? (resolveParam as TrackingTab)
+    : "all";
+
+  function setActiveTab(tab: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (tab === "all") {
+      params.delete("resolve");
+    } else {
+      params.set("resolve", tab);
     }
-    return pairs;
-  }, [versions]);
+    const qs = params.toString();
+    router.replace(qs ? `?${qs}` : "?", { scroll: false });
+  }
 
-  const latestPair = versionPairs[versionPairs.length - 1];
-  const [selectedPairIdx, setSelectedPairIdx] = useState<number>(-1);
-
-  const pairIdx = selectedPairIdx === -1 ? versionPairs.length - 1 : selectedPairIdx;
-  const pair = versionPairs[pairIdx] ?? null;
+  // Derive the single relevant version pair from the currently selected version
+  const versionIdx = versions.indexOf(version);
+  const fromVersion = versionIdx > 0 ? versions[versionIdx - 1]! : "";
+  const toVersion = version;
+  const hasPair = versionIdx > 0;
 
   const { data: countsData } = useQuery(
     trpc.tracking.pendingCounts.queryOptions(
-      { projectId, fromVersion: pair?.from ?? "", toVersion: pair?.to ?? "" },
-      { enabled: Boolean(projectId && pair) },
+      { projectId, fromVersion, toVersion },
+      { enabled: Boolean(projectId && hasPair) },
     ),
   );
   const pending = countsData ?? { table: 0, field: 0, enum: 0, relation: 0, total: 0 };
+  const { warnings, defaultsRequiredCount } = useSchemaWarnings(projectId, fromVersion, toVersion);
+
+  // Per-category incomplete counts (approved but missing required default value)
+  const incompleteByKind = {
+    field: warnings.filter(
+      (w) => w.entityKind === "field" && w.approvedAt && !w.replacementValue &&
+             w.targetNullable === false &&
+             (w.resolution === "backfill_required" || w.resolution === "lossy_convert" || w.resolution === "precision_loss"),
+    ).length,
+    enum: warnings.filter(
+      (w) => w.entityKind === "enum" && w.approvedAt && !w.replacementValue &&
+             w.changeKind === "value_removed",
+    ).length,
+    table: 0,
+    relation: 0,
+  };
+
+  const totalResolvable = pending.total + defaultsRequiredCount;
+  const totalResolved = hasPair && countsData ? (
+    // total warnings minus pending and incomplete
+    warnings.filter((w) => !!w.approvedAt).length -
+    Object.values(incompleteByKind).reduce((s, v) => s + v, 0)
+  ) : 0;
 
   if (!hasProject) {
     return (
@@ -332,57 +445,93 @@ export function TrackingPageContent() {
     );
   }
 
+  const allResolved = hasPair && countsData && pending.total === 0 && defaultsRequiredCount === 0;
+
   return (
-    <div className="space-y-5">
-      {/* ── Page header ── */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <span className="rounded-md border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-700">
-            {projectName}
-          </span>
-          {pending.total > 0 && (
-            <span className="rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700">
-              {pending.total} pending approval{pending.total !== 1 ? "s" : ""}
-            </span>
-          )}
-          {pair && countsData && pending.total === 0 && (
-            <span className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
-              All approved ✓
-            </span>
+    <div className="space-y-4">
+      {/* ── Resolver header ── */}
+      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="rounded border border-teal-200 bg-teal-50 px-2 py-0.5 text-xs font-semibold text-teal-700">
+                {projectName}
+              </span>
+              {hasPair && (
+                <span className="font-mono text-xs font-semibold text-slate-500">
+                  {fromVersion} → {toVersion}
+                </span>
+              )}
+            </div>
+            <h2 className="text-base font-semibold text-slate-950">
+              {allResolved
+                ? "All schema changes reviewed — ready to migrate"
+                : pending.total > 0
+                  ? `${pending.total} change${pending.total !== 1 ? "s" : ""} require${pending.total === 1 ? "s" : ""} approval before migration`
+                  : defaultsRequiredCount > 0
+                    ? `${defaultsRequiredCount} field${defaultsRequiredCount !== 1 ? "s" : ""} need${defaultsRequiredCount === 1 ? "s" : ""} a migration default value`
+                    : "Review schema changes before migrating"}
+            </h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {allResolved
+                ? "Every breaking change, type incompatibility, and backfill requirement has been resolved."
+                : "Approve each change below. For type mismatches and new required fields, set an explicit default so migration doesn't guess."}
+            </p>
+          </div>
+
+          {/* Resolution status badge */}
+          {hasPair && countsData && (
+            <div className={`shrink-0 flex items-center gap-2 rounded-lg border px-4 py-2.5 ${
+              allResolved
+                ? "border-emerald-200 bg-emerald-50"
+                : pending.total > 0
+                  ? "border-red-200 bg-red-50"
+                  : "border-amber-200 bg-amber-50"
+            }`}>
+              <span className={`text-xl ${allResolved ? "text-emerald-600" : pending.total > 0 ? "text-red-600" : "text-amber-600"}`}>
+                {allResolved ? "✓" : pending.total > 0 ? "✗" : "⚠"}
+              </span>
+              <div>
+                <p className={`text-xs font-semibold ${allResolved ? "text-emerald-700" : pending.total > 0 ? "text-red-700" : "text-amber-700"}`}>
+                  {allResolved ? "All resolved" : pending.total > 0 ? `${pending.total} pending` : `${defaultsRequiredCount} incomplete`}
+                </p>
+                {hasPair && warnings.length > 0 && (
+                  <p className="text-[10px] text-slate-500">{totalResolved} of {warnings.length} complete</p>
+                )}
+              </div>
+            </div>
           )}
         </div>
 
-        {/* Version pair selector */}
-        {versionPairs.length > 0 && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Transition</span>
-            <select
-              value={pairIdx}
-              onChange={(e) => setSelectedPairIdx(Number(e.target.value))}
-              className="rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-400"
-            >
-              {versionPairs.map((p, i) => (
-                <option key={i} value={i}>{p.label}</option>
-              ))}
-            </select>
+        {/* Progress bar */}
+        {hasPair && warnings.length > 0 && (
+          <div className="mt-4">
+            <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${allResolved ? "bg-emerald-500" : pending.total > 0 ? "bg-red-400" : "bg-amber-400"}`}
+                style={{ width: `${Math.round((totalResolved / warnings.length) * 100)}%` }}
+              />
+            </div>
+            <p className="mt-1 text-right text-[10px] text-slate-400">
+              {Math.round((totalResolved / warnings.length) * 100)}% resolved
+            </p>
           </div>
         )}
       </div>
 
-      {/* ── Tabbed card ── */}
-      <Tabs defaultValue="all">
-        {/* Card shell — tab bar is the card header */}
+      {/* ── Tabbed resolver card ── */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
 
           {/* Tab bar */}
-          <div className="overflow-x-auto border-b border-slate-200">
-            <TabsList className="h-auto w-full justify-start rounded-none border-none bg-transparent p-0 gap-0 px-2">
+          <div className="border-b border-slate-200 bg-white">
+            <TabsList style={{ height: "72px" }} className="w-full justify-stretch rounded-none border-none bg-transparent p-0 gap-0">
               <TabTrigger value="all" />
-              <TabTrigger value="tables"       count={pending.table} />
-              <TabTrigger value="enums"        count={pending.enum} />
-              <TabTrigger value="schema"       count={pending.field} />
-              <TabTrigger value="relations"    count={pending.relation} />
-              <TabTrigger value="restrictions" />
+              <TabTrigger value="tables"       count={pending.table}    incompleteCount={incompleteByKind.table}    allClear={hasPair && !!countsData && pending.table === 0 && incompleteByKind.table === 0} />
+              <TabTrigger value="enums"        count={pending.enum}     incompleteCount={incompleteByKind.enum}     allClear={hasPair && !!countsData && pending.enum === 0 && incompleteByKind.enum === 0} />
+              <TabTrigger value="schema"       count={pending.field}    incompleteCount={incompleteByKind.field}    allClear={hasPair && !!countsData && pending.field === 0 && incompleteByKind.field === 0} />
+              <TabTrigger value="relations"    count={pending.relation}  incompleteCount={incompleteByKind.relation} allClear={hasPair && !!countsData && pending.relation === 0 && incompleteByKind.relation === 0} />
+              <TabTrigger value="restrictions" allClear={hasPair && !!countsData} />
             </TabsList>
           </div>
 
@@ -391,71 +540,57 @@ export function TrackingPageContent() {
 
             {/* All Changes */}
             <TabsContent value="all">
-              <AllChangesTab projectId={projectId} />
+              {hasPair
+                ? <AllChangesTab projectId={projectId} fromVersion={fromVersion} toVersion={toVersion} />
+                : <p className="text-sm text-slate-500">This is the first version — no previous version to compare against.</p>}
             </TabsContent>
 
             {/* Tables */}
             <TabsContent value="tables">
-              <div className="mb-5 flex items-start gap-3">
-                <span className="mt-0.5 h-3 w-3 shrink-0 rounded-full bg-cyan-500" />
-                <div>
-                  <p className="font-semibold text-slate-950">Table warnings</p>
-                  <p className="mt-0.5 text-xs text-slate-500">
-                    Table removals and PK type changes that cascade — these require approval before migration.
-                  </p>
-                </div>
-              </div>
-              {pair ? (
-                <WarningsPanel projectId={projectId} fromVersion={pair.from} toVersion={pair.to} entityKind="table" />
-              ) : <p className="text-sm text-slate-500">Select a version transition above.</p>}
+              <ResolverPanelHeader
+                color="bg-cyan-500"
+                title="Table Resolver"
+                description="Approve table removals and PK type changes. Removed tables will have all their rows permanently dropped on migration."
+                pendingCount={pending.table}
+                incompleteCount={incompleteByKind.table}
+              />
+              <WarningsPanel projectId={projectId} fromVersion={fromVersion} toVersion={toVersion} entityKind="table" />
             </TabsContent>
 
             {/* Enums */}
             <TabsContent value="enums">
-              <div className="mb-5 flex items-start gap-3">
-                <span className="mt-0.5 h-3 w-3 shrink-0 rounded-full bg-indigo-500" />
-                <div>
-                  <p className="font-semibold text-slate-950">Enum warnings</p>
-                  <p className="mt-0.5 text-xs text-slate-500">
-                    Removed enums and removed values. Value removals require mapping existing rows to a replacement before migration.
-                  </p>
-                </div>
-              </div>
-              {pair ? (
-                <WarningsPanel projectId={projectId} fromVersion={pair.from} toVersion={pair.to} entityKind="enum" />
-              ) : <p className="text-sm text-slate-500">Select a version transition above.</p>}
+              <ResolverPanelHeader
+                color="bg-indigo-500"
+                title="Enum Resolver"
+                description="Map removed enum values to replacements. Any row holding a removed value must be remapped — otherwise the insert will fail."
+                pendingCount={pending.enum}
+                incompleteCount={incompleteByKind.enum}
+              />
+              <WarningsPanel projectId={projectId} fromVersion={fromVersion} toVersion={toVersion} entityKind="enum" />
             </TabsContent>
 
             {/* Schema */}
             <TabsContent value="schema">
-              <div className="mb-5 flex items-start gap-3">
-                <span className="mt-0.5 h-3 w-3 shrink-0 rounded-full bg-rose-500" />
-                <div>
-                  <p className="font-semibold text-slate-950">Schema field warnings</p>
-                  <p className="mt-0.5 text-xs text-slate-500">
-                    Type changes, nullability changes, and default removals that carry data risk.
-                  </p>
-                </div>
-              </div>
-              {pair ? (
-                <WarningsPanel projectId={projectId} fromVersion={pair.from} toVersion={pair.to} entityKind="field" />
-              ) : <p className="text-sm text-slate-500">Select a version transition above.</p>}
+              <ResolverPanelHeader
+                color="bg-rose-500"
+                title="Schema Field Resolver"
+                description="Set default values for new required fields and type-incompatible changes. Without an explicit default, migration will auto-generate a placeholder — which is almost never what you want."
+                pendingCount={pending.field}
+                incompleteCount={incompleteByKind.field}
+              />
+              <WarningsPanel projectId={projectId} fromVersion={fromVersion} toVersion={toVersion} entityKind="field" />
             </TabsContent>
 
             {/* Relations */}
             <TabsContent value="relations">
-              <div className="mb-5 flex items-start gap-3">
-                <span className="mt-0.5 h-3 w-3 shrink-0 rounded-full bg-violet-500" />
-                <div>
-                  <p className="font-semibold text-slate-950">Relation warnings</p>
-                  <p className="mt-0.5 text-xs text-slate-500">
-                    Removed relations that may leave orphaned foreign key data.
-                  </p>
-                </div>
-              </div>
-              {pair ? (
-                <WarningsPanel projectId={projectId} fromVersion={pair.from} toVersion={pair.to} entityKind="relation" />
-              ) : <p className="text-sm text-slate-500">Select a version transition above.</p>}
+              <ResolverPanelHeader
+                color="bg-violet-500"
+                title="Relation Resolver"
+                description="Approve removed relations. The FK column and its values will be dropped on migration."
+                pendingCount={pending.relation}
+                incompleteCount={incompleteByKind.relation}
+              />
+              <WarningsPanel projectId={projectId} fromVersion={fromVersion} toVersion={toVersion} entityKind="relation" />
             </TabsContent>
 
             {/* Restrictions */}
@@ -467,12 +602,7 @@ export function TrackingPageContent() {
                   <p className="mt-0.5 text-xs text-slate-500">UNIQUE and INDEX constraint changes.</p>
                 </div>
               </div>
-              <WarningsPanel
-                projectId={projectId}
-                fromVersion={pair?.from ?? ""}
-                toVersion={pair?.to ?? ""}
-                entityKind="restriction"
-              />
+              <WarningsPanel projectId={projectId} fromVersion={fromVersion} toVersion={toVersion} entityKind="restriction" />
             </TabsContent>
 
           </div>
