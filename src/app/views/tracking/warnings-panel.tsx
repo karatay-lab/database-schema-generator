@@ -5,7 +5,6 @@ import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useTRPC } from "@/trpc/client";
-import { EnumValueReplacementPicker } from "@/app/views/shared/version-diff-badge";
 import type { SchemaWarning } from "@/lib/schema-warnings-store";
 
 // ─── severity helpers ─────────────────────────────────────────────────────────

@@ -188,11 +188,11 @@ function runStage1(
 
 // ─── approved lossy/deleted field warnings ────────────────────────────────────
 
-// Returns: modelName → Map<fieldDbName, changeKind> for fields with approved lossy or deleted warnings.
-// Only truly incompatible fields (pk_type_changed or incompatible type conversion) are filtered
-// from Zod validation and replaced with defaults during migration. Compatible conversions
-// (e.g. String → Enum) carry their actual v1 values through.
-type ApprovedLossySet = Map<string, Map<string, string>>; // modelName → fieldDbName → changeKind
+// Returns: modelName → Map<fieldDbName, { changeKind, fromValue, toValue }> for approved lossy warnings.
+// Used to determine whether a field should be stripped from Zod validation (truly incompatible)
+// or left in place (compatible conversion like String → Enum carries actual data through).
+type ApprovedLossyEntry2 = { changeKind: string; fromValue: string | null; toValue: string | null };
+type ApprovedLossySet = Map<string, Map<string, ApprovedLossyEntry2>>;
 
 function loadApprovedLossyFields(
   projectName: string,
@@ -202,20 +202,20 @@ function loadApprovedLossyFields(
   const projectRow = db.prepare("SELECT id FROM projects WHERE name = ?").get(projectName) as { id: string } | undefined;
   if (!projectRow) return new Map();
   const rows = db.prepare(`
-    SELECT entity_name, change_kind FROM schema_warnings
+    SELECT entity_name, change_kind, from_value, to_value FROM schema_warnings
     WHERE project_id = ? AND from_version = ? AND to_version = ?
       AND entity_kind = 'field'
       AND resolution IN ('lossy_convert', 'data_deleted')
       AND approved_at IS NOT NULL
-  `).all(projectRow.id, syncVersion, targetVersion) as { entity_name: string; change_kind: string }[];
-  const result = new Map<string, Map<string, string>>();
+  `).all(projectRow.id, syncVersion, targetVersion) as { entity_name: string; change_kind: string; from_value: string | null; to_value: string | null }[];
+  const result = new Map<string, Map<string, ApprovedLossyEntry2>>();
   for (const row of rows) {
     const dot = row.entity_name.indexOf(".");
     if (dot === -1) continue;
     const model = row.entity_name.slice(0, dot);
     const fieldDbName = row.entity_name.slice(dot + 1).toLowerCase();
-    const inner = result.get(model) ?? new Map<string, string>();
-    inner.set(fieldDbName, row.change_kind);
+    const inner = result.get(model) ?? new Map<string, ApprovedLossyEntry2>();
+    inner.set(fieldDbName, { changeKind: row.change_kind, fromValue: row.from_value, toValue: row.to_value });
     result.set(model, inner);
   }
   return result;
@@ -253,17 +253,22 @@ function runStage2(
     if (records.length === 0) continue;
 
     const renameMap = renameMapsByModel.get(model.name) ?? new Map<string, string>();
-    // Only strip fields where the type conversion is genuinely incompatible (or pk_type_changed).
-    // Compatible conversions (e.g. String → Enum) keep their actual v1 value.
-    const lossyFieldMap = approvedLossy.get(model.name) ?? new Map<string, string>();
+    // Strip a field from Zod validation only when its v1 value cannot be valid for the v2 type:
+    //   pk_type_changed  — old Int PK cannot be a UUID
+    //   incompatible conversion (String→Float/Int) — value will be replaced by default at run time
+    // Compatible conversions (String→Enum) keep actual v1 data — do NOT strip.
+    const lossyFieldMap = approvedLossy.get(model.name) ?? new Map<string, ApprovedLossyEntry2>();
     const trulyLossyFields = new Set(
       [...lossyFieldMap.entries()]
-        .filter(([, changeKind]) => changeKind === "pk_type_changed")
+        .filter(([, entry]) => {
+          if (entry.changeKind === "pk_type_changed") return true;
+          if (entry.fromValue && entry.toValue) {
+            return !checkTypeConversion(entry.fromValue, entry.toValue).compatible;
+          }
+          return false;
+        })
         .map(([fieldName]) => fieldName),
     );
-    // For non-pk changes, add field only if type conversion is incompatible (checked in runUpgradeRules)
-    // — we can't check source type here, so we conservatively keep pk_type_changed only in the strip set.
-    // For scalar type mismatches (string→float etc.) the Zod error is caught regardless.
 
     const presentKeys = new Set(Object.keys(applyRenames(records[0]!, renameMap)));
 
@@ -348,7 +353,7 @@ function runUpgradeRules(
       }
 
       const conversion = checkTypeConversion(sourceField.type ?? "", targetField.type ?? "");
-      const lossyApproved = (approvedLossy.get(targetModel.name) ?? new Map<string, string>()).has(targetName);
+      const lossyApproved = (approvedLossy.get(targetModel.name) ?? new Map<string, ApprovedLossyEntry2>()).has(targetName);
       if (!conversion.compatible && !lossyApproved) {
         issues.push({
           model: targetModel.name,
