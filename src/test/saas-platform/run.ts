@@ -73,7 +73,7 @@ async function main() {
   console.log("\n" + "=".repeat(50));
   console.log(" Done. Data persists in app.db.");
   console.log(` Open the app → navigate to "${PROJECT_NAME}"`);
-  console.log(" Seed v1 data:  pnpm seed:db second-workflows <postgres-url>");
+  console.log(" Seed v1 data:  pnpm seed:db saas-platform <postgres-url>");
   console.log("=".repeat(50));
 }
 

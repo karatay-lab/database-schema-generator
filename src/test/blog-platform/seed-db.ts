@@ -7,25 +7,25 @@
  *   2. The database must have the tables created by that deploy.
  *
  * Usage:
- *   pnpm seed:db first-workflows postgresql://user:pass@host/db
+ *   pnpm seed:db blog-platform postgresql://user:pass@host/db
  */
 
 import { Client } from "pg";
 import {
   users, categories, tags, media, posts, comments,
-} from "../mocks/first-workflows/index.js";
+} from "../mocks/blog-platform/index.js";
 
 const dataset = process.argv[2];
 const urlArg  = process.argv[3];
 
 if (!dataset || !urlArg) {
   console.error("Usage: pnpm seed:db <dataset> <postgres-url>");
-  console.error("  e.g. pnpm seed:db first-workflows postgresql://dev:dev@localhost:54321/dev");
+  console.error("  e.g. pnpm seed:db blog-platform postgresql://dev:dev@localhost:54321/dev");
   process.exit(1);
 }
 
-if (dataset !== "first-workflows") {
-  console.error(`Unknown dataset "${dataset}". Available: first-workflows`);
+if (dataset !== "blog-platform") {
+  console.error(`Unknown dataset "${dataset}". Available: blog-platform`);
   process.exit(1);
 }
 

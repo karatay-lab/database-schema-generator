@@ -6,13 +6,14 @@ import { addRestrictions } from "./phases/v1/phase-5-restrictions";
 
 import { forkToV2 } from "./phases/v2/phase-0-fork";
 import { updateTables } from "./phases/v2/phase-1-tables";
-import { addFields as addFieldsV2 } from "./phases/v2/phase-2-fields";
+import { updateFields } from "./phases/v2/phase-2-fields";
 import { setupEnums } from "./phases/v2/phase-3-enums";
-import { addRelations as addRelationsV2 } from "./phases/v2/phase-4-relations";
+import { updateRelations } from "./phases/v2/phase-4-relations";
 import { addRestrictions as addRestrictionsV2 } from "./phases/v2/phase-5-restrictions";
 
 import { PROJECT_NAME } from "./client";
 
+// argv[2] = workflow folder (blog-platform), argv[3] = version filter (v1 | v2)
 const versionArg = process.argv[3];
 
 if (versionArg && versionArg !== "v1" && versionArg !== "v2") {
@@ -25,7 +26,7 @@ const runV2 = !versionArg || versionArg === "v2";
 
 async function main() {
   console.log("=".repeat(50));
-  console.log(` E-Commerce Shop — "${PROJECT_NAME}"`);
+  console.log(` Blog Platform Scenario — "${PROJECT_NAME}"`);
   if (versionArg) console.log(` Running: ${versionArg.toUpperCase()} only`);
   console.log("=".repeat(50));
 
@@ -58,13 +59,13 @@ async function main() {
     await updateTables(v2);
 
     console.log("\n[ Phase 2 — Fields ]");
-    await addFieldsV2(v2);
+    await updateFields(v2);
 
     console.log("\n[ Phase 3 — Enums ]");
     await setupEnums(v2);
 
     console.log("\n[ Phase 4 — Relations ]");
-    await addRelationsV2(v2);
+    await updateRelations(v2);
 
     console.log("\n[ Phase 5 — Restrictions ]");
     await addRestrictionsV2(v2);
@@ -73,7 +74,6 @@ async function main() {
   console.log("\n" + "=".repeat(50));
   console.log(" Done. Data persists in app.db.");
   console.log(` Open the app → navigate to "${PROJECT_NAME}"`);
-  console.log(" Seed v1 data:  pnpm seed:db third-workflows <mysql-url>");
   console.log("=".repeat(50));
 }
 

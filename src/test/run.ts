@@ -2,9 +2,9 @@ const workflow = process.argv[2];
 
 if (!workflow) {
   console.error("Usage: pnpm seed:workflows <workflow-folder> [version]");
-  console.error("Example: pnpm seed:workflows first-workflows");
-  console.error("Example: pnpm seed:workflows first-workflows v1");
-  console.error("Example: pnpm seed:workflows first-workflows v2");
+  console.error("Example: pnpm seed:workflows blog-platform");
+  console.error("Example: pnpm seed:workflows blog-platform v1");
+  console.error("Example: pnpm seed:workflows blog-platform v2");
   process.exit(1);
 }
 

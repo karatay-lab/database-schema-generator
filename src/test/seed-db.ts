@@ -1,14 +1,14 @@
 // Dispatcher — routes to the correct dataset seed file.
 // Usage:  pnpm seed:db <dataset> <db-url>
-// Known datasets: first-workflows, second-workflows, third-workflows
+// Known datasets: blog-platform, saas-platform, shop-mysql
 
 const dataset = process.argv[2];
 
 if (!dataset) {
   console.error("Usage: pnpm seed:db <dataset> <db-url>");
-  console.error("  e.g. pnpm seed:db first-workflows  postgresql://dev:dev@localhost:54321/dev");
-  console.error("       pnpm seed:db second-workflows postgresql://dev:dev@localhost:54321/dev");
-  console.error("       pnpm seed:db third-workflows  mysql://dev:dev@localhost:3306/dev");
+  console.error("  e.g. pnpm seed:db blog-platform  postgresql://dev:dev@localhost:54321/dev");
+  console.error("       pnpm seed:db saas-platform postgresql://dev:dev@localhost:54321/dev");
+  console.error("       pnpm seed:db shop-mysql  mysql://dev:dev@localhost:3306/dev");
   process.exit(1);
 }
 

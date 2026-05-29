@@ -2,31 +2,31 @@
  * Insert v1 mock data into a MySQL database that already has the v1 schema deployed.
  *
  * Prerequisites:
- *   1. Run the scenario first:  pnpm seed:workflows third-workflows
+ *   1. Run the scenario first:  pnpm seed:workflows shop-mysql
  *   2. Open Migrations → connect to your MySQL database → "Destroy and Deploy Schema"
  *      → select version 1.0111 → confirm.
  *   3. Re-run this seeder.
  *
  * Usage:
- *   pnpm seed:db third-workflows mysql://user:pass@host:3306/db
+ *   pnpm seed:db shop-mysql mysql://user:pass@host:3306/db
  */
 
 import mysql from "mysql2/promise";
 import {
   categories, products, customers, orders, orderItems,
-} from "../mocks/third-workflows/index.js";
+} from "../mocks/shop-mysql/index.js";
 
 const dataset = process.argv[2];
 const urlArg  = process.argv[3];
 
 if (!dataset || !urlArg) {
   console.error("Usage: pnpm seed:db <dataset> <mysql-url>");
-  console.error("  e.g. pnpm seed:db third-workflows mysql://dev:dev@localhost:3306/dev");
+  console.error("  e.g. pnpm seed:db shop-mysql mysql://dev:dev@localhost:3306/dev");
   process.exit(1);
 }
 
-if (dataset !== "third-workflows") {
-  console.error(`Unknown dataset "${dataset}". This file handles: third-workflows`);
+if (dataset !== "shop-mysql") {
+  console.error(`Unknown dataset "${dataset}". This file handles: shop-mysql`);
   process.exit(1);
 }
 
@@ -76,7 +76,7 @@ async function main() {
     2. Connect to this MySQL database
     3. Select "Destroy and Deploy Schema"
     4. Choose version 1.0111 and confirm
-    5. Re-run: pnpm seed:db third-workflows <url>
+    5. Re-run: pnpm seed:db shop-mysql <url>
 `);
       process.exit(1);
     }

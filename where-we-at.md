@@ -60,5 +60,5 @@ All 14 workflows are fully implemented (no placeholders).
 | Store | `schema-warnings-store.ts` |
 | Matrix | `solutions/type-conversion-matrix.ts` |
 | Inline pages | `schema-page.tsx`, `enums-page.tsx`, `relations-page.tsx` |
-| Seed | `fourth-workflows/seed-db.ts`, `mocks/fourth-workflows/` |
+| Seed | `diff-exhaustive/seed-db.ts`, `mocks/diff-exhaustive/` |
 | Docs | `docs/version3/changes.md` |

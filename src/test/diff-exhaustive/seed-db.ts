@@ -2,38 +2,36 @@
  * Insert v1 mock data into a PostgreSQL database that already has the v1 schema deployed.
  *
  * Prerequisites:
- *   1. Run the scenario first:  pnpm seed:workflows second-workflows
- *   2. Open Migrations → connect to your database → "Destroy and Deploy Schema"
+ *   1. Run the scenario first:  pnpm seed:workflows diff-exhaustive
+ *   2. Open Migrations → connect to your PostgreSQL database → "Destroy and Deploy Schema"
  *      → select version 1.0111 → confirm.
  *   3. Re-run this seeder.
  *
  * Usage:
- *   pnpm seed:db second-workflows postgresql://user:pass@host/db
+ *   pnpm seed:db diff-exhaustive postgresql://dev:dev@localhost:54321/dev
  */
 
 import { Client } from "pg";
 import {
-  organizations, users, workspaces, projects, tasks, comments, labels, attachments,
-} from "../mocks/second-workflows/index.js";
+  customers, legacyLogs, invoices, coupons, products,
+} from "../mocks/diff-exhaustive/index.js";
 
 const dataset = process.argv[2];
 const urlArg  = process.argv[3];
 
 if (!dataset || !urlArg) {
   console.error("Usage: pnpm seed:db <dataset> <postgres-url>");
-  console.error("  e.g. pnpm seed:db second-workflows postgresql://dev:dev@localhost:54321/dev");
+  console.error("  e.g. pnpm seed:db diff-exhaustive postgresql://dev:dev@localhost:54321/dev");
   process.exit(1);
 }
 
-if (dataset !== "second-workflows") {
-  console.error(`Unknown dataset "${dataset}". This file handles: second-workflows`);
+if (dataset !== "diff-exhaustive") {
+  console.error(`Unknown dataset "${dataset}". This file handles: diff-exhaustive`);
   process.exit(1);
 }
 
 const DB_URL = urlArg;
 
-// camelCase keys → all-lowercase to match the @map("...") convention.
-// e.g. orgId → orgid, workspaceId → workspaceid, createdAt → createdat
 function toLower<T extends Record<string, unknown>>(row: T): Record<string, unknown> {
   return Object.fromEntries(Object.entries(row).map(([k, v]) => [k.toLowerCase(), v]));
 }
@@ -56,10 +54,16 @@ async function insertAll(
   console.log(`  ✓ ${table.padEnd(12)} ${rows.length} rows`);
 }
 
+async function resetSequence(client: Client, table: string, col = "id"): Promise<void> {
+  await client.query(
+    `SELECT setval(pg_get_serial_sequence('"${table}"', '${col}'), COALESCE((SELECT MAX("${col}") FROM "${table}"), 0) + 1, false)`,
+  );
+}
+
 async function checkTablesExist(client: Client): Promise<boolean> {
   const res = await client.query<{ count: string }>(
     `SELECT count(*) FROM information_schema.tables
-     WHERE table_schema = 'public' AND table_name = 'Organization'`,
+     WHERE table_schema = 'public' AND table_name = 'Customer'`,
   );
   return parseInt(res.rows[0]?.count ?? "0") > 0;
 }
@@ -77,38 +81,37 @@ async function main() {
 
   Deploy the v1 schema first:
     1. Open the app → Migrations
-    2. Connect to this database
+    2. Connect to this PostgreSQL database
     3. Select "Destroy and Deploy Schema"
     4. Choose version 1.0111 and confirm
-    5. Re-run: pnpm seed:db second-workflows <url>
+    5. Re-run: pnpm seed:db diff-exhaustive <url>
 `);
       process.exit(1);
     }
 
     console.log("Inserting mock data…\n");
 
-    // FK-safe insertion order: parents before children
-    await insertAll(client, "Organization", organizations.map(toLower));
-    await insertAll(client, "User",         users.map(toLower));
-    await insertAll(client, "Workspace",    workspaces.map(toLower));
-    await insertAll(client, "Label",        labels.map(toLower));
-    await insertAll(client, "Project",      projects.map(toLower));
-    await insertAll(client, "Task",         tasks.map(toLower));
-    await insertAll(client, "Comment",      comments.map(toLower));
-    await insertAll(client, "Attachment",   attachments.map(toLower));
+    // FK-safe insertion order: Customer first, then tables with FK → Customer
+    await insertAll(client, "Customer",   customers.map(toLower));
+    await insertAll(client, "LegacyLog",  legacyLogs.map(toLower));
+    await insertAll(client, "Invoice",    invoices.map(toLower));
+    await insertAll(client, "Coupon",     coupons.map(toLower));
+    await insertAll(client, "Product",    products.map(toLower));
 
-    const total = organizations.length + users.length + workspaces.length + labels.length
-      + projects.length + tasks.length + comments.length + attachments.length;
+    // Reset sequences so future inserts don't conflict with the explicit IDs we inserted
+    await resetSequence(client, "Customer");
+    await resetSequence(client, "LegacyLog");
+    await resetSequence(client, "Invoice");
+    await resetSequence(client, "Coupon");
+    await resetSequence(client, "Product");
 
+    const total = customers.length + legacyLogs.length + invoices.length + coupons.length + products.length;
     console.log(`\n✓ Done — ${total} rows inserted.`);
     console.log(`
 Next steps:
-  1. Open the app → Migrations → "Sync and Migrate to Another Version"
-  2. Sync version: 1.0111  →  Target version: 1.0112
-  3. Stage 2 will show 6 errors:
-       User     — 2 rows with score = null  (Bob Smith, Dave Lee)
-       Comment  — 4 rows with rating = null (comments 1, 3, 5, 7)
-  4. Use Fix Modal to set values, then re-run.
+  1. Open the app → Migrations → Collect Data
+  2. Sync version: 1.0111 → Target version: 1.0112
+  3. Collect All Tables to snapshot the v1 data
 `);
   } finally {
     await client.end();
