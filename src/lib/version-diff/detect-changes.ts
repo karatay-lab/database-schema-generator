@@ -65,12 +65,23 @@ export type RelationDiff = {
   fieldName: string;
 };
 
+export type RestrictionDiff = {
+  constraintKey: string;           // stable semantic key: "TableName:UNIQUE:field1,field2"
+  changeKind: "unique_added" | "unique_removed" | "index_added" | "index_removed";
+  severity: ChangeSeverity;
+  tableName: string;
+  fields: string[];                // field names covered by the constraint
+  dbName: string | null;           // constraint db name if set
+  message: string;
+};
+
 export type VersionDiff = {
   fromVersion: string;
   toVersion: string;
   tableDiffs: TableDiff[];
   enumDiffs: EnumDiff[];
   relationDiffs: RelationDiff[];
+  restrictionDiffs: RestrictionDiff[];
   hasBreaking: boolean;
   hasWarnings: boolean;
 };
@@ -489,5 +500,88 @@ export function detectVersionChanges(
     enumDiffs.some((d) => d.severity === "warning") ||
     relationDiffs.some((d) => d.severity === "warning");
 
-  return { fromVersion, toVersion, tableDiffs, enumDiffs, relationDiffs, hasBreaking, hasWarnings };
+  // ── Compare UNIQUE / INDEX constraints ────────────────────────────────────
+  // Constraints have no stable UUID, so we identify them by semantic key:
+  // "TableName:TYPE:field1,field2" (fields sorted by name for stability).
+  const fromFieldByRowIdForConstraints = new Map(fromGraph.fields.map((f) => [f.id, f]));
+  const toFieldByRowIdForConstraints = new Map(toGraph.fields.map((f) => [f.id, f]));
+
+  function constraintSemanticKey(
+    tableName: string,
+    type: string,
+    fieldIds: string[],
+    fieldById: Map<string, { name: string }>,
+  ): string {
+    const names = fieldIds.map((id) => fieldById.get(id)?.name ?? id).sort();
+    return `${tableName}:${type}:${names.join(",")}`;
+  }
+
+  // Build key → constraint for from and to graphs (UNIQUE + INDEX only, skip PK)
+  const fromConstraintMap = new Map<string, { tableName: string; fields: string[]; dbName: string | null }>();
+  for (const fromTable of fromGraph.tables) {
+    const toMatchTable = [...toGraph.tables].find((t) => (t.tableId ?? t.modelKey) === (fromTable.tableId ?? fromTable.modelKey));
+    const displayName = toMatchTable?.name ?? fromTable.name;
+    for (const c of fromGraph.constraints) {
+      if (c.tableId !== fromTable.id) continue;
+      if (c.type !== "UNIQUE" && c.type !== "INDEX") continue;
+      const key = constraintSemanticKey(displayName, c.type, c.fieldIds, fromFieldByRowIdForConstraints);
+      const fieldNames = c.fieldIds.map((id) => fromFieldByRowIdForConstraints.get(id)?.name ?? id).sort();
+      fromConstraintMap.set(key, { tableName: displayName, fields: fieldNames, dbName: c.dbName ?? null });
+    }
+  }
+
+  const toConstraintMap = new Map<string, { tableName: string; fields: string[]; dbName: string | null; type: string }>();
+  for (const toTable of toGraph.tables) {
+    for (const c of toGraph.constraints) {
+      if (c.tableId !== toTable.id) continue;
+      if (c.type !== "UNIQUE" && c.type !== "INDEX") continue;
+      const key = constraintSemanticKey(toTable.name, c.type, c.fieldIds, toFieldByRowIdForConstraints);
+      const fieldNames = c.fieldIds.map((id) => toFieldByRowIdForConstraints.get(id)?.name ?? id).sort();
+      toConstraintMap.set(key, { tableName: toTable.name, fields: fieldNames, dbName: c.dbName ?? null, type: c.type });
+    }
+  }
+
+  const restrictionDiffs: RestrictionDiff[] = [];
+
+  // Added constraints
+  for (const [key, info] of toConstraintMap) {
+    if (fromConstraintMap.has(key)) continue;
+    const isUnique = info.type === "UNIQUE";
+    const fieldList = info.fields.join(", ");
+    const changeKind = isUnique ? "unique_added" : "index_added";
+    restrictionDiffs.push({
+      constraintKey: key,
+      changeKind,
+      severity: isUnique ? "warning" : "info",
+      tableName: info.tableName,
+      fields: info.fields,
+      dbName: info.dbName,
+      message: isUnique
+        ? `UNIQUE constraint added on (${fieldList}) in "${info.tableName}". Migration fails if duplicate values exist — deduplicate before proceeding.`
+        : `INDEX added on (${fieldList}) in "${info.tableName}". No data impact.`,
+    });
+  }
+
+  // Removed constraints
+  for (const [key, info] of fromConstraintMap) {
+    if (toConstraintMap.has(key)) continue;
+    const fromType = key.split(":")[1] ?? "UNIQUE";
+    const isUnique = fromType === "UNIQUE";
+    const fieldList = info.fields.join(", ");
+    restrictionDiffs.push({
+      constraintKey: key,
+      changeKind: isUnique ? "unique_removed" : "index_removed",
+      severity: "info",
+      tableName: info.tableName,
+      fields: info.fields,
+      dbName: info.dbName,
+      message: isUnique
+        ? `UNIQUE constraint removed from (${fieldList}) in "${info.tableName}". Duplicate values are now allowed.`
+        : `INDEX removed from (${fieldList}) in "${info.tableName}". No data impact.`,
+    });
+  }
+
+  const hasWarningsFinal = hasWarnings || restrictionDiffs.some((d) => d.severity === "warning");
+
+  return { fromVersion, toVersion, tableDiffs, enumDiffs, relationDiffs, restrictionDiffs, hasBreaking, hasWarnings: hasWarningsFinal };
 }

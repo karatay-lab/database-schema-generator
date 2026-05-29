@@ -6,7 +6,7 @@ export type SchemaWarning = {
   projectId: string;
   fromVersion: string;
   toVersion: string;
-  entityKind: "table" | "field" | "enum" | "relation";
+  entityKind: "table" | "field" | "enum" | "relation" | "restriction";
   entityId: string;
   entityName: string;
   changeKind: string;

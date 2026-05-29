@@ -364,10 +364,11 @@ function ResolveModal({
 // ─── strategy legend (per entity kind) ───────────────────────────────────────
 
 const STRATEGIES_BY_KIND: Record<string, StrategyName[]> = {
-  table:    ["Data Dropped", "Acknowledged"],
-  enum:     ["Remapped", "Set NULL", "Data Dropped", "Acknowledged"],
-  field:    ["Unique Prefix + UUID", "Static Default", "Type Cast", "Set NULL", "Data Dropped", "Acknowledged"],
-  relation: ["Data Dropped", "Acknowledged"],
+  table:       ["Data Dropped", "Acknowledged"],
+  enum:        ["Remapped", "Set NULL", "Data Dropped", "Acknowledged"],
+  field:       ["Unique Prefix + UUID", "Static Default", "Type Cast", "Set NULL", "Data Dropped", "Acknowledged"],
+  relation:    ["Data Dropped", "Acknowledged"],
+  restriction: ["Acknowledged"],
 };
 
 function StrategyLegend({ entityKind }: { entityKind: string }) {
@@ -416,6 +417,7 @@ type StrategyName =
 
 function resolveStrategy(w: SchemaWarning): StrategyName {
   if (!w.approvedAt) return "Pending";
+  if (w.entityKind === "restriction") return "Acknowledged";
 
   if (w.entityKind === "enum" && w.changeKind === "value_removed") {
     return w.replacementValue ? "Remapped" : "Set NULL";
@@ -680,9 +682,7 @@ export function WarningsPanel({
   const queryClient = useQueryClient();
   const [bulkBusy, setBulkBusy] = useState(false);
 
-  const enabled =
-    Boolean(projectId && fromVersion && toVersion) &&
-    entityKind !== "restriction";
+  const enabled = Boolean(projectId && fromVersion && toVersion);
 
   const queryOptions = trpc.tracking.warningsByKind.queryOptions(
     {
@@ -753,11 +753,16 @@ export function WarningsPanel({
 
   async function approveAll() {
     if (pending.length === 0) return;
+    // Enum value_removed warnings require an explicit replacement mapping — exclude from bulk approve
+    const bulkApprovable = pending.filter(
+      (w) => !(w.entityKind === "enum" && w.changeKind === "value_removed"),
+    );
+    if (bulkApprovable.length === 0) return;
     setBulkBusy(true);
     await fetch("/api/schema-warnings/bulk-approve", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids: pending.map((w) => w.id) }),
+      body: JSON.stringify({ ids: bulkApprovable.map((w) => w.id) }),
     });
     await invalidate();
     setBulkBusy(false);
@@ -775,11 +780,7 @@ export function WarningsPanel({
     setBulkBusy(false);
   }
 
-  if (entityKind === "restriction") return (
-    <div className="space-y-4">
-      {RESTRICTION_PLACEHOLDER}
-    </div>
-  );
+  // Restrictions now tracked — fall through to full panel rendering
 
   if (isLoading) {
     return (

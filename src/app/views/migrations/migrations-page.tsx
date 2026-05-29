@@ -1646,10 +1646,10 @@ export function MigrationsPageContent() {
                   ) : defaultsRequiredCount > 0 ? (
                     <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
                       <p className="text-sm font-semibold text-amber-700">
-                        {defaultsRequiredCount} required {defaultsRequiredCount === 1 ? "field needs" : "fields need"} a migration default value.
+                        {defaultsRequiredCount} {defaultsRequiredCount === 1 ? "item needs" : "items need"} an explicit decision before migration.
                       </p>
                       <p className="mt-0.5 text-xs text-amber-600">
-                        In Tracking → Schema, set an explicit default for each new required field and incompatible type change — generated placeholders (0, false, uuid) corrupt real data.
+                        In Tracking, set replacement values for removed enum values and default values for new required fields — auto-generated placeholders corrupt real data.
                       </p>
                     </div>
                   ) : (

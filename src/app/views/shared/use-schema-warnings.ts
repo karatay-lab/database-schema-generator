@@ -34,18 +34,21 @@ export function useSchemaWarnings(projectId: string, fromVersion: string, toVers
   const pendingWarnings = warnings.filter((w) => !w.approvedAt);
   const pendingCount = pendingWarnings.length;
 
-  // Field changes that are approved but missing a required replacement/backfill value.
-  // Covers two cases:
-  //   1. lossy_convert / precision_loss on non-nullable target → silent 0/null is wrong
-  //   2. backfill_required (new required field, optional→required) → silent uuid/0/false is wrong
+  // Warnings that are approved but still missing a required decision value.
+  // Covers:
+  //   1. Field lossy_convert / precision_loss on non-nullable target → silent 0/null is wrong
+  //   2. Field backfill_required (new required field) → silent uuid/0/false is wrong
+  //   3. Enum value_removed without a replacement → orphaned rows hit DB enum constraint at INSERT
   const defaultsRequiredCount = warnings.filter(
     (w) =>
-      w.entityKind === "field" &&
       w.approvedAt !== null &&
       !w.replacementValue &&
       (
-        ((w.resolution === "lossy_convert" || w.resolution === "precision_loss") && w.targetNullable === false) ||
-        (w.resolution === "backfill_required" && w.targetNullable === false)
+        (w.entityKind === "field" && (
+          ((w.resolution === "lossy_convert" || w.resolution === "precision_loss") && w.targetNullable === false) ||
+          (w.resolution === "backfill_required" && w.targetNullable === false)
+        )) ||
+        (w.entityKind === "enum" && w.changeKind === "value_removed")
       ),
   ).length;
 

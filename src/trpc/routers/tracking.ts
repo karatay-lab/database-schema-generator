@@ -212,7 +212,7 @@ export const trackingRouter = createTRPCRouter({
       projectId: z.string(),
       fromVersion: z.string(),
       toVersion: z.string(),
-      entityKind: z.enum(["table", "field", "enum", "relation"]),
+      entityKind: z.enum(["table", "field", "enum", "relation", "restriction"]),
     }))
     .query(({ input }) => {
       const all = getWarnings(input.projectId, input.fromVersion, input.toVersion);
