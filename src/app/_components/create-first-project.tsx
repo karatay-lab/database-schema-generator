@@ -7,7 +7,7 @@ import {
   graphqlOptions,
   prismaClients,
   providers,
-} from "@/app/views/shared/dashboard-data";
+} from "@/constants/projects";
 
 type Tab = "create" | "import";
 

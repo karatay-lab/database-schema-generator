@@ -1,6 +1,6 @@
 "use client";
 
-import { classNames } from "../shared/dashboard-data";
+import { classNames } from "@/lib/utils";
 import type { ExportType } from "@/constants/exports";
 
 type PickleConfirmDialogProps = {

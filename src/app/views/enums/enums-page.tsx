@@ -6,9 +6,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { IconPencil, IconTrash } from "@tabler/icons-react";
 import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
-import { useVersionDiff, useVersionDiffLookup } from "../shared/use-version-diff";
-import { useSchemaWarnings } from "../shared/use-schema-warnings";
-import { VersionDiffBadge, ApproveWarningButton, EnumValueReplacementPicker } from "../shared/version-diff-badge";
+import { useVersionDiff, useVersionDiffLookup } from "@/hooks/use-version-diff";
+import { useSchemaWarnings } from "@/hooks/use-schema-warnings";
+import { VersionDiffBadge, ApproveWarningButton, EnumValueReplacementPicker } from "@/components/shared/version-diff-badge";
 import { EnumEditPanel, type CanonicalEnum } from "@/components/enums/enum-edit-panel";
 import { validateEnumName } from "@/constants/enums";
 

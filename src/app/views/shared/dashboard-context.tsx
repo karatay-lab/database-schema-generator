@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useTRPC } from "@/trpc/client";
 import { useQuery } from "@tanstack/react-query";
-import type { SchemaOptions } from "./dashboard-data";
+import type { SchemaOptions } from "@/types/projects";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

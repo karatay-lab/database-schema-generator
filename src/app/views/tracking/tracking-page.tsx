@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
-import { useSchemaWarnings } from "../shared/use-schema-warnings";
+import { useSchemaWarnings } from "@/hooks/use-schema-warnings";
 import { Tabs, TabsList, TabsContent } from "@/components/ui/tabs";
 import { TabTrigger } from "@/components/tracking/tab-trigger";
 import { AllChangesTab } from "@/components/tracking/all-changes-tab";

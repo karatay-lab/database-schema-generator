@@ -5,10 +5,12 @@ import {
   graphqlOptions,
   prismaClients,
   providers,
-  type Project,
-  type ProjectVersion,
-  type SchemaOptions,
-} from "@/app/views/shared/dashboard-data";
+} from "@/constants/projects";
+import type {
+  Project,
+  ProjectVersion,
+  SchemaOptions,
+} from "@/types/projects";
 import {
   getSchemaStats,
   getSchemaStore,

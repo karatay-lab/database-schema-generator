@@ -1,7 +1,7 @@
 "use client";
 
 import { IconCopy, IconCheck, IconX } from "@tabler/icons-react";
-import { classNames } from "../shared/dashboard-data";
+import { classNames } from "@/lib/utils";
 import { highlightCode } from "@/components/highlight-code";
 
 type GeneratedCodeDialogProps = {

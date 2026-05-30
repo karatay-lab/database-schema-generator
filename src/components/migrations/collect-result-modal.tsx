@@ -1,6 +1,6 @@
 "use client";
 
-import { classNames } from "../shared/dashboard-data";
+import { classNames } from "@/lib/utils";
 import type { MigrationOrderItem } from "@/types/migrations";
 
 type CollectTable = { name: string; count: number };

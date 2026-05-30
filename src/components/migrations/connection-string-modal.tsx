@@ -1,7 +1,7 @@
 "use client";
 
 import { IconCheck, IconCopy, IconX } from "@tabler/icons-react";
-import { classNames } from "../shared/dashboard-data";
+import { classNames } from "@/lib/utils";
 
 type ConnectionStringModalProps = {
   isOpen: boolean;

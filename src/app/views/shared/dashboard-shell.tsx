@@ -25,10 +25,10 @@ import {
 } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 import {
-  classNames,
   computeMenuItems,
   menuItemsBase,
 } from "./dashboard-data";
+import { classNames } from "@/lib/utils";
 import { renderAnsiOutput } from "@/lib/ansi-renderer";
 import type { PrismaSchemaTestResult } from "@/lib/schema-store";
 

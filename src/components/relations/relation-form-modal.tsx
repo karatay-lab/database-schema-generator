@@ -1,7 +1,7 @@
 "use client";
 
 import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
-import { classNames } from "../shared/dashboard-data";
+import { classNames } from "@/lib/utils";
 import { toCamelCaseIdentifier } from "@/lib/schema-naming";
 import type { PrismaField, PrismaModel } from "@/lib/schema-store";
 import type { RelationDraft } from "@/types/relation";

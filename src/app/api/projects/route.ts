@@ -9,7 +9,7 @@ import {
   graphqlOptions,
   prismaClients,
   providers,
-} from "@/app/views/shared/dashboard-data";
+} from "@/constants/projects";
 
 export async function GET() {
   const projects = await readProjects();

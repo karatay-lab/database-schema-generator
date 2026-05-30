@@ -8,12 +8,12 @@ import { sql as sqlLang, SQLite } from "@codemirror/lang-sql";
 import { dracula } from "@uiw/codemirror-theme-dracula";
 import { keymap } from "@codemirror/view";
 import { Prec } from "@codemirror/state";
-import { classNames } from "../shared/dashboard-data";
+import { classNames } from "@/lib/utils";
 import { fieldTypeBadgeClass } from "@/lib/badge-utils";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useSchemaModels } from "@/hooks/use-schema-models";
 import type { DbStatus, MigrateResult, QueryResult } from "@/types/sql-query";
-import { MigrationModal } from "./migration-modal";
+import { MigrationModal } from "@/components/sql-query/migration-modal";
 import type { PrismaField } from "@/lib/schema-store";
 import {
   formatDuration,
@@ -23,6 +23,7 @@ import {
   generateUpdate,
   generateDelete,
 } from "@/lib/sql-query/generators";
+import { TableSelectorModal } from "@/features/table-selector";
 
 export function SqlQueryPageContent() {
   const { projectName, version, hasProject } = useProjectInfo();
@@ -480,103 +481,27 @@ export function SqlQueryPageContent() {
         </section>
       ) : null}
 
-      {/* Table selector modal */}
-      {isTemplateSelectorOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-3">
-          <div className="max-h-[94vh] w-[96vw] max-w-[1500px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl">
-            <div className="border-b border-slate-200 px-5 py-4">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    Table Selector
-                  </p>
-                  <h3 className="mt-1 text-xl font-semibold text-slate-950">
-                    Tables
-                  </h3>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <span className="rounded-md border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-700">
-                    {templateModels.length} tables
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsTemplateSelectorOpen(false);
-                      setTemplateSearch("");
-                    }}
-                    className="h-9 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-5">
-              <div className="mb-4">
-                <input
-                  type="text"
-                  value={templateSearch}
-                  onChange={(e) => setTemplateSearch(e.target.value)}
-                  placeholder="Search tables..."
-                  className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-orange-500"
-                  autoFocus
-                />
-              </div>
-
-              <div className="max-h-[70vh] overflow-y-auto pr-1">
-                {(() => {
-                  const filtered = templateModels.filter((m) =>
-                    m.name.toLowerCase().includes(templateSearch.toLowerCase()),
-                  );
-                  return filtered.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm font-medium text-slate-500">
-                      No tables found.
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-                      {filtered.map((model) => {
-                        const isSelected = model.name === selectedTemplate;
-                        return (
-                          <button
-                            key={model.key}
-                            type="button"
-                            onClick={() => {
-                              setSelectedTemplate(model.name);
-                              setTemplateFields([]);
-                              setIsTemplateSelectorOpen(false);
-                              setTemplateSearch("");
-                              void fetchTemplateFields(model.name);
-                            }}
-                            className={classNames(
-                              "flex min-h-16 items-center justify-between rounded-lg border p-4 text-left transition",
-                              isSelected
-                                ? "border-orange-400 bg-orange-50 shadow-sm"
-                                : "border-slate-200 bg-white hover:border-orange-300",
-                            )}
-                          >
-                            <span className="min-w-0 truncate font-semibold text-slate-950">
-                              {model.name}
-                            </span>
-                            <span
-                              className={classNames(
-                                "ml-3 inline-flex shrink-0 items-center rounded-md px-2 py-1 text-xs font-medium",
-                                fieldTypeBadgeClass(model.pkType),
-                              )}
-                            >
-                              {model.pkType || "String"}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  );
-                })()}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <TableSelectorModal
+        isOpen={isTemplateSelectorOpen}
+        models={templateModels}
+        selectedModelName={selectedTemplate}
+        search={templateSearch}
+        isLoading={false}
+        tone="orange"
+        onSearch={setTemplateSearch}
+        onSelect={(modelName) => {
+          setSelectedTemplate(modelName);
+          setTemplateFields([]);
+          setIsTemplateSelectorOpen(false);
+          setTemplateSearch("");
+          void fetchTemplateFields(modelName);
+        }}
+        onClose={() => {
+          setIsTemplateSelectorOpen(false);
+          setTemplateSearch("");
+        }}
+        typeBadgeClass={fieldTypeBadgeClass}
+      />
 
       <MigrationModal
         isOpen={migrateOpen}

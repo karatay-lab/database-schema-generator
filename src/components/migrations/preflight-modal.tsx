@@ -1,6 +1,6 @@
 "use client";
 
-import { classNames } from "../shared/dashboard-data";
+import { classNames } from "@/lib/utils";
 import type { ConnectionRecord, ModelComparisonResult, MigrationOrderItem } from "@/types/migrations";
 import type { SchemaWarning } from "@/lib/schema-warnings-store";
 

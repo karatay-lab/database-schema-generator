@@ -2,7 +2,7 @@
 
 import type { PrismaModel } from "@/lib/schema-store";
 import type { TableDiff } from "@/lib/version-diff/detect-changes";
-import { TableDiffSummary } from "../shared/version-diff-badge";
+import { TableDiffSummary } from "@/components/shared/version-diff-badge";
 
 type TablesGridProps = {
   models: PrismaModel[];

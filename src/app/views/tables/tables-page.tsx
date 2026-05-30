@@ -5,9 +5,9 @@ import type { FormEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
-import { useVersionDiffLookup } from "../shared/use-version-diff";
-import { useSchemaWarnings } from "../shared/use-schema-warnings";
-import { TableDiffDetailModal } from "../shared/version-diff-badge";
+import { useVersionDiffLookup } from "@/hooks/use-version-diff";
+import { useSchemaWarnings } from "@/hooks/use-schema-warnings";
+import { TableDiffDetailModal } from "@/components/shared/version-diff-badge";
 import type { TableDiff } from "@/lib/version-diff/detect-changes";
 import type { PrismaModel } from "@/lib/schema-store";
 import {
@@ -22,10 +22,10 @@ import {
   type PkTypeValue,
 } from "@/constants/tables";
 import type { HelpDialog } from "@/types/tables";
-import { AddTableForm } from "./add-table-form";
-import { EditTablePanel } from "./edit-table-panel";
-import { TablesGrid } from "./tables-grid";
-import { TableHelpDialog } from "./table-help-dialog";
+import { AddTableForm } from "@/components/tables/add-table-form";
+import { EditTablePanel } from "@/components/tables/edit-table-panel";
+import { TablesGrid } from "@/components/tables/tables-grid";
+import { TableHelpDialog } from "@/components/tables/table-help-dialog";
 
 export function TablesPageContent() {
   const { projectName, version, versions, provider, hasProject, projectId } = useProjectInfo();

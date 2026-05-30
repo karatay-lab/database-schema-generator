@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
-import { classNames } from "../shared/dashboard-data";
+import { classNames } from "@/lib/utils";
 import { useProjectInfo } from "../shared/project-info-context";
 
 type HierarchyResponse = {

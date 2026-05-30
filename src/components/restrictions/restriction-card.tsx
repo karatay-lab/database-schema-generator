@@ -1,6 +1,6 @@
 "use client";
 
-import { classNames } from "../shared/dashboard-data";
+import { classNames } from "@/lib/utils";
 import { restrictionTypeLabel, restrictionTypeClass } from "@/constants/restrictions";
 import type { PrismaRestriction } from "@/lib/schema-store";
 

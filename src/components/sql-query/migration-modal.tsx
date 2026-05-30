@@ -1,6 +1,6 @@
 "use client";
 
-import { classNames } from "../shared/dashboard-data";
+import { classNames } from "@/lib/utils";
 import type { MigrateResult } from "@/types/sql-query";
 
 type MigrationModalProps = {

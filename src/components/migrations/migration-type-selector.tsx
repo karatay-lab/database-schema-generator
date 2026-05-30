@@ -1,6 +1,6 @@
 "use client";
 
-import { classNames } from "../shared/dashboard-data";
+import { classNames } from "@/lib/utils";
 import { MigrationLabel as Label } from "@/components/migrations/migration-form";
 import type { CheckSyncResponse, MigrationPlan } from "@/types/migrations";
 

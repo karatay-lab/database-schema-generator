@@ -31,7 +31,7 @@ async function call<T>(procedure: string, type: "query" | "mutation", input?: un
   return superjson.deserialize(item?.result?.data as ReturnType<typeof superjson.serialize>) as T;
 }
 
-import type { Project } from "@/app/views/shared/dashboard-data";
+import type { Project } from "@/types/projects";
 
 type SchemaOptions = { client: string; graphql: string };
 type Provider = "Postgres" | "MySQL" | "SQLite";

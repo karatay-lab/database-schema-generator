@@ -3,11 +3,11 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
-import { classNames } from "../shared/dashboard-data";
+import { classNames } from "@/lib/utils";
 import type { ImportMode, ParsedPreview } from "@/types/imports";
 import { todayVersionName, parsePicklePreview } from "@/constants/imports";
-import { VersionImportTab } from "./version-import-tab";
-import { ProjectImportTab } from "./project-import-tab";
+import { VersionImportTab } from "@/components/imports/version-import-tab";
+import { ProjectImportTab } from "@/components/imports/project-import-tab";
 
 export function ImportsPageContent() {
   const trpc = useTRPC();

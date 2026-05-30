@@ -7,7 +7,9 @@ import { Badge } from "@/components/ui/badge";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { classNames, graphqlOptions, prismaClients, providers, type Project } from "../shared/dashboard-data";
+import { classNames } from "@/lib/utils";
+import { graphqlOptions, prismaClients, providers } from "@/constants/projects";
+import type { Project } from "@/types/projects";
 import { Stat, PencilIcon } from "@/components/projects/project-icons";
 
 type ProjectFormValues = {

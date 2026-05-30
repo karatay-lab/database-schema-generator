@@ -4,11 +4,11 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconCopy, IconCheck, IconX, IconDownload, IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 import { useTRPC } from "@/trpc/client";
-import { classNames } from "../shared/dashboard-data";
+import { classNames } from "@/lib/utils";
 import { useProjectInfo } from "../shared/project-info-context";
 import { EXPORT_OPTIONS, type ExportType } from "@/constants/exports";
-import { ExportedCodeDialog } from "./exported-code-dialog";
-import { PickleConfirmDialog } from "./pickle-confirm-dialog";
+import { ExportedCodeDialog } from "@/components/exports/exported-code-dialog";
+import { PickleConfirmDialog } from "@/components/exports/pickle-confirm-dialog";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 

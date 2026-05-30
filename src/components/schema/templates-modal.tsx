@@ -1,8 +1,8 @@
 "use client";
 
 import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
-import { classNames } from "../shared/dashboard-data";
-import { providers as allProviders } from "../shared/dashboard-data";
+import { classNames } from "@/lib/utils";
+import { providers as allProviders } from "@/constants/projects";
 import { typeBadgeClass, typeSelectClass } from "@/constants/schema";
 import type { FieldTemplate, FieldTemplateInput } from "@/lib/field-template-store";
 import type { useFieldTemplates } from "@/hooks/use-field-templates";

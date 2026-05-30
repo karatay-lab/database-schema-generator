@@ -1,6 +1,6 @@
 "use client";
 
-import { classNames } from "../shared/dashboard-data";
+import { classNames } from "@/lib/utils";
 import { Card, CardHeader, CardBody } from "@/components/migrations/migration-card";
 import { StateChip, StepBadge } from "@/components/migrations/phase-state";
 import { ErrorBox } from "@/components/migrations/error-box";

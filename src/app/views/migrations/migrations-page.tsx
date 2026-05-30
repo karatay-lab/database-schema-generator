@@ -2,18 +2,18 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useProjectInfo } from "../shared/project-info-context";
-import { useSchemaWarnings } from "../shared/use-schema-warnings";
+import { useSchemaWarnings } from "@/hooks/use-schema-warnings";
 import type { MigrationPlan } from "@/types/migrations";
-import { SessionHistory } from "./session-history";
-import { MigrationTypeSelector } from "./migration-type-selector";
-import { ConnectionManagementCard } from "./connection-management-card";
-import { DeploySchemaCard } from "./deploy-schema-card";
-import { VersionMigrationSteps } from "./version-migration-steps";
-import { CollectResultModal } from "./collect-result-modal";
-import { DestroyDeployModal } from "./destroy-deploy-modal";
-import { PreflightModal } from "./preflight-modal";
-import { FixRowsModal } from "./fix-rows-modal";
-import { ConnectionStringModal } from "./connection-string-modal";
+import { SessionHistory } from "@/components/migrations/session-history";
+import { MigrationTypeSelector } from "@/components/migrations/migration-type-selector";
+import { ConnectionManagementCard } from "@/components/migrations/connection-management-card";
+import { DeploySchemaCard } from "@/components/migrations/deploy-schema-card";
+import { VersionMigrationSteps } from "@/components/migrations/version-migration-steps";
+import { CollectResultModal } from "@/components/migrations/collect-result-modal";
+import { DestroyDeployModal } from "@/components/migrations/destroy-deploy-modal";
+import { PreflightModal } from "@/components/migrations/preflight-modal";
+import { FixRowsModal } from "@/components/migrations/fix-rows-modal";
+import { ConnectionStringModal } from "@/components/migrations/connection-string-modal";
 import { useMigrationConnections } from "@/hooks/use-migration-connections";
 import type {
   CheckSyncResponse,

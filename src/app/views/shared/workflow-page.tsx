@@ -4,11 +4,11 @@ import { useQuery } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
 import { useDashboard, useActiveProject } from "./dashboard-context";
 import {
-  classNames,
   fieldRows,
   tableSummaries,
   workflowSummaries,
 } from "./dashboard-data";
+import { classNames } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 
 type WorkflowPageProps = {

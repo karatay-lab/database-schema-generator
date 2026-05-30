@@ -35,18 +35,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useRouter } from "next/navigation";
 import {
-  classNames,
   defaultSchemaOptions,
   graphqlOptions,
   prismaClients,
+  providerConfig,
   providers,
-  type Project,
-} from "../shared/dashboard-data";
-import { useRouter } from "next/navigation";
-import { providerConfig } from "@/constants/projects";
+} from "@/constants/projects";
 import { DatabaseIcon } from "@/components/projects/project-icons";
-import { ProjectCard } from "./project-card";
+import { ProjectCard } from "@/components/projects/project-card";
+import { classNames } from "@/lib/utils";
+import type { Project } from "@/types/projects";
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -603,4 +603,3 @@ export function ProjectsPageContent() {
     </div>
   );
 }
-

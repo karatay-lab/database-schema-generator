@@ -1,3 +1,13 @@
+import type { Project } from "@/types/projects";
+
+export type { Project, ProjectVersion, SchemaOptions } from "@/types/projects";
+export {
+  defaultSchemaOptions,
+  graphqlOptions,
+  prismaClients,
+  providers,
+} from "@/constants/projects";
+
 export type MenuItem = {
   label: string;
   href: string;
@@ -7,57 +17,12 @@ export type MenuItem = {
   metric: string;
 };
 
-export type SchemaOptions = {
-  client: string;
-  graphql: string;
-};
-
-export type ProjectVersion = {
-  name: string;
-  createdAt: string;
-};
-
-export type Project = {
-  id: string;
-  name: string;
-  provider: string;
-  schemaOptions: SchemaOptions;
-  health: string;
-  tables: number;
-  fields: number;
-  imports?: number;
-  enums?: number;
-  relations: number;
-  restrictions?: number;
-  versions: ProjectVersion[];
-};
-
 export type TableSummary = {
   name: string;
   fields: number;
   rows: string;
   status: string;
   accent: string;
-};
-
-export const providers = ["Postgres", "MySQL", "SQLite"];
-export const prismaClients = ["prisma-client-js", "prisma-client"];
-export const graphqlOptions = [
-  "None",
-  "Apollo Server (SDL-first)",
-  "GraphQL Yoga",
-  "Pothos Prisma plugin",
-  "TypeGraphQL Prisma generator",
-  "Nexus",
-  "GraphQL Tools (SDL-first)",
-  "GraphQL.js",
-  "NestJS Apollo",
-  "Express GraphQL",
-  "Fastify GQL",
-];
-export const defaultSchemaOptions: SchemaOptions = {
-  client: prismaClients[0],
-  graphql: graphqlOptions[0],
 };
 
 export const menuItemsBase: MenuItem[] = [
@@ -208,7 +173,3 @@ export const workflowSummaries: Record<string, string> = {
   Hierarchy: "Review table dependencies and the migration execution order used for relation-safe data moves.",
   History: "Select a project from committed history and restore its schema context.",
 };
-
-export function classNames(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(" ");
-}
