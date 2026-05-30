@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { IconChevronDown, IconChevronLeft, IconChevronRight, IconPencil, IconTrash } from "@tabler/icons-react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { IconChevronDown, IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
 import { classNames } from "../shared/dashboard-data";
 import { fieldTypeBadgeClass } from "@/lib/badge-utils";
-import { toCamelCaseIdentifier } from "@/lib/schema-naming";
+
 import { useProjectInfo } from "../shared/project-info-context";
 import { useVersionDiffLookup } from "../shared/use-version-diff";
 import { FkTypeDetailModal, VersionDiffBadge, ApproveWarningButton } from "../shared/version-diff-badge";
