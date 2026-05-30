@@ -2,10 +2,7 @@
   "name": "database-schema-generator",
   "version": "0.3.0",
   "private": true,
-  "pnpm": {
-    "onlyBuiltDependencies": ["@prisma/engines", "msw", "sharp", "unrs-resolver"]
-  },
-  "scripts": {
+"scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
