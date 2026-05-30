@@ -3,4 +3,5 @@ allowBuilds:
   better-sqlite3: true
   msw: true
   unrs-resolver: true
+  prisma: false
   sharp: false
