@@ -15,6 +15,7 @@ import { IssueSection } from "@/components/migrations/issue-section";
 import { shortUuid } from "@/constants/migrations";
 import type { MigrationPlan } from "@/types/migrations";
 import { SessionHistory } from "./session-history";
+import { useMigrationConnections } from "@/hooks/use-migration-connections";
 import type {
   CheckSyncResponse,
   CollectResponse,
@@ -68,34 +69,9 @@ export function MigrationsPageContent() {
   // ── session history ──
   const [sessions, setSessions] = useState<MigrationSession[]>([]);
 
-  // ── saved connections ──
-  const [connections, setConnections] = useState<ConnectionRecord[]>([]);
-  const [activeConnectionId, setActiveConnectionId] = useState<string>("");
-  const [loadingConnections, setLoadingConnections] = useState(false);
-  const [deletingId, setDeletingId] = useState<string>("");
-
   // ── sync compatibility check ──
   const [syncCheckState, setSyncCheckState] = useState<"idle" | "loading" | "compatible" | "incompatible">("idle");
   const [syncCheckResult, setSyncCheckResult] = useState<CheckSyncResponse | null>(null);
-
-  // ── step 1: new connection form ──
-  const [showNewForm, setShowNewForm] = useState(false);
-  const [connectionName, setConnectionName] = useState("");
-  const [host, setHost] = useState("localhost");
-  const [port, setPort] = useState(
-    isSQLite ? "" : provider.toLowerCase() === "mysql" ? "3306" : "5432",
-  );
-  const [dbUser, setDbUser] = useState("");
-  const [password, setPassword] = useState("");
-  const [database, setDatabase] = useState("");
-  const [connectState, setConnectState] = useState<PhaseState>("idle");
-  const [connectError, setConnectError] = useState("");
-  const [showConnStringModal, setShowConnStringModal] = useState(false);
-  const [connStringValue, setConnStringValue] = useState("");
-  const [connStringORM, setConnStringORM] = useState<"prisma" | "drizzle" | "custom">("prisma");
-  const [connStringEnvName, setConnStringEnvName] = useState("DATABASE_URL");
-  const [connStringCopied, setConnStringCopied] = useState(false);
-  const [remoteTables, setRemoteTables] = useState<string[]>([]);
 
   // ── new migration ──
   const [newTargetVersion, setNewTargetVersion] = useState(versions[versions.length - 1] ?? "");
@@ -106,10 +82,6 @@ export function MigrationsPageContent() {
   const [destroyConfirmText, setDestroyConfirmText] = useState("");
   const [destroyDbPreview, setDestroyDbPreview] = useState<{ tables: { name: string; count: number }[]; total: number } | null>(null);
   const [destroyDbPreviewLoading, setDestroyDbPreviewLoading] = useState(false);
-
-  // ── connection test ──
-  const [testingId, setTestingId] = useState("");
-  const [testResults, setTestResults] = useState<Record<string, { success: boolean; tables?: string[]; error?: string }>>({});
 
   // ── version plan ──
   const [syncVersion, setSyncVersion] = useState("");
@@ -171,7 +143,30 @@ export function MigrationsPageContent() {
   const [fixModalLoading, setFixModalLoading] = useState(false);
   const [fixModalError, setFixModalError] = useState("");
 
-  const activeConnection = connections.find((c) => c.uuid === activeConnectionId) ?? null;
+  // ── connection management hook ────────────────────────────────────────────
+  const {
+    connections, activeConnectionId, activeConnection, loadingConnections,
+    deletingId, testingId, testResults, remoteTables,
+    setActiveConnectionId, setRemoteTables,
+    showNewForm, connectionName, host, port, dbUser, password, database,
+    connectState, connectError,
+    setShowNewForm, setConnectionName, setHost, setPort, setDbUser, setPassword, setDatabase,
+    setConnectState, setConnectError,
+    showConnStringModal, connStringValue, connStringORM, connStringEnvName, connStringCopied,
+    setShowConnStringModal, setConnStringValue, setConnStringORM, setConnStringEnvName, setConnStringCopied,
+    loadConnections, selectConnection, handleDelete, handleTestConnection, handleConnect,
+    openConnStringModal, rebuildConnStringValue,
+  } = useMigrationConnections({
+    onConnected: (tableCount) => {
+      setDbTableCount(tableCount);
+      if (tableCount === 0) {
+        setMigrationPlan("new");
+        setPushState("idle");
+        setPushError("");
+      }
+    },
+    onResetFromModelDiff: resetFromModelDiff,
+  });
 
   // ── migration state persistence ───────────────────────────────────────────
 
@@ -326,27 +321,6 @@ export function MigrationsPageContent() {
     resetFromModelDiff();
   }
 
-  // ─── load connections ────────────────────────────────────────────────────
-
-  const loadConnections = useCallback(async () => {
-    if (!projectName) return;
-    setLoadingConnections(true);
-    try {
-      const res = await fetch(`/api/migrations/connections?projectName=${encodeURIComponent(projectName)}`);
-      const data: ConnectionsResponse = await res.json();
-      setConnections(data.connections ?? []);
-    } catch {
-      // silent
-    } finally {
-      setLoadingConnections(false);
-    }
-  }, [projectName]);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadConnections();
-  }, [loadConnections]);
-
   // Auto-check whether the selected syncVersion schema matches the live DB.
   // Fires whenever connection or syncVersion changes while in version-migration mode.
   useEffect(() => {
@@ -379,132 +353,6 @@ export function MigrationsPageContent() {
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectState, activeConnectionId, syncVersion, migrationPlan]);
-
-  // ─── select existing connection ──────────────────────────────────────────
-
-  const selectConnection = (uuid: string) => {
-    setActiveConnectionId(uuid);
-    setShowNewForm(false);
-    setConnectState("success");
-    setConnectError("");
-    setRemoteTables([]);
-    setDbTableCount(null); // unknown until re-probed
-    resetFromModelDiff();
-  };
-
-  // ─── delete connection ───────────────────────────────────────────────────
-
-  const handleDelete = async (uuid: string) => {
-    setDeletingId(uuid);
-    try {
-      await fetch(
-        `/api/migrations/connections?projectName=${encodeURIComponent(projectName)}&uuid=${uuid}`,
-        { method: "DELETE" },
-      );
-      setConnections((prev) => prev.filter((c) => c.uuid !== uuid));
-      if (activeConnectionId === uuid) {
-        setActiveConnectionId("");
-        setConnectState("idle");
-        setDbTableCount(null);
-        resetFromModelDiff();
-      }
-    } finally {
-      setDeletingId("");
-    }
-  };
-
-  // ─── test existing connection ────────────────────────────────────────────
-
-  const handleTestConnection = async (uuid: string) => {
-    setTestingId(uuid);
-    setTestResults((prev) => { const next = { ...prev }; delete next[uuid]; return next; });
-    try {
-      const res = await fetch("/api/migrations/test-connection", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ connectionId: uuid }),
-      });
-      const data = await res.json() as { success: boolean; tables?: string[]; error?: string };
-      setTestResults((prev) => ({ ...prev, [uuid]: data }));
-    } catch {
-      setTestResults((prev) => ({ ...prev, [uuid]: { success: false, error: "Request failed." } }));
-    } finally {
-      setTestingId("");
-    }
-  };
-
-  // ─── test + create connection ────────────────────────────────────────────
-
-  const openConnStringModal = async () => {
-    const ormEnv = connStringORM === "custom" ? connStringEnvName : "DATABASE_URL";
-    setConnStringCopied(false);
-    setShowConnStringModal(true);
-    if (!activeConnectionId) { setConnStringValue(`${ormEnv}=`); return; }
-    try {
-      const res = await fetch(`/api/migrations/connections/url?connectionId=${activeConnectionId}`);
-      const data = await res.json() as { success: boolean; url?: string };
-      if (data.success && data.url) {
-        setConnStringValue(`${ormEnv}=${data.url}`);
-      } else {
-        setConnStringValue(`${ormEnv}=`);
-      }
-    } catch {
-      setConnStringValue(`${ormEnv}=`);
-    }
-  };
-
-  const rebuildConnStringValue = (orm: typeof connStringORM, envName: string) => {
-    const ormEnv = orm === "custom" ? envName : "DATABASE_URL";
-    setConnStringValue((prev) => {
-      const url = prev.includes("=") ? prev.split("=").slice(1).join("=") : prev;
-      return `${ormEnv}=${url}`;
-    });
-  };
-
-  const handleConnect = async () => {
-    setConnectState("loading");
-    setConnectError("");
-
-    try {
-      const res = await fetch("/api/migrations/connect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectName,
-          connectionName: connectionName || `${provider} — ${host}:${port}/${database}`,
-          provider,
-          host,
-          port,
-          user: dbUser,
-          password,
-          database,
-        }),
-      });
-      const data: ConnectResponse = await res.json();
-      if (!data.success) throw new Error(data.error ?? "Connection failed.");
-
-      setActiveConnectionId(data.uuid!);
-      setRemoteTables(data.tables ?? []);
-      setConnectState("success");
-      setShowNewForm(false);
-      await loadConnections();
-      resetFromModelDiff();
-
-      // Detect empty DB and auto-select plan
-      const tableCount = data.tables?.length ?? 0;
-      setDbTableCount(tableCount);
-      if (tableCount === 0) {
-        setMigrationPlan("new");
-        setPushState("idle");
-        setPushError("");
-      }
-
-      void persistMigrationState({ connectionId: data.uuid });
-    } catch (err) {
-      setConnectError(err instanceof Error ? err.message : "Connection failed.");
-      setConnectState("error");
-    }
-  };
 
   // ─── new migration: open destroy modal with DB data check ────────────────
 
@@ -1265,7 +1113,7 @@ export function MigrationsPageContent() {
               <div className="flex justify-end">
                 <button
                   type="button"
-                  onClick={() => void handleConnect()}
+                  onClick={() => void handleConnect(persistMigrationState)}
                   disabled={connectState === "loading" || undefined}
                   className="h-9 min-w-40 rounded-md bg-slate-800 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
