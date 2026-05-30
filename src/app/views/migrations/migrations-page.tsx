@@ -1,27 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
-import { IconCheck, IconCopy, IconX } from "@tabler/icons-react";
-import { classNames } from "../shared/dashboard-data";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useSchemaWarnings } from "../shared/use-schema-warnings";
-import { ModelDiff } from "@/components/migrations/model-diff";
-import { StateChip, StepBadge } from "@/components/migrations/phase-state";
-import { Card, CardHeader, CardBody } from "@/components/migrations/migration-card";
-import { ErrorBox } from "@/components/migrations/error-box";
-import { MigrationLabel as Label, MigrationInput as Input } from "@/components/migrations/migration-form";
-import { IssueSection } from "@/components/migrations/issue-section";
-import { shortUuid } from "@/constants/migrations";
 import type { MigrationPlan } from "@/types/migrations";
 import { SessionHistory } from "./session-history";
+import { MigrationTypeSelector } from "./migration-type-selector";
+import { ConnectionManagementCard } from "./connection-management-card";
+import { DeploySchemaCard } from "./deploy-schema-card";
+import { VersionMigrationSteps } from "./version-migration-steps";
+import { CollectResultModal } from "./collect-result-modal";
+import { DestroyDeployModal } from "./destroy-deploy-modal";
+import { PreflightModal } from "./preflight-modal";
+import { FixRowsModal } from "./fix-rows-modal";
+import { ConnectionStringModal } from "./connection-string-modal";
 import { useMigrationConnections } from "@/hooks/use-migration-connections";
 import type {
   CheckSyncResponse,
   CollectResponse,
-  ConnectionRecord,
-  ConnectionsResponse,
-  ConnectResponse,
   InvalidRow,
   ModelComparisonResult,
   PhaseState,
@@ -678,21 +674,16 @@ export function MigrationsPageContent() {
   return (
     <div className="space-y-4">
 
-      {/* ── Migration progress bar (fixed top) ───────────────────────────── */}
+      {/* ── Migration progress bar (fixed top) ─────────────────────────────── */}
       {migratePhase !== "idle" && (
         <div className="fixed left-0 right-0 top-0 z-60">
           <div className="h-1 bg-slate-200">
-            <div
-              className="h-full bg-emerald-500 transition-all duration-500 ease-out"
-              style={{ width: `${progressPct}%` }}
-            />
+            <div className="h-full bg-emerald-500 transition-all duration-500 ease-out" style={{ width: `${progressPct}%` }} />
           </div>
           <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-5 py-2 shadow-sm">
             <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
             <p className="text-xs font-semibold text-slate-700">
-              {migratePhase === "schema_push"
-                ? "Applying schema…"
-                : `Inserting records — ${migrateProgressTables.length} / ${migrateProgressTotal} tables`}
+              {migratePhase === "schema_push" ? "Applying schema…" : `Inserting records — ${migrateProgressTables.length} / ${migrateProgressTotal} tables`}
             </p>
             {migratePhase === "inserting" && migrateProgressTables.length > 0 && (
               <span className="ml-auto font-mono text-[11px] text-slate-500">
@@ -703,23 +694,17 @@ export function MigrationsPageContent() {
         </div>
       )}
 
-      {/* ── Header ────────────────────────────────────────────────────────── */}
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Migrations</p>
             <h3 className="mt-1 text-xl font-semibold text-slate-950">Schema Migration Workflow</h3>
-            <p className="mt-1 text-sm text-slate-500">
-              Connect to a database, then deploy a fresh schema or migrate data between versions.
-            </p>
+            <p className="mt-1 text-sm text-slate-500">Connect to a database, then deploy a fresh schema or migrate data between versions.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">
-              {provider}
-            </span>
-            <span className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">
-              {projectName}
-            </span>
+            <span className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">{provider}</span>
+            <span className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">{projectName}</span>
             {migrationPlan && (isNewPlan ? newTargetVersion : targetVersion) && (
               <span className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">
                 Target: {isNewPlan ? newTargetVersion : targetVersion}
@@ -734,7 +719,7 @@ export function MigrationsPageContent() {
         </div>
       </div>
 
-      {/* ── Session History ───────────────────────────────────────────────── */}
+      {/* ── Session History ─────────────────────────────────────────────────── */}
       <SessionHistory
         sessions={sessions}
         onResume={(s) => {
@@ -746,1658 +731,222 @@ export function MigrationsPageContent() {
           if (s.collectTimestamp) {
             setCollectTimestamp(s.collectTimestamp);
             setCollectState("success");
-            if (s.collectTables) {
-              setCollectTables(s.collectTables);
-              setCollectTotal(s.collectRowCount ?? 0);
-            }
+            if (s.collectTables) { setCollectTables(s.collectTables); setCollectTotal(s.collectRowCount ?? 0); }
           }
-          void persistMigrationState({
-            connectionId: s.connectionId,
-            syncVersion: s.fromVersion,
-            targetVersion: s.toVersion,
-            dataTimestamp: s.collectTimestamp,
-          });
+          void persistMigrationState({ connectionId: s.connectionId, syncVersion: s.fromVersion, targetVersion: s.toVersion, dataTimestamp: s.collectTimestamp });
         }}
       />
 
-      {/* ── Migration Type Selector ───────────────────────────────────────── */}
-      <div className="rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm">
-        <p className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-          Migration Type
-        </p>
+      {/* ── Migration Type Selector ─────────────────────────────────────────── */}
+      <MigrationTypeSelector
+        canDoAnyMigration={canDoAnyMigration}
+        isNewPlan={isNewPlan}
+        isVersionPlan={isVersionPlan}
+        canVersionMigrate={canVersionMigrate}
+        dbIsEmpty={dbIsEmpty}
+        syncVersion={syncVersion}
+        targetVersion={targetVersion}
+        versions={versions}
+        syncCheckState={syncCheckState}
+        syncCheckResult={syncCheckResult}
+        onChangePlan={changePlan}
+        onSyncVersionChange={(v) => {
+          setSyncVersion(v);
+          setTargetVersion("");
+          resetFromModelDiff();
+          void persistMigrationState({ syncVersion: v, targetVersion: null, zodGenerated: false, schemaCheckPassed: false, dataTimestamp: null, snapshotId: null, validationPassed: false, runLogPath: null });
+        }}
+        onTargetVersionChange={(v) => {
+          setTargetVersion(v);
+          resetFromModelDiff();
+          void persistMigrationState({ targetVersion: v, zodGenerated: false, schemaCheckPassed: false, dataTimestamp: null, snapshotId: null, validationPassed: false, runLogPath: null });
+        }}
+      />
 
-        {!canDoAnyMigration ? (
-          <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
-            <p className="text-sm font-semibold text-amber-700">
-              At least one project version is required to run a migration.
-            </p>
-            <p className="mt-1 text-xs text-amber-600">
-              Go to the Projects workspace and create a version before continuing.
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      {/* ── Step 1: Connection management ──────────────────────────────────── */}
+      <ConnectionManagementCard
+        canDoAnyMigration={canDoAnyMigration}
+        migrationPlan={migrationPlan}
+        connections={connections}
+        activeConnectionId={activeConnectionId}
+        activeConnection={activeConnection}
+        loadingConnections={loadingConnections}
+        deletingId={deletingId}
+        testingId={testingId}
+        testResults={testResults}
+        remoteTables={remoteTables}
+        showNewForm={showNewForm}
+        connectionName={connectionName}
+        host={host}
+        port={port}
+        dbUser={dbUser}
+        password={password}
+        database={database}
+        connectState={connectState}
+        connectError={connectError}
+        isSQLite={isSQLite}
+        onSelectConnection={selectConnection}
+        onDeleteConnection={(uuid) => void handleDelete(uuid)}
+        onTestConnection={(uuid) => void handleTestConnection(uuid)}
+        onOpenConnString={() => void openConnStringModal()}
+        onToggleNewForm={() => { setShowNewForm((v) => !v); setConnectError(""); }}
+        onConnectionNameChange={setConnectionName}
+        onHostChange={setHost}
+        onPortChange={setPort}
+        onDbUserChange={setDbUser}
+        onPasswordChange={setPassword}
+        onDatabaseChange={setDatabase}
+        onConnect={() => void handleConnect(persistMigrationState)}
+      />
 
-            {/* New Migration option */}
-            <button
-              type="button"
-              onClick={() => changePlan("new")}
-              className={classNames(
-                "rounded-lg border-2 p-4 text-left transition",
-                isNewPlan
-                  ? "border-cyan-500 bg-cyan-50"
-                  : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
-              )}
-            >
-              <div className="flex items-start gap-3">
-                <span className={classNames(
-                  "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 transition",
-                  isNewPlan ? "border-cyan-500 bg-cyan-500" : "border-slate-300",
-                )}>
-                  {isNewPlan && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
-                </span>
-                <div>
-                  <p className="text-sm font-semibold text-slate-950">Destroy and Deploy Schema</p>
-                  <p className="mt-0.5 text-xs text-slate-500">
-                    Wipe the database and deploy a schema version from scratch. All existing data will be lost.
-                  </p>
-                  {dbIsEmpty && (
-                    <span className="mt-2 inline-block rounded-full bg-cyan-100 px-2 py-0.5 text-[10px] font-semibold text-cyan-700">
-                      Empty DB detected
-                    </span>
-                  )}
-                </div>
-              </div>
-            </button>
-
-            {/* Version Migration option */}
-            <button
-              type="button"
-              onClick={() => { if (!dbIsEmpty && canVersionMigrate) changePlan("version"); }}
-              disabled={dbIsEmpty || !canVersionMigrate || undefined}
-              className={classNames(
-                "rounded-lg border-2 p-4 text-left transition",
-                isVersionPlan
-                  ? "border-cyan-500 bg-cyan-50"
-                  : dbIsEmpty || !canVersionMigrate
-                  ? "cursor-not-allowed border-slate-200 bg-slate-50 opacity-50"
-                  : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
-              )}
-            >
-              <div className="flex items-start gap-3">
-                <span className={classNames(
-                  "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 transition",
-                  isVersionPlan ? "border-cyan-500 bg-cyan-500" : "border-slate-300",
-                )}>
-                  {isVersionPlan && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
-                </span>
-                <div>
-                  <p className="text-sm font-semibold text-slate-950">Sync and Migrate to Another Version</p>
-                  <p className="mt-0.5 text-xs text-slate-500">
-                    Collect existing data, validate, and migrate between schema versions.
-                  </p>
-                  {dbIsEmpty && (
-                    <span className="mt-2 inline-block rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
-                      DB is empty — use Destroy and Deploy Schema
-                    </span>
-                  )}
-                  {!canVersionMigrate && !dbIsEmpty && (
-                    <span className="mt-2 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-                      Requires 2+ project versions
-                    </span>
-                  )}
-                </div>
-              </div>
-            </button>
-          </div>
-        )}
-
-        {/* Version selectors — only shown for version migration */}
-        {isVersionPlan && (
-          <div className="mt-4 flex flex-wrap items-start gap-3 border-t border-slate-100 pt-4">
-            <div className="flex min-w-[220px] flex-1 flex-col gap-1">
-              <Label>Database is currently at</Label>
-              <select
-                value={syncVersion}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setSyncVersion(v);
-                  setTargetVersion("");
-                  resetFromModelDiff();
-                  void persistMigrationState({ syncVersion: v, targetVersion: null, zodGenerated: false, schemaCheckPassed: false, dataTimestamp: null, snapshotId: null, validationPassed: false, runLogPath: null });
-                }}
-                className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-slate-500"
-              >
-                <option key="__sync-placeholder__" value="" disabled>Select a version…</option>
-                {versions.map((v) => (
-                  <option key={v} value={v}>{v}</option>
-                ))}
-              </select>
-
-              {/* ── Sync compatibility indicator ── */}
-              {syncVersion && syncCheckState === "loading" && (
-                <p className="text-[11px] text-slate-500">Checking compatibility…</p>
-              )}
-              {syncVersion && syncCheckState === "compatible" && (
-                <p className="text-[11px] font-semibold text-emerald-600">✓ Schema matches database</p>
-              )}
-              {syncVersion && syncCheckState === "incompatible" && (
-                <div className="rounded-md border border-rose-200 bg-rose-50 px-2.5 py-2 space-y-1">
-                  <p className="text-[11px] font-semibold text-rose-600">
-                    ✗ Schema does not match this database
-                  </p>
-                  {syncCheckResult?.error && (
-                    <p className="text-[11px] text-rose-500">{syncCheckResult.error}</p>
-                  )}
-                  {(syncCheckResult?.missingTables?.length ?? 0) > 0 && (
-                    <p className="text-[11px] text-rose-500">
-                      Missing tables: <span className="font-mono">{syncCheckResult!.missingTables!.join(", ")}</span>
-                    </p>
-                  )}
-                  {(syncCheckResult?.columnIssues?.length ?? 0) > 0 && (
-                    <div className="space-y-0.5">
-                      {syncCheckResult!.columnIssues!.map((issue) => (
-                        <p key={issue.table} className="text-[11px] text-rose-500">
-                          <span className="font-mono font-semibold">{issue.table}</span>: missing{" "}
-                          <span className="font-mono">{issue.missingColumns.join(", ")}</span>
-                        </p>
-                      ))}
-                    </div>
-                  )}
-                  <p className="text-[11px] text-rose-400 italic">
-                    Select the version that reflects the database&apos;s current state.
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {syncVersion && syncCheckState === "compatible" && (
-              <>
-                <span className="mt-6 shrink-0 text-slate-400">→</span>
-                <div className="flex min-w-[220px] flex-1 flex-col gap-1">
-                  <Label>Migrate to</Label>
-                  <select
-                    value={targetVersion}
-                    onChange={(e) => {
-                      setTargetVersion(e.target.value);
-                      resetFromModelDiff();
-                      void persistMigrationState({ targetVersion: e.target.value, zodGenerated: false, schemaCheckPassed: false, dataTimestamp: null, snapshotId: null, validationPassed: false, runLogPath: null });
-                    }}
-                    className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-slate-500"
-                  >
-                    <option key="__target-placeholder__" value="" disabled>Select a version…</option>
-                    {versions.filter((_, idx) => idx > versions.indexOf(syncVersion)).map((v) => (
-                      <option key={v} value={v}>{v}</option>
-                    ))}
-                  </select>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ── Step 1: Connection management ─────────────────────────────────── */}
-      <Card locked={!canDoAnyMigration || migrationPlan === null}>
-        <CardHeader>
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <StepBadge n={1} state={connectState} />
-              <div>
-                <p className="text-sm font-semibold text-slate-950">Database Connection</p>
-                <p className="text-xs text-slate-500">
-                  Select a saved connection or add a new one.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <StateChip state={connectState} />
-              {activeConnectionId && (
-                <button
-                  type="button"
-                  onClick={() => { void openConnStringModal(); }}
-                  className="h-8 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                >
-                  Connection String
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => { setShowNewForm((v) => !v); setConnectError(""); }}
-                className="h-8 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-                {showNewForm ? "Cancel" : "+ New Connection"}
-              </button>
-            </div>
-          </div>
-        </CardHeader>
-
-        <CardBody>
-          {/* Saved connections list */}
-          {loadingConnections ? (
-            <p className="text-sm text-slate-500">Loading connections…</p>
-          ) : connections.length > 0 ? (
-            <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                Saved Connections
-              </p>
-              <div className="divide-y divide-slate-100 rounded-md border border-slate-200">
-                {connections.map((conn) => {
-                  const isActive = conn.uuid === activeConnectionId;
-                  return (
-                    <div
-                      key={conn.uuid}
-                      className={classNames(
-                        "flex items-center justify-between gap-3 px-4 py-3 transition",
-                        isActive ? "bg-emerald-50" : "bg-white hover:bg-slate-50",
-                      )}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => selectConnection(conn.uuid)}
-                        className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                      >
-                        <span
-                          className={classNames(
-                            "shrink-0 h-2 w-2 rounded-full",
-                            isActive ? "bg-emerald-500" : "bg-slate-300",
-                          )}
-                        />
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-slate-950">
-                            {conn.name}
-                          </p>
-                          <p className="text-xs text-slate-500">
-                            {conn.host}:{conn.port} / {conn.database}
-                          </p>
-                        </div>
-                        <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500">
-                          {shortUuid(conn.uuid)}
-                        </span>
-                        <span className="shrink-0 text-[11px] text-slate-400">
-                          {new Date(conn.lastUsedAt).toLocaleDateString()}
-                        </span>
-                      </button>
-                      <div className="flex shrink-0 flex-col items-end gap-1">
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => void handleTestConnection(conn.uuid)}
-                            disabled={testingId === conn.uuid || undefined}
-                            className="rounded px-2 py-1 text-xs font-semibold text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed"
-                          >
-                            {testingId === conn.uuid ? "Testing…" : "Test"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleDelete(conn.uuid)}
-                            disabled={deletingId === conn.uuid || undefined}
-                            className="rounded px-2 py-1 text-xs font-semibold text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed"
-                          >
-                            {deletingId === conn.uuid ? "…" : "Remove"}
-                          </button>
-                        </div>
-                        {testResults[conn.uuid] && (
-                          <span className={classNames(
-                            "text-[10px] font-semibold",
-                            testResults[conn.uuid]!.success ? "text-emerald-600" : "text-rose-600",
-                          )}>
-                            {testResults[conn.uuid]!.success
-                              ? `✓ ${testResults[conn.uuid]!.tables?.length ?? 0} tables`
-                              : `✗ ${testResults[conn.uuid]!.error ?? "Failed"}`}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : !showNewForm ? (
-            <p className="text-sm text-slate-500">
-              No connections saved yet.{" "}
-              <button
-                type="button"
-                onClick={() => setShowNewForm(true)}
-                className="font-semibold text-slate-700 underline underline-offset-2"
-              >
-                Add one
-              </button>
-            </p>
-          ) : null}
-
-          {/* New connection form */}
-          {showNewForm && (
-            <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                New Connection
-              </p>
-
-              <div className="flex flex-col gap-1">
-                <Label>Connection Name</Label>
-                <Input value={connectionName} onChange={setConnectionName} placeholder="e.g. Production DB" />
-              </div>
-
-              {isSQLite ? (
-                <div className="flex flex-col gap-1">
-                  <Label>SQLite File Path</Label>
-                  <Input value={database} onChange={setDatabase} placeholder="./path/to/database.db" />
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-                  <div className="col-span-2 lg:col-span-2 flex flex-col gap-1">
-                    <Label>Host / IP</Label>
-                    <Input value={host} onChange={setHost} placeholder="localhost" />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <Label>Port</Label>
-                    <Input value={port} onChange={setPort} placeholder="5432" />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <Label>Username</Label>
-                    <Input value={dbUser} onChange={setDbUser} placeholder="postgres" />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <Label>Password</Label>
-                    <Input value={password} onChange={setPassword} type="password" placeholder="••••••••" />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <Label>Database</Label>
-                    <Input value={database} onChange={setDatabase} placeholder="mydb" />
-                  </div>
-                </div>
-              )}
-
-              {connectError && <ErrorBox message={connectError} />}
-
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => void handleConnect(persistMigrationState)}
-                  disabled={connectState === "loading" || undefined}
-                  className="h-9 min-w-40 rounded-md bg-slate-800 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
-                  {connectState === "loading" ? "Connecting…" : "Test & Save Connection"}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Active connection badge */}
-          {activeConnection && !showNewForm && (
-            <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3">
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                <span className="text-sm font-semibold text-emerald-800">
-                  ● Active: {activeConnection.name}
-                </span>
-                <span className="font-mono text-xs text-emerald-700">
-                  uuid: {activeConnection.uuid}
-                </span>
-                <span className="text-xs text-emerald-700">
-                  {activeConnection.host}:{activeConnection.port} / {activeConnection.database}
-                </span>
-                <span className="text-xs text-emerald-600">{activeConnection.provider}</span>
-              </div>
-            </div>
-          )}
-
-          {/* Live tables from connect introspection */}
-          {remoteTables.length > 0 && (
-            <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                Tables in DB ({remoteTables.length})
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {remoteTables.map((t) => (
-                  <span key={t} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
-                    {t}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-        </CardBody>
-      </Card>
-
-      {/* ── Step 2: Deploy Schema ─────────────────────────────────────────── */}
+      {/* ── Step 2: Deploy Schema (new plan only) ──────────────────────────── */}
       {isNewPlan && (
-        <Card locked={connectState !== "success"}>
-          <CardHeader>
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <StepBadge n={2} state={pushState} />
-                <div>
-                  <p className="text-sm font-semibold text-slate-950">Deploy Schema</p>
-                  <p className="text-xs text-slate-500">
-                    Deploy Schema applies changes non-destructively. Destroy &amp; Deploy force-resets the entire database.
-                  </p>
-                </div>
-              </div>
-              <StateChip state={pushState} />
-            </div>
-          </CardHeader>
-
-          <CardBody>
-            <div className="flex flex-wrap items-end gap-4">
-              <div className="flex flex-col gap-1">
-                <Label>Deploy version</Label>
-                <select
-                  value={newTargetVersion}
-                  onChange={(e) => {
-                    setNewTargetVersion(e.target.value);
-                    setPushState("idle");
-                    setPushError("");
-                    setLastPushMode(null);
-                  }}
-                  className="h-9 min-w-40 rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-slate-500"
-                >
-                  {versions.map((v) => (
-                    <option key={v} value={v}>{v}</option>
-                  ))}
-                </select>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => void handlePushNew(false)}
-                disabled={pushState === "loading" || pushState === "success" || undefined}
-                className="h-9 min-w-40 rounded-md border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {pushState === "loading" && lastPushMode === "safe" ? "Deploying…" : "Deploy Schema"}
-              </button>
-
-              <button
-                type="button"
-                onClick={handleDestroyOpen}
-                disabled={pushState === "loading" || pushState === "success" || undefined}
-                className="h-9 min-w-44 rounded-md bg-rose-600 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                {pushState === "loading" && lastPushMode === "destroy" ? "Deploying…" : "Destroy & Deploy"}
-              </button>
-
-              {pushState === "success" && (
-                <button
-                  type="button"
-                  onClick={() => { setPushState("idle"); setPushError(""); setLastPushMode(null); }}
-                  className="h-9 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                >
-                  Deploy Again
-                </button>
-              )}
-            </div>
-
-            {pushState === "success" && (
-              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3">
-                <p className="text-sm font-semibold text-emerald-700">
-                  ✓ Schema version {newTargetVersion} successfully deployed
-                  {lastPushMode === "destroy" ? " (database force-reset)" : ""}.
-                </p>
-              </div>
-            )}
-
-            {pushError && (
-              <>
-                <ErrorBox message={pushError} />
-                {lastPushMode === "safe" && /cannot be executed|force.reset/i.test(pushError) && (
-                  <p className="text-xs text-amber-700 font-semibold">
-                    The schema has incompatible changes that require a full reset. Use <span className="font-mono">Destroy &amp; Deploy</span> to force-reset the database.
-                  </p>
-                )}
-              </>
-            )}
-          </CardBody>
-        </Card>
-      )}
-
-      {/* ── Steps 2–5 (Sync & Migrate) ───────────────────────────────────── */}
-      {isVersionPlan && (
-        <>
-          {/* ── Step 2: Model Diff ──────────────────────────────────────────── */}
-          <Card locked={!canModelDiff}>
-            <CardHeader>
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <StepBadge n={2} state={modelDiffState} />
-                  <div>
-                    <p className="text-sm font-semibold text-slate-950">Schema Change Review</p>
-                    <p className="text-xs text-slate-500">
-                      Compare schema versions, flag breaking changes, and generate validators to proceed.
-                    </p>
-                  </div>
-                </div>
-                <StateChip state={modelDiffState} />
-              </div>
-            </CardHeader>
-
-            <CardBody>
-              <ModelDiff
-                inline
-                projectName={projectName}
-                versions={versions}
-                fromVersion={syncVersion}
-                toVersion={targetVersion}
-                onZodGenerated={() => { setModelDiffState("success"); void persistMigrationState({ zodGenerated: true }); setSchemaCheckState("idle"); setSchemaCheckResult(null); void handleSchemaCheck(); }}
-                onOpenFullScreen={() => setShowModelDiffModal(true)}
-                onComparisonReady={(c) => setComparison(c)}
-              />
-
-              {warnings.length > 0 && (
-                <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">Tracking Workflow Review</p>
-                    <Link
-                      href={trackingHref}
-                      className="flex h-7 items-center rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                    >
-                      Go To Tracking Workflow →
-                    </Link>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    {(
-                      [
-                        { label: "Tables", count: warnings.filter((w) => w.entityKind === "table").length },
-                        { label: "Enums", count: warnings.filter((w) => w.entityKind === "enum").length },
-                        { label: "Schema", count: warnings.filter((w) => w.entityKind === "field").length },
-                        { label: "Relations", count: warnings.filter((w) => w.entityKind === "relation").length },
-                        { label: "Restrictions", count: 0 },
-                      ] as { label: string; count: number }[]
-                    ).map(({ label, count }) => (
-                      <div key={label} className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5">
-                        <span className="text-xs font-semibold text-slate-700">{label}</span>
-                        <span className={classNames(
-                          "rounded-full px-1.5 py-0.5 text-[10px] font-bold",
-                          count > 0 ? "bg-slate-100 text-slate-600" : "bg-slate-50 text-slate-400",
-                        )}>{count}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  {breakingPendingCount > 0 ? (
-                    <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3">
-                      <p className="text-sm font-semibold text-rose-700">
-                        {breakingPendingCount} breaking {breakingPendingCount === 1 ? "change requires" : "changes require"} approval before you can proceed.
-                      </p>
-                      <p className="mt-0.5 text-xs text-rose-600">
-                        Approve all breaking changes in the Tracking Workflow to unlock schema validation.
-                      </p>
-                    </div>
-                  ) : defaultsRequiredCount > 0 ? (
-                    <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
-                      <p className="text-sm font-semibold text-amber-700">
-                        {defaultsRequiredCount} {defaultsRequiredCount === 1 ? "item needs" : "items need"} an explicit decision before migration.
-                      </p>
-                      <p className="mt-0.5 text-xs text-amber-600">
-                        In Tracking, set replacement values for removed enum values and default values for new required fields — auto-generated placeholders corrupt real data.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2.5">
-                      <svg viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4 shrink-0 text-emerald-600">
-                        <path fillRule="evenodd" d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z" clipRule="evenodd" />
-                      </svg>
-                      <p className="text-sm font-semibold text-emerald-700">
-                        All changes approved in Tracking Workflow — approved actions will be taken.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-            </CardBody>
-          </Card>
-
-          {/* ── Step 3: Validate Schemas ─────────────────────────────────────── */}
-          <Card locked={!canSchemaCheck}>
-            <CardHeader>
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <StepBadge n={3} state={schemaCheckState} />
-                  <div>
-                    <p className="text-sm font-semibold text-slate-950">Validate Schemas</p>
-                    <p className="text-xs text-slate-500">
-                      Run <code className="font-mono text-[11px]">prisma validate</code> on both schema versions before touching the database.
-                    </p>
-                  </div>
-                </div>
-                <StateChip state={schemaCheckState} />
-              </div>
-            </CardHeader>
-
-            <CardBody>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {[
-                  { label: "Source schema", version: syncVersion, result: schemaCheckResult?.sync },
-                  { label: "Target schema", version: targetVersion, result: schemaCheckResult?.target },
-                ].map(({ label, version, result }) => (
-                  <div
-                    key={label}
-                    className={classNames(
-                      "rounded-lg border p-4",
-                      !result ? "border-slate-200 bg-slate-50" :
-                      result.valid ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50",
-                    )}
-                  >
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">{label}</p>
-                    <p className="mt-1 font-mono text-sm font-semibold text-slate-800">{version}.prisma</p>
-                    {result && (
-                      <p className={classNames(
-                        "mt-1 text-xs font-semibold",
-                        result.valid ? "text-emerald-700" : "text-rose-700",
-                      )}>
-                        {result.valid ? "✓ Valid" : `✗ ${result.errors.length} error${result.errors.length !== 1 ? "s" : ""}`}
-                      </p>
-                    )}
-                    {result && !result.valid && result.errors.length > 0 && (
-                      <div className="mt-2 max-h-40 overflow-y-auto rounded-md bg-rose-100/60 p-2">
-                        {result.errors.map((e, i) => (
-                          <p key={i} className="font-mono text-[10px] text-rose-800">{e}</p>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {schemaCheckState === "error" && !schemaCheckResult?.sync && !schemaCheckResult?.target && (
-                <ErrorBox message={schemaCheckResult?.error ?? "Schema check failed."} />
-              )}
-
-              {schemaCheckState === "loading" && (
-                <p className="text-xs text-slate-500">Running <code className="font-mono text-[11px]">prisma validate</code> on both schemas…</p>
-              )}
-
-              {schemaCheckState === "error" && (schemaCheckResult?.sync || schemaCheckResult?.target) && (
-                <div className="flex items-start justify-between gap-4 rounded-md border border-rose-200 bg-rose-50 px-4 py-3">
-                  <p className="text-sm font-semibold text-rose-700">
-                    One or more schemas have validation errors. Fix them in the /schema workflow before proceeding.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => void handleSchemaCheck()}
-                    className="shrink-0 rounded-md border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
-                  >
-                    Re-validate
-                  </button>
-                </div>
-              )}
-            </CardBody>
-          </Card>
-
-          {/* ── Step 4: Collect Data ─────────────────────────────────────────── */}
-          <Card locked={!canCollect}>
-            <CardHeader>
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <StepBadge n={4} state={collectState} />
-                  <div>
-                    <p className="text-sm font-semibold text-slate-950">Collect Data</p>
-                    <p className="text-xs text-slate-500">
-                      Query all tables from the source database and store a local snapshot.
-                    </p>
-                  </div>
-                </div>
-                <StateChip state={collectState} />
-              </div>
-            </CardHeader>
-
-            <CardBody>
-              {collectState === "success" && collectTables.length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2.5">
-                    <span className="text-sm font-semibold text-emerald-800">✓ Snapshot collected</span>
-                    <span className="text-emerald-300">·</span>
-                    <span className="text-xs text-emerald-700">{collectTables.length} table{collectTables.length !== 1 ? "s" : ""}</span>
-                    <span className="text-emerald-300">·</span>
-                    <span className="text-xs font-semibold text-emerald-700">{collectTotal.toLocaleString()} rows total</span>
-                    <span className="ml-auto font-mono text-[11px] text-emerald-600">{collectTimestamp}</span>
-                  </div>
-
-                  {(() => {
-                    const maxCount = Math.max(...collectTables.map((t) => t.count), 1);
-                    return (
-                      <div className="overflow-hidden rounded-md border border-slate-200">
-                        <div className="grid grid-cols-[minmax(0,1fr)_minmax(80px,35%)_4.5rem] items-center gap-4 border-b border-slate-200 bg-slate-50 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
-                          <span>Table</span>
-                          <span>Distribution</span>
-                          <span className="text-right">Rows</span>
-                        </div>
-                        {collectTables.map((t) => (
-                          <div
-                            key={t.name}
-                            className="grid grid-cols-[minmax(0,1fr)_minmax(80px,35%)_4.5rem] items-center gap-4 border-b border-slate-100 px-4 py-2.5 last:border-0 hover:bg-slate-50"
-                          >
-                            <span className="truncate font-mono text-xs font-semibold text-slate-800">{t.name}</span>
-                            <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
-                              <div
-                                className="h-full rounded-full bg-slate-500 transition-all duration-500"
-                                style={{ width: `${Math.max((t.count / maxCount) * 100, t.count > 0 ? 2 : 0)}%` }}
-                              />
-                            </div>
-                            <span className="text-right font-mono text-xs text-slate-600">
-                              {t.count.toLocaleString()}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  })()}
-
-                  {migrationOrder.length > 0 && (
-                    <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">Migration order</p>
-                      <p className="mt-1 font-mono text-xs text-slate-700">
-                        {migrationOrder.map((item) => item.modelName).join(" -> ")}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {collectError && <ErrorBox message={collectError} />}
-
-              <div className="flex items-center justify-between gap-3">
-                {/* Restore from snapshot — only after snapshot collected */}
-                {collectState === "success" && collectTimestamp && (
-                  <div className="flex flex-col gap-1">
-                    <button
-                      type="button"
-                      onClick={() => void handleRestore()}
-                      disabled={restoreState === "loading" || undefined}
-                      className="h-8 rounded-md border border-amber-300 bg-amber-50 px-3 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {restoreState === "loading" ? "Restoring…" : restoreState === "success" ? "✓ Restored" : "Restore to Sync Version"}
-                    </button>
-                    {restoreState === "success" && restoreTables.length > 0 && (
-                      <p className="text-[10px] text-emerald-600 font-semibold">
-                        ✓ {restoreTables.reduce((s, t) => s + t.created, 0).toLocaleString()} rows re-inserted
-                      </p>
-                    )}
-                    {restoreState === "error" && restoreError && (
-                      <p className="text-[10px] text-rose-600">{restoreError}</p>
-                    )}
-                  </div>
-                )}
-                <button
-                  type="button"
-                  onClick={() => void handleCollect()}
-                  disabled={collectBtnDisabled}
-                  className="ml-auto h-9 min-w-48 rounded-md bg-slate-800 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
-                  {collectState === "loading" ? "Collecting…" : "Collect All Tables"}
-                </button>
-              </div>
-            </CardBody>
-          </Card>
-
-          {/* ── Step 5: Validate & Migrate ───────────────────────────────────── */}
-          <Card locked={!canMigrate}>
-            <CardHeader>
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <StepBadge n={5} state={migrateState} />
-                  <div>
-                    <p className="text-sm font-semibold text-slate-950">Validate & Migrate</p>
-                    <p className="text-xs text-slate-500">
-                      Check collected data against both schema versions, then run the migration.
-                    </p>
-                  </div>
-                </div>
-                <StateChip state={migrateState} />
-              </div>
-            </CardHeader>
-
-            <CardBody>
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                <div className="grid gap-4 sm:grid-cols-4">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Connection</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-950 truncate">{activeConnection?.name ?? "—"}</p>
-                    <p className="font-mono text-[10px] text-slate-400">{activeConnection ? shortUuid(activeConnection.uuid) : ""}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">From</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-950">{syncVersion}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">To</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-950">{targetVersion}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Snapshot</p>
-                    <p className="mt-1 font-mono text-xs text-slate-700">{collectTimestamp || "—"}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Step A — Validate */}
-              <div className="space-y-3 rounded-lg border border-slate-200 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-semibold text-slate-800">Step A — Validate Data</p>
-                    <p className="text-[11px] text-slate-500">Check collected rows against both schema versions using Zod.</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {validateState !== "idle" && <StateChip state={validateState} />}
-                    <button
-                      type="button"
-                      onClick={() => void handleValidate()}
-                      disabled={validateBtnDisabled}
-                      className="h-8 min-w-36 rounded-md bg-slate-800 px-4 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                    >
-                      {validateState === "loading" ? "Validating…" : "Validate Data"}
-                    </button>
-                  </div>
-                </div>
-
-                {validateState === "success" && stage1Issues.length === 0 && stage2Issues.length === 0 && (
-                  <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2.5">
-                    <p className="text-sm font-semibold text-emerald-700">✓ All records pass both validation stages.</p>
-                  </div>
-                )}
-
-                {validateError && <ErrorBox message={validateError} />}
-
-                {validateState === "success" && (
-                  <>
-                    <IssueSection title="Stage 1 — Shape vs Source Schema" issues={stage1Issues} />
-                    <IssueSection title="Stage 2 — Zod vs Target Schema" issues={stage2Issues} />
-                  </>
-                )}
-              </div>
-
-              {validateState === "success" && errorCount > 0 && (
-                <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3">
-                  <p className="text-sm font-semibold text-rose-700">
-                    {errorCount} blocking error{errorCount !== 1 ? "s" : ""} must be resolved before migrating.
-                  </p>
-                </div>
-              )}
-
-              {/* Step B — Migrate */}
-              <div className="space-y-3 rounded-lg border border-slate-200 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-semibold text-slate-800">Step B — Review &amp; Run</p>
-                    <p className="text-[11px] text-slate-500">Review the migration plan and begin. The target schema will be reset and all validated records re-inserted.</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowPreflightModal(true)}
-                    disabled={migrateBtnDisabled}
-                    title={breakingPendingCount > 0 ? `${breakingPendingCount} breaking ${breakingPendingCount === 1 ? "change requires" : "changes require"} approval in Tracking Workflow` : undefined}
-                    className="h-8 min-w-36 rounded-md bg-slate-800 px-4 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                  >
-                    {migrateState === "loading" ? "Migrating…" : "Review & Run"}
-                  </button>
-                </div>
-
-                {migrateState === "success" && migrateTables && migrateTables.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2.5">
-                      <p className="text-sm font-semibold text-emerald-700">
-                        ✓ Migration complete — now at version {migrateVersion}
-                      </p>
-                      <span className="ml-auto text-xs text-emerald-600">
-                        {migrateTables.reduce((s, t) => s + t.created, 0).toLocaleString()} rows inserted
-                      </span>
-                    </div>
-                    <div className="overflow-hidden rounded-md border border-slate-200">
-                      <div className="grid grid-cols-[1fr_5rem_5rem_5rem] border-b border-slate-200 bg-slate-50 px-4 py-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-                        <span>Table</span>
-                        <span className="text-right">Created</span>
-                        <span className="text-right">Updated</span>
-                        <span className="text-right">Errors</span>
-                      </div>
-                      {migrateTables.map((t) => (
-                        <div key={t.name} className="grid grid-cols-[1fr_5rem_5rem_5rem] border-b border-slate-100 px-4 py-2.5 last:border-0 hover:bg-slate-50">
-                          <span className="font-mono text-xs font-semibold text-slate-800">{t.name}</span>
-                          <span className="text-right font-mono text-xs text-emerald-700">{t.created}</span>
-                          <span className="text-right font-mono text-xs text-blue-700">{t.updated}</span>
-                          <span className={classNames("text-right font-mono text-xs", t.errors > 0 ? "font-semibold text-rose-700" : "text-slate-400")}>{t.errors}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {migrateError && <ErrorBox message={migrateError} />}
-              </div>
-            </CardBody>
-          </Card>
-        </>
-      )}
-
-      {/* ── Collect result modal (Sync & Migrate only) ───────────────────── */}
-      {isVersionPlan && showEmptyModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
-          <div className="flex w-full max-w-2xl flex-col rounded-lg border border-slate-200 bg-white shadow-2xl" style={{ maxHeight: "80vh" }}>
-
-            <div className="shrink-0 border-b border-slate-200 px-5 py-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Collect Data</p>
-              <h3 className="mt-1 text-lg font-semibold text-slate-950">
-                {(() => {
-                  if (!collectQueryError) {
-                    return collectTotal === 0
-                      ? "No data found on database"
-                      : `${collectTables.length} table${collectTables.length !== 1 ? "s" : ""} · ${collectTotal.toLocaleString()} rows`;
-                  }
-                  const allMissing = collectTables.length > 0 && collectTables.every((t) => t.count === 0);
-                  return allMissing ? "Tables not found on database" : "Some tables could not be queried";
-                })()}
-              </h3>
-            </div>
-
-            <div className="min-h-0 flex-1 overflow-y-auto p-5 space-y-4">
-              {collectMismatches.length > 0 && (
-                <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3">
-                  <p className="text-xs font-semibold text-rose-700">
-                    {collectMismatches.filter((m) => !m.resolvedTable).length} schema table{collectMismatches.filter((m) => !m.resolvedTable).length !== 1 ? "s" : ""} not found in the database.
-                    {" "}Check that your sync version matches the current database state, or update the schema with <span className="font-mono">@@map</span> to point at the real table name.
-                  </p>
-                  <div className="mt-2 space-y-1">
-                    {collectMismatches.map((m) => (
-                      <div key={m.schemaTable} className="flex items-center gap-2 font-mono text-[11px]">
-                        <span className="rounded bg-rose-100 px-1.5 py-0.5 text-rose-700">{m.schemaTable}</span>
-                        <span className="text-rose-400">→</span>
-                        {m.resolvedTable
-                          ? <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-700">{m.resolvedTable} (case-fixed)</span>
-                          : <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-500">not found in DB</span>}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {collectQueryError && (
-                <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
-                  {(() => {
-                    const allMissing = collectTables.length > 0 && collectTables.every((t) => t.count === 0);
-                    const errors = collectQueryError.split(" | ");
-                    return (
-                      <>
-                        <p className="text-xs font-semibold text-amber-700">
-                          {allMissing
-                            ? `None of the ${collectTables.length} tables exist on this database yet. Snapshot saved with 0 rows — you can proceed to migrate from scratch.`
-                            : `${errors.length} table${errors.length !== 1 ? "s" : ""} could not be queried.`}
-                        </p>
-                        <div className="mt-2 max-h-40 overflow-y-auto space-y-0.5">
-                          {errors.map((err, i) => (
-                            <p key={i} className="font-mono text-[11px] text-amber-600">{err}</p>
-                          ))}
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
-              )}
-
-              {collectTables.length > 0 ? (() => {
-                const PAGE_SIZE = 15;
-                const totalPages = Math.ceil(collectTables.length / PAGE_SIZE);
-                const page = collectTables.slice(
-                  collectModalPage * PAGE_SIZE,
-                  collectModalPage * PAGE_SIZE + PAGE_SIZE,
-                );
-                const padded = [
-                  ...page,
-                  ...Array.from({ length: PAGE_SIZE - page.length }, () => null),
-                ];
-                return (
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-3 gap-2">
-                      {padded.map((t, i) => (
-                        <div
-                          key={t ? t.name : `empty-${i}`}
-                          className={classNames(
-                            "rounded-md border px-3 py-2.5",
-                            t ? "border-slate-200 bg-white" : "border-transparent",
-                          )}
-                        >
-                          {t && (
-                            <>
-                              <p className="truncate font-mono text-[11px] font-semibold text-slate-800">{t.name}</p>
-                              <p className={classNames(
-                                "mt-0.5 font-mono text-xs",
-                                t.count === 0 ? "text-slate-400" : "text-emerald-700 font-semibold",
-                              )}>
-                                {t.count.toLocaleString()} rows
-                              </p>
-                            </>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-
-                    {totalPages > 1 && (
-                      <div className="flex items-center justify-between pt-1">
-                        <button
-                          type="button"
-                          onClick={() => setCollectModalPage((p) => Math.max(0, p - 1))}
-                          disabled={collectModalPage === 0 || undefined}
-                          className="h-7 rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          ← Prev
-                        </button>
-                        <span className="text-xs text-slate-500">
-                          Page {collectModalPage + 1} of {totalPages}
-                          <span className="ml-2 text-slate-400">({collectTables.length} tables)</span>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setCollectModalPage((p) => Math.min(totalPages - 1, p + 1))}
-                          disabled={collectModalPage === totalPages - 1 || undefined}
-                          className="h-7 rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          Next →
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })() : (
-                <p className="text-sm text-slate-600">
-                  No models were found in schema version <span className="font-semibold">{syncVersion}</span>.
-                </p>
-              )}
-
-              {collectTables.length > 0 && collectTotal === 0 && !collectQueryError && (
-                <p className="text-xs text-slate-500">
-                  All tables are empty. You can proceed to migrate the schema structure, or populate the database first and collect again.
-                </p>
-              )}
-              {collectTables.length > 0 && collectTotal === 0 && collectQueryError && (
-                <p className="text-xs text-slate-500">
-                  Snapshots with 0 rows were saved for each table. Click Proceed Anyway to continue; the migration will create and populate the tables from scratch.
-                </p>
-              )}
-              {migrationOrder.length > 0 && (
-                <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">Migration order</p>
-                  <p className="mt-1 font-mono text-xs text-slate-700">
-                    {migrationOrder.map((item) => item.modelName).join(" -> ")}
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <div className="shrink-0 flex items-center justify-end gap-3 border-t border-slate-200 px-5 py-4">
-              <button
-                type="button"
-                onClick={() => setShowEmptyModal(false)}
-                className="h-9 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-              {collectTables.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowEmptyModal(false);
-                    setCollectState("success");
-                    void persistMigrationState({ dataTimestamp: collectTimestamp });
-                    fetch(`/api/migration-state?list=true&projectId=${projectId}`).then((r) => r.json()).then((list) => setSessions(list as MigrationSession[])).catch(() => {/* best-effort */});
-                  }}
-                  className="h-9 min-w-32 rounded-md bg-slate-800 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700"
-                >
-                  {collectQueryError ? "Proceed Anyway" : "Proceed"}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Destroy & Deploy confirmation modal ─────────────────────────── */}
-      {showDestroyModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
-          <div className="w-full max-w-md rounded-lg border border-rose-200 bg-white shadow-2xl">
-            <div className="border-b border-rose-100 bg-rose-50 px-5 py-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-rose-600">Destructive Action</p>
-              <h3 className="mt-1 text-lg font-semibold text-slate-950">Destroy and Deploy Schema</h3>
-            </div>
-            <div className="space-y-4 p-5">
-              <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 space-y-1">
-                <p className="text-sm font-semibold text-rose-700">All existing data will be permanently lost.</p>
-                <p className="text-xs text-rose-600">This will wipe every table in the connected database and apply schema version <span className="font-mono font-semibold">{newTargetVersion}</span> from scratch. This cannot be undone.</p>
-              </div>
-              {destroyDbPreviewLoading && (
-                <div className="flex items-center gap-2 text-xs text-slate-500">
-                  <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
-                  Checking database for existing data…
-                </div>
-              )}
-              {!destroyDbPreviewLoading && destroyDbPreview && destroyDbPreview.total > 0 && (
-                <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 space-y-1">
-                  <p className="text-xs font-semibold text-amber-800">
-                    {destroyDbPreview.total.toLocaleString()} rows found across {destroyDbPreview.tables.filter((t) => t.count > 0).length} table{destroyDbPreview.tables.filter((t) => t.count > 0).length !== 1 ? "s" : ""}
-                  </p>
-                  <p className="text-xs text-amber-700">This data exists in the target database and will be permanently deleted by the force-reset.</p>
-                </div>
-              )}
-              {!destroyDbPreviewLoading && destroyDbPreview && destroyDbPreview.total === 0 && (
-                <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3">
-                  <p className="text-xs font-semibold text-emerald-700">No existing rows detected — safe to deploy from scratch.</p>
-                </div>
-              )}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-slate-600">
-                  Type <span className="font-mono text-rose-600">DELETE</span> to confirm
-                </label>
-                <input
-                  type="text"
-                  value={destroyConfirmText}
-                  onChange={(e) => setDestroyConfirmText(e.target.value)}
-                  placeholder="DELETE"
-                  autoComplete="off"
-                  className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 font-mono text-sm text-slate-950 outline-none transition placeholder:text-slate-300 focus:border-rose-400"
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-3 border-t border-slate-200 px-5 py-4">
-              <button
-                type="button"
-                onClick={() => setShowDestroyModal(false)}
-                className="h-9 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={destroyConfirmText !== "DELETE" || undefined}
-                onClick={() => { setShowDestroyModal(false); void handlePushNew(true); }}
-                className="h-9 min-w-36 rounded-md bg-rose-600 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                Destroy &amp; Deploy
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Pre-flight summary modal ─────────────────────────────────────── */}
-      {showPreflightModal && (() => {
-        // Build warning lookup: entityName → SchemaWarning
-        const warningByEntity = new Map(warnings.map((w) => [w.entityName, w]));
-
-        // Inline compatibility check — mirrors rules.ts checkTypeConversion but client-safe.
-        const KNOWN_SCALARS = new Set(["string","text","integer","int","bigint","float","decimal","boolean","timestamp","datetime","json","bytes"]);
-        const COMPAT: Record<string, Set<string>> = {
-          integer: new Set(["decimal","float","string","text","bytes"]),
-          string: new Set(["text"]),
-          float: new Set(["decimal","integer"]),
-        };
-        function isCompatible(from: string, to: string): boolean {
-          const f = from.toLowerCase(); const t = to.toLowerCase();
-          if (f === t) return true;
-          if (!KNOWN_SCALARS.has(t)) return f === "string" || f === "text"; // String→Enum
-          return COMPAT[f]?.has(t) ?? false;
-        }
-
-        // Build preflight items from comparison + tracking decisions
-        type PreflightItem = { id: string; field: string; change: string; resolution: string; actionLabel: string; hasValue: boolean };
-        const crucial: PreflightItem[] = [];
-        const warning: PreflightItem[] = [];
-
-        if (comparison) {
-          // Removed models → crucial
-          for (const m of comparison.removedModels) {
-            crucial.push({
-              id: `rm-${m.name}`, field: m.name, change: "model removed",
-              resolution: "All rows permanently dropped from the database.",
-              actionLabel: "Data deleted", hasValue: false,
-            });
-          }
-          for (const m of comparison.matchedModels) {
-            // Type-changed fields — split by compatibility
-            for (const f of m.matchedFields) {
-              if (!f.isRelation && f.typeChanged) {
-                const w = warningByEntity.get(`${m.toName}.${f.toName}`);
-                const rv = w?.replacementValue;
-                const compatible = isCompatible(f.fromType, f.toType);
-                if (compatible) {
-                  // e.g. String → Enum: existing values carry over as-is if they are valid members
-                  warning.push({
-                    id: `tc-${m.toName}-${f.toName}`,
-                    field: `${m.toName}.${f.toName}`,
-                    change: `${f.fromType} → ${f.toType}`,
-                    resolution: `Values will be cast to ${f.toType}. Existing string values carry over — ensure all are valid ${f.toType} members or the database will reject them on insert.`,
-                    actionLabel: "Cast — data carries over",
-                    hasValue: true,
-                  });
-                } else {
-                  // e.g. String → Int / Float: data cannot be preserved
-                  crucial.push({
-                    id: `tc-${m.toName}-${f.toName}`,
-                    field: `${m.toName}.${f.toName}`,
-                    change: `${f.fromType} → ${f.toType}`,
-                    resolution: rv
-                      ? `Existing data not convertable to ${f.toType}. All rows will receive "${rv}" as set in Tracking.`
-                      : `Existing data not convertable to ${f.toType}. All rows will receive an auto-generated placeholder — set a default in Tracking to control this value.`,
-                    actionLabel: rv ? `Replace → "${rv}"` : "Auto-generated placeholder",
-                    hasValue: Boolean(rv),
-                  });
-                }
-              }
-            }
-            // Removed fields → warning
-            for (const f of m.removedFields) {
-              warning.push({
-                id: `rf-${m.toName}-${f.name}`,
-                field: `${m.toName}.${f.name}`,
-                change: "field removed",
-                resolution: "Column and all its data will be permanently dropped from the target database.",
-                actionLabel: "Data dropped", hasValue: false,
-              });
-            }
-            // Added required fields → warning
-            for (const f of m.addedFields) {
-              if (!f.nullable) {
-                const w = warningByEntity.get(`${m.toName}.${f.name}`);
-                const rv = w?.replacementValue;
-                warning.push({
-                  id: `af-${m.toName}-${f.name}`,
-                  field: `${m.toName}.${f.name}`,
-                  change: `new required ${f.type} field`,
-                  resolution: rv
-                    ? `Field does not exist in the source version. All existing rows will receive "${rv}" as set in Tracking.`
-                    : `Field does not exist in the source version. Field is not nullable — all existing rows will receive an auto-generated placeholder. Set a backfill value in Tracking to use a real value.`,
-                  actionLabel: rv ? `Backfill → "${rv}"` : "Auto-generated placeholder",
-                  hasValue: Boolean(rv),
-                });
-              }
-            }
-            // Nullable → required → warning
-            for (const f of m.matchedFields) {
-              if (!f.isRelation && f.fromNullable && !f.toNullable) {
-                const w = warningByEntity.get(`${m.toName}.${f.toName}`);
-                const rv = w?.replacementValue;
-                warning.push({
-                  id: `nr-${m.toName}-${f.toName}`,
-                  field: `${m.toName}.${f.toName}`,
-                  change: "nullable → required",
-                  resolution: rv
-                    ? `Existing NULL rows will receive "${rv}" as set in Tracking.`
-                    : `Existing NULL rows will receive an auto-generated placeholder — set a backfill value in Tracking to control this.`,
-                  actionLabel: rv ? `Backfill NULLs → "${rv}"` : "Auto-generated for NULLs",
-                  hasValue: Boolean(rv),
-                });
-              }
-            }
-          }
-        }
-
-        const activeItems = preflightTab === "crucial" ? crucial : warning;
-        const pageCount = Math.ceil(activeItems.length / PREFLIGHT_PAGE_SIZE);
-        const pageItems = activeItems.slice(preflightPage * PREFLIGHT_PAGE_SIZE, (preflightPage + 1) * PREFLIGHT_PAGE_SIZE);
-
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
-            <div className="flex w-full max-w-5xl flex-col rounded-lg border border-slate-200 bg-white shadow-2xl" style={{ maxHeight: "88vh" }}>
-
-              {/* Header */}
-              <div className="shrink-0 border-b border-slate-200 px-6 py-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Migration Plan</p>
-                <h3 className="mt-0.5 text-lg font-semibold text-slate-950">Review before running</h3>
-              </div>
-
-              <div className="min-h-0 flex-1 overflow-y-auto">
-                {/* Summary strip */}
-                <div className="grid grid-cols-4 gap-4 border-b border-slate-100 bg-slate-50 px-6 py-4 text-xs">
-                  <div>
-                    <p className="font-semibold uppercase tracking-widest text-slate-400">Connection</p>
-                    <p className="mt-1 font-semibold text-slate-800 truncate">{activeConnection?.name ?? "—"}</p>
-                    <p className="font-mono text-[10px] text-slate-500">{activeConnection ? `${activeConnection.host}:${activeConnection.port}/${activeConnection.database}` : ""}</p>
-                  </div>
-                  <div>
-                    <p className="font-semibold uppercase tracking-widest text-slate-400">Versions</p>
-                    <p className="mt-1 font-semibold text-slate-800">
-                      <span className="font-mono">{syncVersion}</span>
-                      <span className="mx-2 text-slate-400">→</span>
-                      <span className="font-mono">{targetVersion}</span>
-                    </p>
-                  </div>
-                  <div>
-                    <p className="font-semibold uppercase tracking-widest text-slate-400">Tables / Rows</p>
-                    <p className="mt-1 font-semibold text-slate-800">{collectTables.length} tables · {collectTotal.toLocaleString()} rows</p>
-                  </div>
-                  <div>
-                    <p className="font-semibold uppercase tracking-widest text-slate-400">Insert Order</p>
-                    <p className="mt-1 font-mono text-[10px] text-slate-700 truncate">{migrationOrder.map((i) => i.modelName).join(" → ") || "—"}</p>
-                  </div>
-                </div>
-
-                {/* Tabs */}
-                {(crucial.length > 0 || warning.length > 0) && (
-                  <div className="flex border-b border-slate-200 px-6 pt-3">
-                    {(["crucial", "warning"] as const).map((tab) => {
-                      const count = tab === "crucial" ? crucial.length : warning.length;
-                      const isActive = preflightTab === tab;
-                      return (
-                        <button
-                          key={tab}
-                          type="button"
-                          onClick={() => { setPreflightTab(tab); setPreflightPage(0); }}
-                          className={classNames(
-                            "relative mr-6 pb-3 text-sm font-semibold capitalize transition",
-                            isActive ? (tab === "crucial" ? "text-rose-600" : "text-amber-600") : "text-slate-500 hover:text-slate-700",
-                          )}
-                        >
-                          {tab}
-                          <span className={classNames(
-                            "ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold",
-                            tab === "crucial" ? "bg-rose-100 text-rose-600" : "bg-amber-100 text-amber-700",
-                          )}>
-                            {count}
-                          </span>
-                          {isActive && (
-                            <span className={classNames(
-                              "absolute bottom-0 left-0 right-0 h-0.5 rounded-full",
-                              tab === "crucial" ? "bg-rose-500" : "bg-amber-500",
-                            )} />
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* Item list */}
-                <div className="px-6 py-4 space-y-2">
-                  {pageItems.length === 0 ? (
-                    <p className="py-6 text-center text-sm text-slate-400">No {preflightTab} items for this migration.</p>
-                  ) : pageItems.map((item) => {
-                    const isCrucial = preflightTab === "crucial";
-                    return (
-                      <div
-                        key={item.id}
-                        className={classNames(
-                          "rounded-lg border px-4 py-3 grid grid-cols-[1fr_auto] gap-x-6 gap-y-1 items-start",
-                          isCrucial ? "border-rose-200 bg-rose-50/60" : "border-amber-100 bg-amber-50/50",
-                        )}
-                      >
-                        {/* Left: field + change + resolution */}
-                        <div className="min-w-0 space-y-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <code className={classNames(
-                              "font-mono text-xs font-semibold",
-                              isCrucial ? "text-rose-800" : "text-amber-800",
-                            )}>
-                              {item.field}
-                            </code>
-                            <span className={classNames(
-                              "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                              isCrucial ? "bg-rose-200 text-rose-700" : "bg-amber-200 text-amber-700",
-                            )}>
-                              {item.change}
-                            </span>
-                          </div>
-                          <p className="text-xs text-slate-600 leading-relaxed">{item.resolution}</p>
-                        </div>
-
-                        {/* Right: action badge */}
-                        <div className="shrink-0 mt-0.5">
-                          <span className={classNames(
-                            "inline-flex items-center rounded-md border px-2.5 py-1 text-[11px] font-semibold",
-                            item.hasValue
-                              ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                              : "border-slate-300 bg-slate-100 text-slate-500",
-                          )}>
-                            {item.actionLabel}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  {/* Pagination */}
-                  {pageCount > 1 && (
-                    <div className="flex items-center justify-between pt-2">
-                      <span className="text-xs text-slate-400">
-                        {preflightPage * PREFLIGHT_PAGE_SIZE + 1}–{Math.min((preflightPage + 1) * PREFLIGHT_PAGE_SIZE, activeItems.length)} of {activeItems.length}
-                      </span>
-                      <div className="flex gap-1">
-                        <button
-                          type="button"
-                          disabled={preflightPage === 0 || undefined}
-                          onClick={() => setPreflightPage((p) => p - 1)}
-                          className="h-7 rounded border border-slate-300 px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          ← Prev
-                        </button>
-                        <button
-                          type="button"
-                          disabled={preflightPage >= pageCount - 1 || undefined}
-                          onClick={() => setPreflightPage((p) => p + 1)}
-                          className="h-7 rounded border border-slate-300 px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          Next →
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Force-reset notice */}
-                <div className="mx-6 mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2.5">
-                  <p className="text-xs font-semibold text-amber-700">The target database will be force-reset and rebuilt. Ensure the snapshot is current before proceeding.</p>
-                </div>
-              </div>
-
-              {/* Footer */}
-              <div className="shrink-0 flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
-                <button
-                  type="button"
-                  onClick={() => setShowPreflightModal(false)}
-                  className="h-9 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setShowPreflightModal(false); void handleMigrate(); }}
-                  className="h-9 min-w-40 rounded-md bg-slate-800 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700"
-                >
-                  Begin Migration
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* ── Fix-rows modal ───────────────────────────────────────────────── */}
-      {showFixModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
-          <div className="flex w-full max-w-4xl flex-col rounded-lg border border-slate-200 bg-white shadow-2xl" style={{ maxHeight: "85vh" }}>
-            <div className="shrink-0 border-b border-slate-200 px-5 py-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-rose-600">Validation Failed</p>
-              <h3 className="mt-1 text-lg font-semibold text-slate-950">
-                {invalidRows.length} row{invalidRows.length !== 1 ? "s" : ""} need to be fixed before migrating
-              </h3>
-              <p className="mt-0.5 text-sm text-slate-500">
-                Edit the values below, then click <span className="font-semibold text-slate-700">Re-validate &amp; Run</span>.
-              </p>
-            </div>
-
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 z-10">
-                  <tr className="border-b border-slate-200 bg-slate-50 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
-                    <th className="px-4 py-2.5 text-left">Model</th>
-                    <th className="px-4 py-2.5 text-left">Row</th>
-                    <th className="px-4 py-2.5 text-left">Field</th>
-                    <th className="px-4 py-2.5 text-left w-56">Value</th>
-                    <th className="px-4 py-2.5 text-left">Error</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {invalidRows.map((row, idx) => {
-                    const patchKey = `${row.table}:${row.rowIndex}`;
-                    const patchedValue = rowPatches[patchKey]?.[row.field];
-                    const displayValue = patchedValue !== undefined ? patchedValue : String(row.value ?? "");
-                    return (
-                      <tr key={idx} className="hover:bg-slate-50">
-                        <td className="px-4 py-2.5 font-mono text-xs font-semibold text-slate-800">{row.table}</td>
-                        <td className="px-4 py-2.5 font-mono text-xs text-slate-500">{row.rowIndex}</td>
-                        <td className="px-4 py-2.5 font-mono text-xs text-slate-700">{row.field}</td>
-                        <td className="px-4 py-2.5">
-                          <input
-                            type="text"
-                            value={displayValue}
-                            onChange={(e) => {
-                              setRowPatches((prev) => ({
-                                ...prev,
-                                [patchKey]: { ...(prev[patchKey] ?? {}), [row.field]: e.target.value },
-                              }));
-                            }}
-                            className="h-7 w-full rounded border border-slate-300 bg-white px-2 font-mono text-xs text-slate-900 outline-none focus:border-slate-500"
-                          />
-                        </td>
-                        <td className="px-4 py-2.5 text-xs text-rose-700">{row.error}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            {fixModalError && (
-              <div className="shrink-0 border-t border-rose-200 bg-rose-50 px-5 py-3">
-                <p className="font-mono text-xs text-rose-700">{fixModalError}</p>
-              </div>
-            )}
-
-            <div className="shrink-0 flex items-center justify-between gap-3 border-t border-slate-200 px-5 py-4">
-              <p className="text-xs text-slate-500">
-                {Object.keys(rowPatches).length > 0
-                  ? `${Object.values(rowPatches).reduce((s, p) => s + Object.keys(p).length, 0)} field${Object.values(rowPatches).reduce((s, p) => s + Object.keys(p).length, 0) !== 1 ? "s" : ""} edited`
-                  : "No edits yet"}
-              </p>
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => { setShowFixModal(false); setMigrateState("idle"); }}
-                  className="h-9 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleFixAndMigrate()}
-                  disabled={fixModalLoading || undefined}
-                  className="h-9 min-w-44 rounded-md bg-slate-800 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
-                >
-                  {fixModalLoading ? "Validating…" : "Re-validate & Run"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Full-screen Model Diff modal ─────────────────────────────────── */}
-      {showModelDiffModal && (
-        <ModelDiff
-          projectName={projectName}
+        <DeploySchemaCard
+          connectState={connectState}
+          pushState={pushState}
+          pushError={pushError}
+          lastPushMode={lastPushMode}
+          newTargetVersion={newTargetVersion}
           versions={versions}
-          fromVersion={syncVersion}
-          toVersion={targetVersion}
-          onClose={() => setShowModelDiffModal(false)}
-          onZodGenerated={() => { setModelDiffState("success"); void persistMigrationState({ zodGenerated: true }); }}
+          onVersionChange={(v) => { setNewTargetVersion(v); setPushState("idle"); setPushError(""); setLastPushMode(null); }}
+          onDeploySchema={() => void handlePushNew(false)}
+          onDestroyOpen={handleDestroyOpen}
+          onDeployAgain={() => { setPushState("idle"); setPushError(""); setLastPushMode(null); }}
         />
       )}
 
-      {/* ── Connection String modal ───────────────────────────────────── */}
-      {showConnStringModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
-          <div className="flex w-full max-w-5xl flex-col rounded-lg border border-slate-200 bg-white shadow-2xl">
-            <div className="relative border-b border-slate-200 px-6 py-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Reference</p>
-              <h3 className="mt-0.5 text-lg font-semibold text-slate-950">Connection String</h3>
-              <p className="mt-0.5 text-xs text-slate-500">Copy this into your project&apos;s <span className="font-mono">.env</span> file.</p>
-              <button
-                type="button"
-                onClick={() => setShowConnStringModal(false)}
-                className="absolute right-4 top-4 rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-              >
-                <IconX size={18} stroke={1.5} />
-              </button>
-            </div>
+      {/* ── Steps 2–5: Version migration ──────────────────────────────────── */}
+      <VersionMigrationSteps
+        isVersionPlan={isVersionPlan}
+        projectName={projectName}
+        versions={versions}
+        syncVersion={syncVersion}
+        targetVersion={targetVersion}
+        modelDiffState={modelDiffState}
+        comparison={comparison}
+        warnings={warnings}
+        breakingPendingCount={breakingPendingCount}
+        defaultsRequiredCount={defaultsRequiredCount}
+        trackingHref={trackingHref}
+        canModelDiff={canModelDiff}
+        onZodGenerated={() => { setModelDiffState("success"); void persistMigrationState({ zodGenerated: true }); setSchemaCheckState("idle"); setSchemaCheckResult(null); void handleSchemaCheck(); }}
+        onOpenFullScreen={() => setShowModelDiffModal(true)}
+        onComparisonReady={(c) => setComparison(c)}
+        canSchemaCheck={canSchemaCheck}
+        schemaCheckState={schemaCheckState}
+        schemaCheckResult={schemaCheckResult}
+        onSchemaCheck={() => void handleSchemaCheck()}
+        canCollect={canCollect}
+        collectState={collectState}
+        collectError={collectError}
+        collectTables={collectTables}
+        collectTotal={collectTotal}
+        collectTimestamp={collectTimestamp}
+        migrationOrder={migrationOrder}
+        restoreState={restoreState}
+        restoreError={restoreError}
+        restoreTables={restoreTables}
+        collectBtnDisabled={collectBtnDisabled}
+        onCollect={() => void handleCollect()}
+        onRestore={() => void handleRestore()}
+        canMigrate={canMigrate}
+        migrateState={migrateState}
+        migrateError={migrateError}
+        validateState={validateState}
+        validateError={validateError}
+        stage1Issues={stage1Issues}
+        stage2Issues={stage2Issues}
+        errorCount={errorCount}
+        migrateTables={migrateTables}
+        migrateVersion={migrateVersion}
+        activeConnection={activeConnection}
+        validateBtnDisabled={validateBtnDisabled}
+        migrateBtnDisabled={migrateBtnDisabled}
+        onValidate={() => void handleValidate()}
+        onShowPreflight={() => setShowPreflightModal(true)}
+        showModelDiffModal={showModelDiffModal}
+        onCloseModelDiff={() => setShowModelDiffModal(false)}
+      />
 
-            <div className="space-y-4 p-6">
-              {/* ORM selector */}
-              <div>
-                <p className="mb-1.5 text-xs font-semibold text-slate-700">ORM / Format</p>
-                <div className="flex gap-2">
-                  {(["prisma", "drizzle", "custom"] as const).map((orm) => (
-                    <button
-                      key={orm}
-                      type="button"
-                      onClick={() => {
-                        setConnStringORM(orm);
-                        rebuildConnStringValue(orm, connStringEnvName);
-                        setConnStringCopied(false);
-                      }}
-                      className={classNames(
-                        "h-8 rounded-md border px-3 text-xs font-semibold capitalize transition",
-                        connStringORM === orm
-                          ? "border-slate-800 bg-slate-800 text-white"
-                          : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
-                      )}
-                    >
-                      {orm}
-                    </button>
-                  ))}
-                </div>
-              </div>
+      {/* ── Collect result modal ────────────────────────────────────────────── */}
+      <CollectResultModal
+        isOpen={showEmptyModal}
+        isVersionPlan={isVersionPlan}
+        syncVersion={syncVersion}
+        collectTotal={collectTotal}
+        collectTables={collectTables}
+        collectQueryError={collectQueryError}
+        collectMismatches={collectMismatches}
+        collectTimestamp={collectTimestamp}
+        collectModalPage={collectModalPage}
+        migrationOrder={migrationOrder}
+        onPageChange={setCollectModalPage}
+        onCancel={() => setShowEmptyModal(false)}
+        onProceed={() => {
+          setShowEmptyModal(false);
+          setCollectState("success");
+          void persistMigrationState({ dataTimestamp: collectTimestamp });
+          fetch(`/api/migration-state?list=true&projectId=${projectId}`).then((r) => r.json()).then((list) => setSessions(list as MigrationSession[])).catch(() => {});
+        }}
+      />
 
-              {/* Custom env var name */}
-              {connStringORM === "custom" && (
-                <div>
-                  <p className="mb-1 text-xs font-semibold text-slate-700">Environment Variable Name</p>
-                  <input
-                    value={connStringEnvName}
-                    onChange={(e) => {
-                      setConnStringEnvName(e.target.value);
-                      rebuildConnStringValue("custom", e.target.value);
-                      setConnStringCopied(false);
-                    }}
-                    placeholder="DATABASE_URL"
-                    className="h-8 w-full rounded-md border border-slate-300 bg-white px-3 text-xs font-mono text-slate-800 focus:border-slate-500 focus:outline-none"
-                  />
-                </div>
-              )}
+      {/* ── Destroy & Deploy confirmation modal ─────────────────────────────── */}
+      <DestroyDeployModal
+        isOpen={showDestroyModal}
+        newTargetVersion={newTargetVersion}
+        destroyConfirmText={destroyConfirmText}
+        destroyDbPreview={destroyDbPreview}
+        destroyDbPreviewLoading={destroyDbPreviewLoading}
+        onConfirmTextChange={setDestroyConfirmText}
+        onCancel={() => setShowDestroyModal(false)}
+        onConfirm={() => { setShowDestroyModal(false); void handlePushNew(true); }}
+      />
 
-              {/* Editable connection string with copy icon */}
-              <div>
-                <p className="mb-1 text-xs font-semibold text-slate-700">Connection String</p>
-                <div className="flex items-center gap-2">
-                  <input
-                    value={connStringValue}
-                    onChange={(e) => { setConnStringValue(e.target.value); setConnStringCopied(false); }}
-                    spellCheck={false}
-                    className="h-9 min-w-0 flex-1 rounded-md border border-slate-300 bg-slate-50 px-3 font-mono text-xs text-slate-800 focus:border-slate-500 focus:bg-white focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void navigator.clipboard.writeText(connStringValue);
-                      setConnStringCopied(true);
-                      setTimeout(() => setConnStringCopied(false), 2000);
-                    }}
-                    title="Copy to clipboard"
-                    className="shrink-0 rounded p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                  >
-                    {connStringCopied
-                      ? <IconCheck size={16} stroke={2.5} className="text-emerald-600" />
-                      : <IconCopy size={16} stroke={1.5} />}
-                  </button>
-                </div>
-              </div>
-            </div>
+      {/* ── Pre-flight summary modal ─────────────────────────────────────────── */}
+      <PreflightModal
+        isOpen={showPreflightModal}
+        comparison={comparison}
+        warnings={warnings}
+        activeConnection={activeConnection}
+        syncVersion={syncVersion}
+        targetVersion={targetVersion}
+        collectTables={collectTables}
+        collectTotal={collectTotal}
+        migrationOrder={migrationOrder}
+        preflightTab={preflightTab}
+        preflightPage={preflightPage}
+        preflightPageSize={PREFLIGHT_PAGE_SIZE}
+        onTabChange={(tab) => { setPreflightTab(tab); setPreflightPage(0); }}
+        onPageChange={setPreflightPage}
+        onCancel={() => setShowPreflightModal(false)}
+        onBeginMigration={() => { setShowPreflightModal(false); void handleMigrate(); }}
+      />
 
-          </div>
-        </div>
-      )}
+      {/* ── Fix-rows modal ──────────────────────────────────────────────────── */}
+      <FixRowsModal
+        isOpen={showFixModal}
+        invalidRows={invalidRows}
+        rowPatches={rowPatches}
+        fixModalLoading={fixModalLoading}
+        fixModalError={fixModalError}
+        onPatch={setRowPatches}
+        onCancel={() => { setShowFixModal(false); setMigrateState("idle"); }}
+        onFixAndMigrate={() => void handleFixAndMigrate()}
+      />
+
+      {/* ── Connection String modal ─────────────────────────────────────────── */}
+      <ConnectionStringModal
+        isOpen={showConnStringModal}
+        connStringValue={connStringValue}
+        connStringORM={connStringORM}
+        connStringEnvName={connStringEnvName}
+        connStringCopied={connStringCopied}
+        onClose={() => setShowConnStringModal(false)}
+        onOrmChange={(orm) => { setConnStringORM(orm); rebuildConnStringValue(orm, connStringEnvName); setConnStringCopied(false); }}
+        onEnvNameChange={(v) => { setConnStringEnvName(v); rebuildConnStringValue("custom", v); setConnStringCopied(false); }}
+        onValueChange={(v) => { setConnStringValue(v); setConnStringCopied(false); }}
+        onCopy={() => { void navigator.clipboard.writeText(connStringValue); setConnStringCopied(true); setTimeout(() => setConnStringCopied(false), 2000); }}
+      />
     </div>
   );
 }

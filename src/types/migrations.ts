@@ -190,3 +190,5 @@ export type CheckSyncResponse = {
 };
 
 export type MigrationPlan = "new" | "version";
+
+export type MigrationOrderItem = { modelName: string; parentCount?: number };
