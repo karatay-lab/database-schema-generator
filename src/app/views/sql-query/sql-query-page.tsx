@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { format as formatSql } from "sql-formatter";
 import CodeMirror from "@uiw/react-codemirror";
 import { sql as sqlLang, SQLite } from "@codemirror/lang-sql";
@@ -278,19 +278,26 @@ export function SqlQueryPageContent() {
   };
 
   const handleRunRef = useRef(handleRun);
-  handleRunRef.current = handleRun;
   const handleFormatRef = useRef(handleFormat);
-  handleFormatRef.current = handleFormat;
+  useLayoutEffect(() => {
+    handleRunRef.current = handleRun;
+    handleFormatRef.current = handleFormat;
+  });
 
-  const editorExtensions = [
+  /* eslint-disable react-hooks/refs */
+  const runKeyBinding = useCallback(() => { void handleRunRef.current(); return true; }, []);
+  const formatKeyBinding = useCallback(() => { handleFormatRef.current(); return true; }, []);
+
+  const editorExtensions = useMemo(() => [
     sqlLang({ dialect: SQLite }),
     Prec.highest(
       keymap.of([
-        { key: "Mod-Enter", run: () => { void handleRunRef.current(); return true; } },
-        { key: "Shift-Alt-f", run: () => { handleFormatRef.current(); return true; } },
+        { key: "Mod-Enter", run: runKeyBinding },
+        { key: "Shift-Alt-f", run: formatKeyBinding },
       ]),
     ),
-  ];
+  ], [runKeyBinding, formatKeyBinding]);
+  /* eslint-enable react-hooks/refs */
 
   if (!hasProject) {
     return (

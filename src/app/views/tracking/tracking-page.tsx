@@ -201,7 +201,7 @@ export function TrackingPageContent() {
           <div className="px-5 py-4">
             <p className="font-semibold text-amber-700">Field defaults</p>
             <p className="mt-1 text-xs text-slate-500">
-              Tracks when a field's <code className="font-mono">@default</code> is added, changed, or removed. Existing rows may need backfilling when a default is added.
+              Tracks when a field&apos;s <code className="font-mono">@default</code> is added, changed, or removed. Existing rows may need backfilling when a default is added.
             </p>
           </div>
           <div className="px-5 py-4">

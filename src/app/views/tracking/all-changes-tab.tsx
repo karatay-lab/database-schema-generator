@@ -32,7 +32,7 @@ export function AllChangesTab({
     return data.entries.filter(
       (e) => e.fromVersion === fromVersion && e.toVersion === toVersion,
     );
-  }, [data?.entries, fromVersion, toVersion]);
+  }, [data, fromVersion, toVersion]);
 
   const entityNames = useMemo(() => {
     const seen = new Set<string>();
