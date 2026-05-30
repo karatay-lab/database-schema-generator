@@ -6,8 +6,9 @@ import { IconCopy, IconCheck, IconX, IconDownload, IconChevronLeft, IconChevronR
 import { useTRPC } from "@/trpc/client";
 import { classNames } from "../shared/dashboard-data";
 import { useProjectInfo } from "../shared/project-info-context";
-import { highlightCode } from "@/components/highlight-code";
 import { EXPORT_OPTIONS, type ExportType } from "@/constants/exports";
+import { ExportedCodeDialog } from "./exported-code-dialog";
+import { PickleConfirmDialog } from "./pickle-confirm-dialog";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -393,134 +394,21 @@ export function ExportsPageContent() {
         </div>
       </section>
 
-      {/* Dialog */}
-      {dialog ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-3">
-          <div className="max-h-[92vh] w-[96vw] max-w-[1400px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl flex flex-col">
-            {/* Dialog header */}
-            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 shrink-0">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  Exported Code
-                </p>
-                <h3 className="mt-1 text-lg font-semibold text-slate-950">
-                  {dialog.fileName}
-                </h3>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  {dialog.lang === "ts" ? (
-                    <>
-                      <span className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">
-                        {dialog.tableCount} {dialog.tableCount === 1 ? "table" : "tables"}
-                      </span>
-                      {dialog.enumCount > 0 ? (
-                        <span className="rounded-md bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700">
-                          {dialog.enumCount} {dialog.enumCount === 1 ? "enum" : "enums"}
-                        </span>
-                      ) : null}
-                    </>
-                  ) : (
-                    <span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">
-                      Prisma Schema
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => void handleCopy()}
-                  title={copied ? "Copied!" : "Copy to clipboard"}
-                  className={classNames(
-                    "flex h-9 w-9 items-center justify-center rounded-md border transition",
-                    copied
-                      ? "border-emerald-300 bg-emerald-50 text-emerald-600"
-                      : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
-                  )}
-                >
-                  {copied ? <IconCheck size={16} /> : <IconCopy size={16} />}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDownload}
-                  title="Download file"
-                  className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50"
-                >
-                  <IconDownload size={16} />
-                </button>
-                <button
-                  type="button"
-                  onClick={closeDialog}
-                  title="Close"
-                  className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50"
-                >
-                  <IconX size={16} />
-                </button>
-              </div>
-            </div>
+      <ExportedCodeDialog
+        dialog={dialog}
+        copied={copied}
+        onCopy={() => void handleCopy()}
+        onDownload={handleDownload}
+        onClose={closeDialog}
+      />
 
-            {/* Code body */}
-            <div className="flex-1 overflow-y-auto p-5">
-              <div className="min-w-max rounded-md border border-slate-200 bg-white px-4 py-4 font-mono text-xs">
-                {highlightCode(dialog.code, dialog.lang)}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {/* Pickle confirmation dialog */}
-      {pendingPickle ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-3">
-          <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white shadow-2xl">
-            <div className="border-b border-slate-200 px-5 py-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                Confirm Export
-              </p>
-              <h3 className="mt-1 text-base font-semibold text-slate-950">
-                {pendingPickle === "pickle-version" ? "Version Pickle" : "Project Pickle"}
-              </h3>
-            </div>
-            <div className="px-5 py-4">
-              <p className="text-sm leading-6 text-slate-600">
-                {pendingPickle === "pickle-version" ? (
-                  <>
-                    You are about to pickle out{" "}
-                    <span className="font-semibold text-slate-950">{version}</span>.
-                    Are you sure?
-                  </>
-                ) : (
-                  <>
-                    You are about to pickle out all versions in{" "}
-                    <span className="font-semibold text-slate-950">{projectName}</span>.
-                    Are you sure?
-                  </>
-                )}
-              </p>
-            </div>
-            <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
-              <button
-                type="button"
-                onClick={() => setPendingPickle(null)}
-                className="h-9 rounded-md border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={confirmPickle}
-                className={classNames(
-                  "h-9 rounded-md px-4 text-xs font-semibold text-white shadow-sm transition",
-                  pendingPickle === "pickle-version"
-                    ? "bg-amber-500 hover:bg-amber-600"
-                    : "bg-orange-500 hover:bg-orange-600",
-                )}
-              >
-                Yes, download
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <PickleConfirmDialog
+        pendingPickle={pendingPickle}
+        version={version ?? ""}
+        projectName={projectName ?? ""}
+        onConfirm={confirmPickle}
+        onCancel={() => setPendingPickle(null)}
+      />
     </div>
   );
 }
