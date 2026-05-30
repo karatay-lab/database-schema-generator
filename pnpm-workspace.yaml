@@ -1,15 +1,7 @@
-onlyBuiltDependencies:
-  - better-sqlite3
-  - msw
-
 allowBuilds:
-  '@prisma/client': true
   '@prisma/engines': true
-  better-sqlite3: false
-  esbuild: true
+  better-sqlite3: true
   msw: true
-  prisma: false
   unrs-resolver: true
-ignoredBuiltDependencies:
-  - sharp
-  - unrs-resolver
+  prisma: false
+  sharp: false

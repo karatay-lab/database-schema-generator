@@ -15,6 +15,7 @@ import type {
   PrismaRestrictionType,
 } from "@/lib/schema-store";
 import type { RestrictionDraft } from "@/types/restriction";
+import { restrictionTypeLabel, restrictionTypeClass } from "@/constants/restrictions";
 
 type RestrictionsResponse = Partial<PrismaModelRestrictions> & {
   error?: string;
@@ -25,16 +26,6 @@ const emptyRestrictionDraft: RestrictionDraft = {
   fields: [],
   dbName: "",
 };
-
-function restrictionTypeLabel(type: PrismaRestrictionType) {
-  return type === "UNIQUE" ? "Unique" : "Index";
-}
-
-function restrictionTypeClass(type: PrismaRestrictionType) {
-  return type === "UNIQUE"
-    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-    : "border-violet-200 bg-violet-50 text-violet-700";
-}
 
 
 function getDbNameSuggestion(fieldNames: string[]) {

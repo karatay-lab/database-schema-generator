@@ -4,10 +4,10 @@
 
 | Folder | Domain | Provider | Status |
 |---|---|---|---|
-| `first-workflows` | Blog Platform | Postgres | ✅ Complete — v1 + v2 built and seeded |
-| `second-workflows` | SaaS Project Management | Postgres | ✅ Complete — v1 + v2 built, seed-db.ts ready |
-| `third-workflows` | E-Commerce Shop | MySQL | ✅ Complete — v1 + v2 built and seeded |
-| `fourth-workflows` | ? | SQLite | ⬜ Not started |
+| `blog-platform` | Blog Platform | Postgres | ✅ Complete — v1 + v2 built and seeded |
+| `saas-platform` | SaaS Project Management | Postgres | ✅ Complete — v1 + v2 built, seed-db.ts ready |
+| `shop-mysql` | E-Commerce Shop | MySQL | ✅ Complete — v1 + v2 built and seeded |
+| `diff-exhaustive` | ? | SQLite | ⬜ Not started |
 
 ---
 
@@ -29,18 +29,18 @@
 
 ## Where we left off
 
-**Last completed:** `third-workflows` (MySQL E-Commerce) v1 + v2 fully built.
+**Last completed:** `shop-mysql` (MySQL E-Commerce) v1 + v2 fully built.
 
 **Next up — pick one:**
 
-1. **`fourth-workflows` (SQLite)** — A new domain on SQLite provider.
+1. **`diff-exhaustive` (SQLite)** — A new domain on SQLite provider.
 
 2. **`migrations.test.ts`** — Vitest unit tests for the two tRPC migrations procedures:
    `migrations.listConnections` and `migrations.deleteConnection`. Lightweight — no
    real DB connection needed.
 
-3. **Seed `second-workflows` into a real Postgres DB and run the migration** — Deploy
-   v1 schema via Migrations UI, run `pnpm seed:db second-workflows <url>`, then
+3. **Seed `saas-platform` into a real Postgres DB and run the migration** — Deploy
+   v1 schema via Migrations UI, run `pnpm seed:db saas-platform <url>`, then
    exercise the full v1→v2 migration pipeline to confirm the Fix Modal fires on the
    6 expected null rows (2 × User.score, 4 × Comment.rating).
 
@@ -50,17 +50,17 @@
 
 ```bash
 # Build schemas (run with app running on :3000)
-pnpm seed:workflows first-workflows
-pnpm seed:workflows second-workflows
-pnpm seed:workflows third-workflows
+pnpm seed:workflows blog-platform
+pnpm seed:workflows saas-platform
+pnpm seed:workflows shop-mysql
 
 # Seed mock data into a real DB (schema must be deployed first)
-pnpm seed:db first-workflows  postgresql://user:pass@host/db
-pnpm seed:db second-workflows postgresql://user:pass@host/db
-pnpm seed:db third-workflows  mysql://user:pass@host:3306/db
+pnpm seed:db blog-platform  postgresql://user:pass@host/db
+pnpm seed:db saas-platform postgresql://user:pass@host/db
+pnpm seed:db shop-mysql  mysql://user:pass@host:3306/db
 ```
 
-## Expected migration errors (second-workflows v1 → v2)
+## Expected migration errors (saas-platform v1 → v2)
 
 | Model | Field | Rows | Error |
 |---|---|---|---|

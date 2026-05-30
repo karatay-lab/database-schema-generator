@@ -1,6 +1,6 @@
 import "server-only";
 import Database from "better-sqlite3";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 declare const global: typeof globalThis & { _appDb?: InstanceType<typeof Database> };
@@ -69,6 +69,7 @@ function seedFieldTemplates(sqlite: InstanceType<typeof Database>) {
 
 if (!global._appDb) {
   const dbPath = process.env.TEST_DB_PATH ?? path.join(process.cwd(), "src/database/app.db");
+  mkdirSync(path.dirname(dbPath), { recursive: true });
   const sqlite = new Database(dbPath);
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("foreign_keys = ON");

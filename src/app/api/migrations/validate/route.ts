@@ -8,6 +8,7 @@ import { getSnapshotData } from "@/lib/db/migration-state";
 import { renderMigrationPrismaSchema } from "@/lib/migration-schema-artifacts";
 import { checkTypeConversion, generatedUniqueValue } from "@/lib/migrations/rules";
 
+
 function getString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -185,6 +186,41 @@ function runStage1(
   return issues;
 }
 
+// ─── approved lossy/deleted field warnings ────────────────────────────────────
+
+// Returns: modelName → Map<fieldDbName, { changeKind, fromValue, toValue }> for approved lossy warnings.
+// Used to determine whether a field should be stripped from Zod validation (truly incompatible)
+// or left in place (compatible conversion like String → Enum carries actual data through).
+type ApprovedLossyEntry2 = { changeKind: string; fromValue: string | null; toValue: string | null };
+type ApprovedLossySet = Map<string, Map<string, ApprovedLossyEntry2>>;
+
+function loadApprovedLossyFields(
+  projectName: string,
+  syncVersion: string,
+  targetVersion: string,
+): ApprovedLossySet {
+  const projectRow = db.prepare("SELECT id FROM projects WHERE name = ?").get(projectName) as { id: string } | undefined;
+  if (!projectRow) return new Map();
+  const rows = db.prepare(`
+    SELECT entity_name, change_kind, from_value, to_value FROM schema_warnings
+    WHERE project_id = ? AND from_version = ? AND to_version = ?
+      AND entity_kind = 'field'
+      AND resolution IN ('lossy_convert', 'data_deleted')
+      AND approved_at IS NOT NULL
+  `).all(projectRow.id, syncVersion, targetVersion) as { entity_name: string; change_kind: string; from_value: string | null; to_value: string | null }[];
+  const result = new Map<string, Map<string, ApprovedLossyEntry2>>();
+  for (const row of rows) {
+    const dot = row.entity_name.indexOf(".");
+    if (dot === -1) continue;
+    const model = row.entity_name.slice(0, dot);
+    const fieldDbName = row.entity_name.slice(dot + 1).toLowerCase();
+    const inner = result.get(model) ?? new Map<string, ApprovedLossyEntry2>();
+    inner.set(fieldDbName, { changeKind: row.change_kind, fromValue: row.from_value, toValue: row.to_value });
+    result.set(model, inner);
+  }
+  return result;
+}
+
 // ─── stage 2: zod vs target schema (rename v1 → v2 field names first) ────────
 
 function prismaTypeToZod(type: string, optional: boolean): z.ZodTypeAny {
@@ -207,6 +243,7 @@ function runStage2(
   targetModels: SchemaModel[],
   snapshotsByTable: Map<string, Record<string, unknown>[]>,
   renameMapsByModel: Map<string, Map<string, string>>,
+  approvedLossy: ApprovedLossySet,
 ): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const scalarTypes = new Set(["String", "Int", "BigInt", "Float", "Decimal", "Boolean", "DateTime", "Json", "Bytes"]);
@@ -215,26 +252,42 @@ function runStage2(
     const records = snapshotsByTable.get(model.tableName) ?? snapshotsByTable.get(model.name) ?? [];
     if (records.length === 0) continue;
 
-    // Rename map for this model: v1 field name → v2 field name
     const renameMap = renameMapsByModel.get(model.name) ?? new Map<string, string>();
+    // Strip a field from Zod validation only when its v1 value cannot be valid for the v2 type:
+    //   pk_type_changed  — old Int PK cannot be a UUID
+    //   incompatible conversion (String→Float/Int) — value will be replaced by default at run time
+    // Compatible conversions (String→Enum) keep actual v1 data — do NOT strip.
+    const lossyFieldMap = approvedLossy.get(model.name) ?? new Map<string, ApprovedLossyEntry2>();
+    const trulyLossyFields = new Set(
+      [...lossyFieldMap.entries()]
+        .filter(([, entry]) => {
+          if (entry.changeKind === "pk_type_changed") return true;
+          if (entry.fromValue && entry.toValue) {
+            return !checkTypeConversion(entry.fromValue, entry.toValue).compatible;
+          }
+          return false;
+        })
+        .map(([fieldName]) => fieldName),
+    );
 
-    // Keys actually present in the collected data after renames applied.
-    // Fields absent here are new in v2 — runUpgradeRules already warns about them;
-    // validating them here produces duplicate errors for missing required values.
     const presentKeys = new Set(Object.keys(applyRenames(records[0]!, renameMap)));
 
     const shape: Record<string, z.ZodTypeAny> = {};
     for (const field of model.fields) {
       if (!scalarTypes.has(field.type)) continue;
       const isNewField = !presentKeys.has(field.name);
-      shape[field.name] = prismaTypeToZod(field.type, field.optional || isNewField);
+      const isLossy = trulyLossyFields.has(field.name);
+      shape[field.name] = prismaTypeToZod(field.type, field.optional || isNewField || isLossy);
     }
     const schema = z.object(shape).passthrough();
 
     for (let i = 0; i < records.length; i++) {
-      // Rename collected record's v1 column names to v2 before parsing
       const renamed = applyRenames(records[i]!, renameMap);
-      const result = schema.safeParse(renamed);
+      // Strip only truly incompatible lossy fields before Zod parsing.
+      const forValidation = trulyLossyFields.size > 0
+        ? Object.fromEntries(Object.entries(renamed).filter(([k]) => !trulyLossyFields.has(k)))
+        : renamed;
+      const result = schema.safeParse(forValidation);
       if (!result.success) {
         for (const issue of result.error.issues) {
           const fieldName = issue.path.join(".") || "(record)";
@@ -257,6 +310,7 @@ function runUpgradeRules(
   v1Store: CanonicalStore | null,
   v2Store: CanonicalStore | null,
   snapshotsByTable: Map<string, Record<string, unknown>[]>,
+  approvedLossy: ApprovedLossySet,
 ): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   if (!v1Store || !v2Store) return issues;
@@ -299,7 +353,8 @@ function runUpgradeRules(
       }
 
       const conversion = checkTypeConversion(sourceField.type ?? "", targetField.type ?? "");
-      if (!conversion.compatible) {
+      const lossyApproved = (approvedLossy.get(targetModel.name) ?? new Map<string, ApprovedLossyEntry2>()).has(targetName);
+      if (!conversion.compatible && !lossyApproved) {
         issues.push({
           model: targetModel.name,
           field: targetName,
@@ -378,10 +433,12 @@ export async function POST(request: Request) {
       }
     }
 
+    const approvedLossy = loadApprovedLossyFields(projectName, syncVersion, targetVersion);
+
     const stage1Issues = runStage1(syncModels, snapshotsByTable);
     const stage2Issues = [
-      ...runStage2(targetModels, snapshotsByTable, renameMapsByModel),
-      ...runUpgradeRules(v1Store, v2Store, snapshotsByTable),
+      ...runStage2(targetModels, snapshotsByTable, renameMapsByModel, approvedLossy),
+      ...runUpgradeRules(v1Store, v2Store, snapshotsByTable, approvedLossy),
     ];
     const passed =
       !stage1Issues.some((i) => i.severity === "error") &&

@@ -11,91 +11,21 @@ import { useSchemaWarnings } from "../shared/use-schema-warnings";
 import { TableDiffSummary, TableDiffDetailModal } from "../shared/version-diff-badge";
 import type { TableDiff } from "@/lib/version-diff/detect-changes";
 import type { PrismaModel } from "@/lib/schema-store";
+import {
+  pkTypeDetails,
+  providerPkTypes,
+  defaultPkType,
+  prismaIdentifierPattern,
+  providerKey,
+  providerLabel,
+  pkOptionsForProvider,
+  pkExampleLine,
+  pkTypeBadgeClass as fieldTypeBadgeClass,
+  type ProviderKey,
+  type PkTypeValue,
+} from "@/constants/tables";
 
-type ProviderKey = "postgresql" | "mysql" | "sqlite";
-type PkTypeValue = "String" | "Int" | "BigInt" | "DateTime" | "Uuid";
 type HelpDialog = "primaryKeys" | "naming" | null;
-
-const pkTypeDetails: Record<
-  PkTypeValue,
-  {
-    label: string;
-    summary: string;
-    badgeClass: string;
-  }
-> = {
-  String: {
-    label: "String (cuid)",
-    summary: "App-generated string ID with @default(cuid()).",
-    badgeClass: "bg-green-50 text-green-700",
-  },
-  Int: {
-    label: "Int (autoincrement)",
-    summary: "Database-generated integer ID.",
-    badgeClass: "bg-blue-50 text-blue-700",
-  },
-  BigInt: {
-    label: "BigInt (autoincrement)",
-    summary: "Database-generated large integer ID.",
-    badgeClass: "bg-rose-50 text-rose-700",
-  },
-  DateTime: {
-    label: "DateTime (now)",
-    summary: "Timestamp ID. Use only for legacy schemas.",
-    badgeClass: "bg-orange-50 text-orange-700",
-  },
-  Uuid: {
-    label: "Uuid",
-    summary: "Provider-aware UUID ID.",
-    badgeClass: "bg-purple-50 text-purple-700",
-  },
-};
-
-const providerPkTypes: Record<ProviderKey, PkTypeValue[]> = {
-  postgresql: ["Int", "BigInt", "Uuid", "String", "DateTime"],
-  mysql: ["Int", "BigInt", "Uuid", "String"],
-  sqlite: ["Int", "Uuid", "String"],
-};
-
-const defaultPkType = "Int";
-const prismaIdentifierPattern = /^[a-zA-Z][a-zA-Z0-9_]*$/;
-
-function providerKey(provider: string): ProviderKey {
-  if (provider === "MySQL") return "mysql";
-  if (provider === "SQLite") return "sqlite";
-  return "postgresql";
-}
-
-function providerLabel(key: ProviderKey) {
-  if (key === "mysql") return "MySQL";
-  if (key === "sqlite") return "SQLite";
-  return "Postgres";
-}
-
-function pkOptionsForProvider(key: ProviderKey) {
-  return providerPkTypes[key].map((value) => ({
-    value,
-    ...pkTypeDetails[value],
-  }));
-}
-
-function pkExampleLine(pkName: string, pkType: string, key: ProviderKey) {
-  const name = prismaIdentifierPattern.test(pkName.trim()) ? pkName.trim() : "id";
-
-  if (pkType === "Int") return `${name} Int @id @default(autoincrement())`;
-  if (pkType === "BigInt") return `${name} BigInt @id @default(autoincrement())`;
-  if (pkType === "Uuid") {
-    return key === "postgresql"
-      ? `${name} String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid`
-      : `${name} String @id @default(uuid())`;
-  }
-  if (pkType === "DateTime") return `${name} DateTime @id @default(now())`;
-  return `${name} String @id @default(cuid())`;
-}
-
-function fieldTypeBadgeClass(type: string) {
-  return pkTypeDetails[type as PkTypeValue]?.badgeClass ?? "bg-slate-100 text-slate-600";
-}
 
 function HelpIcon() {
   return (
@@ -138,7 +68,7 @@ export function TablesPageContent() {
 
   const [modelName, setModelName] = useState("");
   const [pkName, setPkName] = useState("id");
-  const [pkType, setPkType] = useState(defaultPkType);
+  const [pkType, setPkType] = useState<string>(defaultPkType);
   const [createError, setCreateError] = useState("");
   const [selectedModel, setSelectedModel] = useState<PrismaModel | null>(null);
   const [editModelName, setEditModelName] = useState("");

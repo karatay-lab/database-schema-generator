@@ -4,6 +4,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
+import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 import { getSchema } from "@mrleebo/prisma-ast";
 import type { Attribute, Field, Model } from "@mrleebo/prisma-ast";
@@ -16,7 +17,8 @@ import { getSnapshotData, insertMigrationLog, upsertMigrationSession } from "@/l
 import { prepareMigrationPrismaSchema, renderMigrationPrismaSchema } from "@/lib/migration-schema-artifacts";
 import { readProjectVersionGraph } from "@/lib/schema-db/graph";
 import { MIGRATION_REFERENCE_FIELD } from "@/lib/schema-naming";
-import { computeMigrationOrder, generatedUniqueValue } from "@/lib/migrations/rules";
+import { checkTypeConversion, computeMigrationOrder, generatedUniqueValue } from "@/lib/migrations/rules";
+import { resolveFieldMigration, warningToDecision } from "@/solutions";
 
 const execFileAsync = promisify(execFile);
 const migrationsDir = path.join(process.cwd(), "src/database/migrations");
@@ -46,7 +48,67 @@ type FieldTransform = {
   renames: Record<string, string>;                                              // syncFieldName → targetFieldName
   added: { name: string; type: string; optional: boolean; hasDefault: boolean }[];  // new fields in target
   removed: string[];                                                            // sync fields not in target
+  lossy: {
+    name: string;           // target (v2) db column name
+    syncName: string;       // source (v1) db column name — needed to read raw[syncName]
+    syncType: string;       // canonical logical type of the v1 field (e.g. "string", "integer")
+    type: string;           // Prisma type of the v2 field (e.g. "Int", "Float")
+    optional: boolean;
+    hasDefault: boolean;
+    changeKind: string;
+    resolution: string;
+    replacementValue: string | null;
+    targetNullable: boolean | null;
+    targetUnique: boolean | null;
+  }[];
 };
+
+// ─── approved lossy fields ────────────────────────────────────────────────────
+
+// modelName → Map<fieldDbName, { changeKind, resolution, replacementValue, targetUnique }>
+type ApprovedLossyEntry = { changeKind: string; resolution: string; replacementValue: string | null; targetUnique: boolean | null };
+type ApprovedLossySet = Map<string, Map<string, ApprovedLossyEntry>>;
+
+function loadApprovedLossyFields(
+  projectName: string,
+  syncVersion: string,
+  targetVersion: string,
+): ApprovedLossySet {
+  const projectRow = appDb.prepare("SELECT id FROM projects WHERE name = ?").get(projectName) as { id: string } | undefined;
+  if (!projectRow) return new Map();
+  const rows = appDb.prepare(`
+    SELECT sw.entity_name, sw.change_kind, sw.resolution, sw.replacement_value,
+      CASE WHEN EXISTS (
+        SELECT 1 FROM schema_constraints sc
+        JOIN schema_constraint_fields scf ON scf.constraint_id = sc.id
+        JOIN project_versions pv ON pv.project_id = sw.project_id AND pv.name = sw.to_version
+        JOIN schema_tables st ON st.version_id = pv.id
+          AND st.name = CASE WHEN instr(sw.entity_name,'.') > 0
+                             THEN substr(sw.entity_name, 1, instr(sw.entity_name,'.')-1) ELSE NULL END
+        JOIN schema_fields sf ON sf.table_id = st.id
+          AND lower(sf.name) = lower(CASE WHEN instr(sw.entity_name,'.') > 0
+                                          THEN substr(sw.entity_name, instr(sw.entity_name,'.')+1) ELSE NULL END)
+        WHERE sc.table_id = st.id AND sc.type = 'UNIQUE' AND scf.field_id = sf.id
+          AND (SELECT COUNT(*) FROM schema_constraint_fields scf2 WHERE scf2.constraint_id = sc.id) = 1
+      ) THEN 1 ELSE 0 END AS target_unique
+    FROM schema_warnings sw
+    WHERE sw.project_id = ? AND sw.from_version = ? AND sw.to_version = ?
+      AND sw.entity_kind = 'field'
+      AND sw.resolution IN ('lossy_convert', 'data_deleted')
+      AND sw.approved_at IS NOT NULL
+  `).all(projectRow.id, syncVersion, targetVersion) as { entity_name: string; change_kind: string; resolution: string; replacement_value: string | null; target_unique: number }[];
+  const result = new Map<string, Map<string, ApprovedLossyEntry>>();
+  for (const row of rows) {
+    const dot = row.entity_name.indexOf(".");
+    if (dot === -1) continue;
+    const model = row.entity_name.slice(0, dot);
+    const fieldDbName = row.entity_name.slice(dot + 1).toLowerCase();
+    const inner = result.get(model) ?? new Map<string, ApprovedLossyEntry>();
+    inner.set(fieldDbName, { changeKind: row.change_kind, resolution: row.resolution, replacementValue: row.replacement_value, targetUnique: row.target_unique === 1 });
+    result.set(model, inner);
+  }
+  return result;
+}
 
 // ─── invalid row (for fix modal) ──────────────────────────────────────────────
 
@@ -59,6 +121,17 @@ type InvalidRow = {
 };
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
+
+// Map Prisma scalar type names → canonical logical type names used by solutions/index.ts.
+// e.g. "Int" → "integer", "DateTime" → "timestamp", "String" → "string"
+const PRISMA_TO_CANONICAL: Record<string, string> = {
+  String: "string", Int: "integer", BigInt: "bigint",
+  Float: "float", Decimal: "decimal", Boolean: "boolean",
+  DateTime: "timestamp", Json: "json", Bytes: "bytes",
+};
+function prismaTypeToCanonical(prismaType: string): string {
+  return PRISMA_TO_CANONICAL[prismaType] ?? prismaType.toLowerCase();
+}
 
 function toSlug(value: string) {
   return (
@@ -229,6 +302,7 @@ function buildFieldTransforms(
   syncStore: CanonicalStore | null,
   targetStore: CanonicalStore | null,
   targetSchemaModels: SchemaModel[],
+  approvedLossy: ApprovedLossySet,
 ): Map<string, FieldTransform> {
   const result = new Map<string, FieldTransform>();
 
@@ -240,10 +314,13 @@ function buildFieldTransforms(
     const targetSchema = targetSchemaModels.find((m) => m.name === targetCanon.name);
     if (!targetSchema) continue;
 
+    const lossyForModel = approvedLossy.get(targetCanon.name) ?? new Map<string, ApprovedLossyEntry>();
+
     const unchanged: string[] = [];
     const renames: Record<string, string> = {};
     const added: { name: string; type: string; optional: boolean; hasDefault: boolean }[] = [];
     const removed: string[] = [];
+    const lossy: FieldTransform["lossy"] = [];
 
     if (syncCanon) {
       // Match target fields to sync fields by stable fieldId (falls back to key)
@@ -258,9 +335,36 @@ function buildFieldTransforms(
         if (!schemaField) continue;
 
         if (sf) {
-          const syncName = sf.dbName || sf.name;
-          if (syncName === targetName) unchanged.push(targetName);
-          else renames[syncName] = targetName;
+          const lossyEntry = lossyForModel.get(targetName);
+          const isInLossy = lossyEntry !== undefined;
+          if (isInLossy) {
+            const isPkChange = lossyEntry!.changeKind === "pk_type_changed";
+            const conversion = checkTypeConversion(sf.type ?? "", tf.type ?? "");
+            if (isPkChange || !conversion.compatible) {
+              lossy.push({
+                name: targetName,
+                syncName: sf.dbName || sf.name,
+                syncType: sf.type ?? "",
+                type: schemaField.type,
+                optional: schemaField.optional,
+                hasDefault: schemaField.hasDefault,
+                changeKind: lossyEntry!.changeKind,
+                resolution: lossyEntry!.resolution,
+                replacementValue: lossyEntry!.replacementValue,
+                targetNullable: schemaField.optional,
+                targetUnique: lossyEntry!.targetUnique,
+              });
+            } else {
+              // Compatible (e.g. String → Enum) — preserve the actual v1 value
+              const syncName = sf.dbName || sf.name;
+              if (syncName === targetName) unchanged.push(targetName);
+              else renames[syncName] = targetName;
+            }
+          } else {
+            const syncName = sf.dbName || sf.name;
+            if (syncName === targetName) unchanged.push(targetName);
+            else renames[syncName] = targetName;
+          }
         } else {
           added.push({ name: targetName, type: schemaField.type, optional: schemaField.optional, hasDefault: schemaField.hasDefault });
         }
@@ -277,10 +381,10 @@ function buildFieldTransforms(
       }
     }
 
-    result.set(targetCanon.name, { unchanged, renames, added, removed });
+    result.set(targetCanon.name, { unchanged, renames, added, removed, lossy });
     // Also key by sync model name so we can look up by old name
     if (syncCanon && syncCanon.name !== targetCanon.name) {
-      result.set(syncCanon.name, { unchanged, renames, added, removed });
+      result.set(syncCanon.name, { unchanged, renames, added, removed, lossy });
     }
   }
 
@@ -365,6 +469,43 @@ function transformRecord(
   // Add new fields with type-appropriate defaults
   for (const { name, type, optional, hasDefault } of transform.added) {
     if (!(name in out)) out[name] = optional ? null : typeAppropriateDefault(type, name, hasDefault);
+  }
+
+  // Approved lossy/incompatible fields — route through solutions dispatcher.
+  for (const { name, syncName, syncType, type, optional, hasDefault, changeKind, resolution, replacementValue, targetNullable, targetUnique } of transform.lossy) {
+    // The dispatcher uses canonical lowercase type names (e.g. "integer", "float").
+    // syncType is already canonical (from model store). type is Prisma (e.g. "Int") — normalize it.
+    const canonicalTarget = prismaTypeToCanonical(type);
+    const rawValue = syncName in raw ? raw[syncName] : undefined;
+
+    // Unique String fields: replacementValue is a prefix — generate a fresh UUID per row
+    // so each existing row gets a distinct value (required by the UNIQUE constraint).
+    if (targetUnique && (type === "String") && replacementValue) {
+      out[name] = `${replacementValue}-${randomUUID()}`;
+      continue;
+    }
+
+    const decision = warningToDecision({
+      changeKind,
+      resolution,
+      replacementValue,
+      approvedAt: "set",
+      targetNullable,
+    });
+    const result = resolveFieldMigration(
+      syncType,
+      canonicalTarget,
+      rawValue,
+      { name, nullable: optional, hasDefault },
+      decision,
+    );
+    if (result.ok) {
+      if (!("skip" in result)) out[name] = result.value;
+      // skip=true → omit column from INSERT (DB @default generates value)
+    } else {
+      // Resolver returned a hard error — fall back to type default and surface in migration log
+      out[name] = optional ? null : typeAppropriateDefault(type, name, hasDefault);
+    }
   }
 
   return out;
@@ -480,6 +621,7 @@ function buildUpsertScript(): string {
 'use strict';
 const fs = require('node:fs');
 
+const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
 const escVal = (v, provider) => {
   if (v === null || v === undefined) return 'NULL';
   if (typeof v === 'boolean') {
@@ -487,7 +629,19 @@ const escVal = (v, provider) => {
     return (p === 'postgresql' || p === 'postgres') ? (v ? 'TRUE' : 'FALSE') : (v ? '1' : '0');
   }
   if (typeof v === 'number' || typeof v === 'bigint') return String(v);
-  if (v instanceof Date) return "'" + v.toISOString() + "'";
+  if (v instanceof Date) {
+    const p = (provider ?? '').toLowerCase();
+    if (p === 'mysql') return "'" + v.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') + "'";
+    return "'" + v.toISOString() + "'";
+  }
+  // ISO datetime strings stored in snapshot — MySQL needs 'YYYY-MM-DD HH:MM:SS'
+  if (typeof v === 'string' && ISO_RE.test(v)) {
+    const p = (provider ?? '').toLowerCase();
+    if (p === 'mysql') {
+      const d = new Date(v);
+      if (!isNaN(d.getTime())) return "'" + d.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') + "'";
+    }
+  }
   return "'" + String(v).replace(/'/g, "''") + "'";
 };
 
@@ -663,7 +817,8 @@ export async function POST(request: Request) {
   };
   const syncStore = readStore(syncVersion);
   const targetStore = readStore(targetVersion);
-  const fieldTransforms = buildFieldTransforms(syncStore, targetStore, targetModels);
+  const approvedLossy = loadApprovedLossyFields(projectName, syncVersion ?? "", targetVersion);
+  const fieldTransforms = buildFieldTransforms(syncStore, targetStore, targetModels, approvedLossy);
 
   // Build table_id maps from schema_tables for cross-version record matching.
   const targetTableIdByModelName = new Map<string, string>(); // target model name → table_id
@@ -836,7 +991,29 @@ export async function POST(request: Request) {
         send({ type: "phase", phase: "inserting", total: tablesPayload.length });
         await mkdir(logsDir, { recursive: true });
         await mkdir(tmpDir, { recursive: true });
-        await writeFile(tmpPayloadPath, JSON.stringify({ tables: tablesPayload, provider: stored!.provider, connectionUrl }), "utf8");
+        // For MySQL, pre-convert all datetime values to 'YYYY-MM-DD HH:MM:SS' format before
+        // serialising to the temp payload — JSON.stringify turns Date objects into ISO strings
+        // which MySQL rejects. Doing it here (TypeScript code) avoids relying on the spawned
+        // script's escVal, which may be served from Turbopack's cache on a hot reload.
+        const isMysql = (stored!.provider ?? "").toLowerCase() === "mysql";
+        const ISO_DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
+        function toMysqlDatetime(v: unknown): unknown {
+          if (v instanceof Date) return v.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, "");
+          if (typeof v === "string" && ISO_DATETIME_RE.test(v)) {
+            const d = new Date(v);
+            if (!isNaN(d.getTime())) return d.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, "");
+          }
+          return v;
+        }
+        const payloadTables = isMysql
+          ? tablesPayload.map((t) => ({
+              ...t,
+              records: (t as { records: Record<string, unknown>[] }).records.map((rec) =>
+                Object.fromEntries(Object.entries(rec).map(([k, v]) => [k, toMysqlDatetime(v)])),
+              ),
+            }))
+          : tablesPayload;
+        await writeFile(tmpPayloadPath, JSON.stringify({ tables: payloadTables, provider: stored!.provider, connectionUrl }), "utf8");
         await writeFile(tmpScriptPath, buildUpsertScript(), "utf8");
 
         const child = spawn("node", [tmpScriptPath, tmpPayloadPath], {

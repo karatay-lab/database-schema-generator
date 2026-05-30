@@ -2,11 +2,11 @@
   "name": "database-schema-generator",
   "version": "0.3.0",
   "private": true,
-  "scripts": {
+"scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "eslint src",
     "test": "vitest run",
     "test:watch": "vitest",
     "seed:workflows": "npx tsx src/test/run.ts",

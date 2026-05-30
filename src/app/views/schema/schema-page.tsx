@@ -18,6 +18,8 @@ import type {
 } from "@/lib/schema-store";
 import type { FieldTemplate, FieldTemplateInput } from "@/lib/field-template-store";
 import { providers as allProviders } from "../shared/dashboard-data";
+import { defaultFieldTypes, typeBadgeClass, typeSelectClass } from "@/constants/schema";
+import { FieldLegend } from "./field-legend";
 
 type FieldsResponse = {
   fields?: PrismaField[];
@@ -31,19 +33,6 @@ type TemplatesResponse = {
   fields?: FieldTemplate[];
   error?: string;
 };
-
-const defaultFieldTypes = [
-  "String",
-  "Int",
-  "BigInt",
-  "Float",
-  "Decimal",
-  "Boolean",
-  "DateTime",
-  "Timestamp",
-  "Json",
-  "Bytes",
-];
 
 const emptyFieldInput: PrismaFieldInput = {
   name: "",
@@ -69,29 +58,6 @@ function suggestDefault(type: string, provider: string): string {
     return 'dbgenerated("now()")';
   }
   return "";
-}
-
-function typeBadgeClass(type: string) {
-  if (type === "Int") return "bg-blue-50 text-blue-700";
-  if (type === "String") return "bg-green-50 text-green-700";
-  if (type === "DateTime") return "bg-orange-50 text-orange-700";
-  if (type === "Uuid") return "bg-purple-50 text-purple-700";
-  if (type === "BigInt") return "bg-rose-50 text-rose-700";
-  return "bg-slate-100 text-slate-600";
-}
-
-function typeSelectClass(type: string) {
-  if (type === "Int")                         return "border-blue-200 bg-blue-50 text-blue-800";
-  if (type === "BigInt")                      return "border-rose-200 bg-rose-50 text-rose-800";
-  if (type === "Float" || type === "Decimal") return "border-sky-200 bg-sky-50 text-sky-800";
-  if (type === "String")                      return "border-green-200 bg-green-50 text-green-800";
-  if (type === "Boolean")                     return "border-amber-200 bg-amber-50 text-amber-800";
-  if (type === "DateTime")                    return "border-orange-200 bg-orange-50 text-orange-800";
-  if (type === "Timestamp")                   return "border-orange-200 bg-orange-50 text-orange-800";
-  if (type === "Json")                        return "border-violet-200 bg-violet-50 text-violet-800";
-  if (type === "Uuid")                        return "border-purple-200 bg-purple-50 text-purple-800";
-  if (type === "Bytes")                       return "border-slate-200 bg-slate-100 text-slate-600";
-  return "border-slate-300 bg-white text-slate-950";
 }
 
 function templateTypeLabel(template: FieldTemplate) {
@@ -137,7 +103,7 @@ export function SchemaPageContent() {
   const { diffByFieldKey, diffByTableKey } = useVersionDiffLookup(projectName, version);
   const versionIdx = versions.indexOf(version);
   const previousVersion = versionIdx > 0 ? versions[versionIdx - 1]! : "";
-  const { getWarning, approve } = useSchemaWarnings(projectId, previousVersion, version);
+  const { getWarning, approve, unapprove } = useSchemaWarnings(projectId, previousVersion, version);
   const activeProject = hasProject;
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -852,28 +818,7 @@ export function SchemaPageContent() {
                     </div>
                   </div>
 
-                  {isFieldLegendOpen ? (
-                    <div className="mb-4 grid grid-cols-2 gap-x-6 gap-y-2 rounded-lg border border-cyan-100 bg-cyan-50/60 px-4 py-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-                      {[
-                        { label: "Name", desc: "Prisma field name — camelCase, used in generated code and queries." },
-                        { label: "Type", desc: "Scalar type written into the Prisma schema (String, Int, Boolean…)." },
-                        { label: "Enum (indigo)", desc: "Project-defined enum type — select \"Enum\" in Type to reveal the enum picker. Values are shown as chips below." },
-                        { label: "Default", desc: "Default value expression in the schema, e.g. now(), false, 0." },
-                        { label: "Comment", desc: "Free-text note stored as a Prisma comment (/// …) above the field." },
-                        { label: "Nullable (green)", desc: "Field is optional — Prisma adds ? suffix, column accepts NULL." },
-                        { label: "Required (amber)", desc: "Field is required — column cannot be NULL, Prisma enforces presence." },
-                        { label: "Unique (violet)", desc: "Adds @unique — no two rows can share this value." },
-                        { label: "Multiple (sky)", desc: "No unique constraint — duplicate values across rows are allowed." },
-                        { label: "✓ Save", desc: "Persist unsaved edits to this field into the schema." },
-                        { label: "🗑 Delete", desc: "Remove this field from the table entirely (shown when no edits are pending)." },
-                      ].map(({ label, desc }) => (
-                        <div key={label}>
-                          <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-cyan-700">{label}</p>
-                          <p className="mt-0.5 text-[11px] leading-relaxed text-slate-600">{desc}</p>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
+                  {isFieldLegendOpen ? <FieldLegend /> : null}
 
                   {editableFields.length === 0 ? (
                     <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm font-medium text-slate-500">
@@ -1191,6 +1136,7 @@ export function SchemaPageContent() {
                                       <ApproveWarningButton
                                         warning={getWarning("field", fieldDiff.fieldId, fieldDiff.changeKind)}
                                         onApprove={approve}
+                                        onUnapprove={unapprove}
                                       />
                                     </div>
                                   ) : null}
@@ -1311,6 +1257,7 @@ export function SchemaPageContent() {
                             <ApproveWarningButton
                               warning={getWarning("field", fd.fieldId, fd.changeKind)}
                               onApprove={approve}
+                              onUnapprove={unapprove}
                             />
                             <button
                               type="button"

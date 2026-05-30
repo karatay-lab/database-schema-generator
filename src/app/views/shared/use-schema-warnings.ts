@@ -34,6 +34,24 @@ export function useSchemaWarnings(projectId: string, fromVersion: string, toVers
   const pendingWarnings = warnings.filter((w) => !w.approvedAt);
   const pendingCount = pendingWarnings.length;
 
+  // Warnings that are approved but still missing a required decision value.
+  // Covers:
+  //   1. Field lossy_convert / precision_loss on non-nullable target → silent 0/null is wrong
+  //   2. Field backfill_required (new required field) → silent uuid/0/false is wrong
+  //   3. Enum value_removed without a replacement → orphaned rows hit DB enum constraint at INSERT
+  const defaultsRequiredCount = warnings.filter(
+    (w) =>
+      w.approvedAt !== null &&
+      !w.replacementValue &&
+      (
+        (w.entityKind === "field" && (
+          ((w.resolution === "lossy_convert" || w.resolution === "precision_loss") && w.targetNullable === false) ||
+          (w.resolution === "backfill_required" && w.targetNullable === false)
+        )) ||
+        (w.entityKind === "enum" && w.changeKind === "value_removed")
+      ),
+  ).length;
+
   // Lookup key: "entityKind:entityId:changeKind" → warning
   const warningLookup = new Map(
     warnings.map((w) => [`${w.entityKind}:${w.entityId}:${w.changeKind}`, w]),
@@ -56,6 +74,15 @@ export function useSchemaWarnings(projectId: string, fromVersion: string, toVers
     await queryClient.invalidateQueries({ queryKey: ["schema-warnings"] });
   }
 
+  async function unapprove(id: string) {
+    await fetch(`/api/schema-warnings/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "unapprove" }),
+    });
+    await queryClient.invalidateQueries({ queryKey: ["schema-warnings"] });
+  }
+
   async function approveMany(ids: string[]) {
     if (ids.length === 0) return;
     await fetch("/api/schema-warnings/bulk-approve", {
@@ -70,9 +97,11 @@ export function useSchemaWarnings(projectId: string, fromVersion: string, toVers
     warnings,
     pendingWarnings,
     pendingCount,
+    defaultsRequiredCount,
     isLoading,
     getWarning,
     approve,
+    unapprove,
     approveMany,
   };
 }

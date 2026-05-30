@@ -1,9 +1,11 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
 import { classNames } from "../shared/dashboard-data";
+import { DropZone } from "./drop-zone";
+import { VersionPreviewCard, ProviderBadge } from "./version-preview-card";
 
 type ImportMode = "version" | "project";
 
@@ -71,98 +73,6 @@ function parsePicklePreview(content: string): ParsedPreview {
     versionCount: versions.length,
     versions,
   };
-}
-
-function ProviderBadge({ provider }: { provider: string }) {
-  const label = provider === "mysql" ? "MySQL" : provider === "sqlite" ? "SQLite" : "PostgreSQL";
-  const cls =
-    provider === "mysql"
-      ? "bg-orange-50 text-orange-700"
-      : provider === "sqlite"
-        ? "bg-sky-50 text-sky-700"
-        : "bg-blue-50 text-blue-700";
-  return (
-    <span className={classNames("rounded px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide", cls)}>
-      {label}
-    </span>
-  );
-}
-
-function StatPill({ value, label }: { value: number; label: string }) {
-  return (
-    <span className="flex items-center gap-1 text-xs font-medium text-slate-600">
-      <span className="font-semibold text-slate-900">{value}</span>
-      {label}
-    </span>
-  );
-}
-
-function DropZone({
-  accept,
-  onFile,
-  label,
-}: {
-  accept: string;
-  onFile: (name: string, content: string) => void;
-  label: string;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
-
-  const handleFiles = async (files: FileList | null) => {
-    const file = files?.[0];
-    if (!file) return;
-    const content = await file.text();
-    onFile(file.name, content);
-  };
-
-  return (
-    <div
-      className={classNames(
-        "flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors cursor-pointer",
-        dragging
-          ? "border-lime-400 bg-lime-50"
-          : "border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-slate-100",
-      )}
-      onClick={() => inputRef.current?.click()}
-      onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={(e) => { e.preventDefault(); setDragging(false); void handleFiles(e.dataTransfer.files); }}
-    >
-      <input
-        ref={inputRef}
-        type="file"
-        accept={accept}
-        className="hidden"
-        onChange={(e) => void handleFiles(e.target.files)}
-      />
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-slate-200">
-        <svg className="h-5 w-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m-4-4l4 4 4-4" />
-        </svg>
-      </div>
-      <div>
-        <p className="text-sm font-semibold text-slate-700">{label}</p>
-        <p className="mt-0.5 text-xs font-medium text-slate-500">
-          Drag & drop or click to browse — <code className="rounded bg-slate-200 px-1 py-0.5 text-[10px] font-bold text-slate-600">.pickle.json</code>
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function VersionPreviewCard({ stats }: { stats: VersionStats }) {
-  return (
-    <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-        <span className="text-xs font-bold text-slate-800">{stats.name}</span>
-        <StatPill value={stats.tableCount} label="tables" />
-        <StatPill value={stats.fieldCount} label="fields" />
-        <StatPill value={stats.relationCount} label="relations" />
-        <StatPill value={stats.enumCount} label="enums" />
-      </div>
-    </div>
-  );
 }
 
 export function ImportsPageContent() {

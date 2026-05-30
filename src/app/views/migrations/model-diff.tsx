@@ -494,8 +494,6 @@ export function ModelDiff({
           )}
         </div>
 
-        {/* warnings panel */}
-        {compareState === "success" && <WarningsPanel warnings={warnings} />}
 
         {/* Zod generation — required to proceed */}
         {compareState === "success" && (

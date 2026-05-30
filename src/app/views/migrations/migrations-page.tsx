@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { IconCheck, IconCopy, IconX } from "@tabler/icons-react";
 import { classNames } from "../shared/dashboard-data";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useSchemaWarnings } from "../shared/use-schema-warnings";
@@ -200,6 +202,11 @@ export function MigrationsPageContent() {
   const [database, setDatabase] = useState("");
   const [connectState, setConnectState] = useState<PhaseState>("idle");
   const [connectError, setConnectError] = useState("");
+  const [showConnStringModal, setShowConnStringModal] = useState(false);
+  const [connStringValue, setConnStringValue] = useState("");
+  const [connStringORM, setConnStringORM] = useState<"prisma" | "drizzle" | "custom">("prisma");
+  const [connStringEnvName, setConnStringEnvName] = useState("DATABASE_URL");
+  const [connStringCopied, setConnStringCopied] = useState(false);
   const [remoteTables, setRemoteTables] = useState<string[]>([]);
 
   // ── new migration ──
@@ -227,6 +234,9 @@ export function MigrationsPageContent() {
 
   // ── pre-flight modal ──
   const [showPreflightModal, setShowPreflightModal] = useState(false);
+  const [preflightTab, setPreflightTab] = useState<"crucial" | "warning">("crucial");
+  const [preflightPage, setPreflightPage] = useState(0);
+  const PREFLIGHT_PAGE_SIZE = 8;
 
   // ── step 3: schema check ──
   const [schemaCheckState, setSchemaCheckState] = useState<PhaseState>("idle");
@@ -344,25 +354,38 @@ export function MigrationsPageContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
+  const { warnings, defaultsRequiredCount } = useSchemaWarnings(projectId, syncVersion, targetVersion);
+  const breakingPendingCount = warnings.filter((w) => !w.approvedAt && w.resolution === "data_deleted").length;
+
+  // Deep-link into the right resolver tab based on what's blocking
+  const trackingHref = (() => {
+    if (breakingPendingCount > 0) {
+      if (warnings.some((w) => !w.approvedAt && w.resolution === "data_deleted" && w.entityKind === "table")) return "/tracking?resolve=tables";
+      if (warnings.some((w) => !w.approvedAt && w.resolution === "data_deleted" && w.entityKind === "enum")) return "/tracking?resolve=enums";
+      if (warnings.some((w) => !w.approvedAt && w.resolution === "data_deleted" && w.entityKind === "field")) return "/tracking?resolve=schema";
+      if (warnings.some((w) => !w.approvedAt && w.resolution === "data_deleted" && w.entityKind === "relation")) return "/tracking?resolve=relations";
+    }
+    if (defaultsRequiredCount > 0) return "/tracking?resolve=schema";
+    return "/tracking";
+  })();
+
   // Derived gating
   const isNewPlan = migrationPlan === "new";
   const isVersionPlan = migrationPlan === "version";
   const canModelDiff: boolean = connectState === "success" && canVersionMigrate && !!syncVersion && !!targetVersion && syncVersion !== targetVersion && syncCheckState === "compatible";
-  const canSchemaCheck: boolean = modelDiffState === "success";
+  const canSchemaCheck: boolean = modelDiffState === "success" && breakingPendingCount === 0 && defaultsRequiredCount === 0;
   const canCollect: boolean = schemaCheckState === "success" && (schemaCheckResult?.bothValid ?? false);
   const canMigrate: boolean = collectState === "success";
 
   const allIssues = [...stage1Issues, ...stage2Issues];
   const errorCount = allIssues.filter((i) => i.severity === "error").length;
 
-  const { pendingCount: warningsPendingCount } = useSchemaWarnings(projectId, syncVersion, targetVersion);
-
   const collectBtnDisabled = collectState === "loading" || undefined;
   const validateBtnDisabled = validateState === "loading" || undefined;
   const migrateBtnDisabled =
     migrateState === "loading" ||
     (validateState === "success" && errorCount > 0) ||
-    warningsPendingCount > 0 ||
+    breakingPendingCount > 0 ||
     undefined;
 
   // ── reset helpers ─────────────────────────────────────────────────────────
@@ -516,6 +539,32 @@ export function MigrationsPageContent() {
   };
 
   // ─── test + create connection ────────────────────────────────────────────
+
+  const openConnStringModal = async () => {
+    const ormEnv = connStringORM === "custom" ? connStringEnvName : "DATABASE_URL";
+    setConnStringCopied(false);
+    setShowConnStringModal(true);
+    if (!activeConnectionId) { setConnStringValue(`${ormEnv}=`); return; }
+    try {
+      const res = await fetch(`/api/migrations/connections/url?connectionId=${activeConnectionId}`);
+      const data = await res.json() as { success: boolean; url?: string };
+      if (data.success && data.url) {
+        setConnStringValue(`${ormEnv}=${data.url}`);
+      } else {
+        setConnStringValue(`${ormEnv}=`);
+      }
+    } catch {
+      setConnStringValue(`${ormEnv}=`);
+    }
+  };
+
+  const rebuildConnStringValue = (orm: typeof connStringORM, envName: string) => {
+    const ormEnv = orm === "custom" ? envName : "DATABASE_URL";
+    setConnStringValue((prev) => {
+      const url = prev.includes("=") ? prev.split("=").slice(1).join("=") : prev;
+      return `${ormEnv}=${url}`;
+    });
+  };
 
   const handleConnect = async () => {
     setConnectState("loading");
@@ -1224,6 +1273,15 @@ export function MigrationsPageContent() {
             </div>
             <div className="flex items-center gap-2">
               <StateChip state={connectState} />
+              {activeConnectionId && (
+                <button
+                  type="button"
+                  onClick={() => { void openConnStringModal(); }}
+                  className="h-8 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  Connection String
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => { setShowNewForm((v) => !v); setConnectError(""); }}
@@ -1543,6 +1601,69 @@ export function MigrationsPageContent() {
                 onOpenFullScreen={() => setShowModelDiffModal(true)}
                 onComparisonReady={(c) => setComparison(c)}
               />
+
+              {warnings.length > 0 && (
+                <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">Tracking Workflow Review</p>
+                    <Link
+                      href={trackingHref}
+                      className="flex h-7 items-center rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                    >
+                      Go To Tracking Workflow →
+                    </Link>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {(
+                      [
+                        { label: "Tables", count: warnings.filter((w) => w.entityKind === "table").length },
+                        { label: "Enums", count: warnings.filter((w) => w.entityKind === "enum").length },
+                        { label: "Schema", count: warnings.filter((w) => w.entityKind === "field").length },
+                        { label: "Relations", count: warnings.filter((w) => w.entityKind === "relation").length },
+                        { label: "Restrictions", count: 0 },
+                      ] as { label: string; count: number }[]
+                    ).map(({ label, count }) => (
+                      <div key={label} className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5">
+                        <span className="text-xs font-semibold text-slate-700">{label}</span>
+                        <span className={classNames(
+                          "rounded-full px-1.5 py-0.5 text-[10px] font-bold",
+                          count > 0 ? "bg-slate-100 text-slate-600" : "bg-slate-50 text-slate-400",
+                        )}>{count}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {breakingPendingCount > 0 ? (
+                    <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3">
+                      <p className="text-sm font-semibold text-rose-700">
+                        {breakingPendingCount} breaking {breakingPendingCount === 1 ? "change requires" : "changes require"} approval before you can proceed.
+                      </p>
+                      <p className="mt-0.5 text-xs text-rose-600">
+                        Approve all breaking changes in the Tracking Workflow to unlock schema validation.
+                      </p>
+                    </div>
+                  ) : defaultsRequiredCount > 0 ? (
+                    <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
+                      <p className="text-sm font-semibold text-amber-700">
+                        {defaultsRequiredCount} {defaultsRequiredCount === 1 ? "item needs" : "items need"} an explicit decision before migration.
+                      </p>
+                      <p className="mt-0.5 text-xs text-amber-600">
+                        In Tracking, set replacement values for removed enum values and default values for new required fields — auto-generated placeholders corrupt real data.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2.5">
+                      <svg viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4 shrink-0 text-emerald-600">
+                        <path fillRule="evenodd" d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z" clipRule="evenodd" />
+                      </svg>
+                      <p className="text-sm font-semibold text-emerald-700">
+                        All changes approved in Tracking Workflow — approved actions will be taken.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
             </CardBody>
           </Card>
 
@@ -1824,19 +1945,12 @@ export function MigrationsPageContent() {
                     type="button"
                     onClick={() => setShowPreflightModal(true)}
                     disabled={migrateBtnDisabled}
-                    title={warningsPendingCount > 0 ? `${warningsPendingCount} schema warning${warningsPendingCount > 1 ? "s" : ""} must be approved before migrating` : undefined}
+                    title={breakingPendingCount > 0 ? `${breakingPendingCount} breaking ${breakingPendingCount === 1 ? "change requires" : "changes require"} approval in Tracking Workflow` : undefined}
                     className="h-8 min-w-36 rounded-md bg-slate-800 px-4 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
                     {migrateState === "loading" ? "Migrating…" : "Review & Run"}
                   </button>
                 </div>
-                {warningsPendingCount > 0 && (
-                  <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2.5">
-                    <p className="text-xs font-semibold text-amber-700">
-                      {warningsPendingCount} schema warning{warningsPendingCount > 1 ? "s" : ""} must be approved before migrating. Visit the Enums, Tables, Schema, or Relations workflow to review and approve each change.
-                    </p>
-                  </div>
-                )}
 
                 {migrateState === "success" && migrateTables && migrateTables.length > 0 && (
                   <div className="space-y-2">
@@ -2121,104 +2235,295 @@ export function MigrationsPageContent() {
       )}
 
       {/* ── Pre-flight summary modal ─────────────────────────────────────── */}
-      {showPreflightModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
-          <div className="flex w-full max-w-xl flex-col rounded-lg border border-slate-200 bg-white shadow-2xl" style={{ maxHeight: "85vh" }}>
-            <div className="shrink-0 border-b border-slate-200 px-5 py-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Migration Plan</p>
-              <h3 className="mt-1 text-lg font-semibold text-slate-950">Review before running</h3>
-            </div>
+      {showPreflightModal && (() => {
+        // Build warning lookup: entityName → SchemaWarning
+        const warningByEntity = new Map(warnings.map((w) => [w.entityName, w]));
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-5 space-y-4">
-              {/* Connection + versions */}
-              <div className="grid grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-xs">
-                <div>
-                  <p className="font-semibold uppercase tracking-widest text-slate-400">Connection</p>
-                  <p className="mt-1 font-semibold text-slate-800 truncate">{activeConnection?.name ?? "—"}</p>
-                  <p className="text-slate-500 font-mono text-[10px]">{activeConnection ? `${activeConnection.host}:${activeConnection.port}/${activeConnection.database}` : ""}</p>
-                </div>
-                <div>
-                  <p className="font-semibold uppercase tracking-widest text-slate-400">Versions</p>
-                  <p className="mt-1 font-semibold text-slate-800">
-                    <span className="font-mono">{syncVersion}</span>
-                    <span className="mx-2 text-slate-400">→</span>
-                    <span className="font-mono">{targetVersion}</span>
-                  </p>
-                </div>
-                <div>
-                  <p className="font-semibold uppercase tracking-widest text-slate-400">Tables / Rows</p>
-                  <p className="mt-1 font-semibold text-slate-800">{collectTables.length} tables · {collectTotal.toLocaleString()} rows</p>
-                </div>
-                <div>
-                  <p className="font-semibold uppercase tracking-widest text-slate-400">Snapshot</p>
-                  <p className="mt-1 font-mono text-[10px] text-slate-700">{collectTimestamp || "—"}</p>
-                </div>
-              </div>
+        // Inline compatibility check — mirrors rules.ts checkTypeConversion but client-safe.
+        const KNOWN_SCALARS = new Set(["string","text","integer","int","bigint","float","decimal","boolean","timestamp","datetime","json","bytes"]);
+        const COMPAT: Record<string, Set<string>> = {
+          integer: new Set(["decimal","float","string","text","bytes"]),
+          string: new Set(["text"]),
+          float: new Set(["decimal","integer"]),
+        };
+        function isCompatible(from: string, to: string): boolean {
+          const f = from.toLowerCase(); const t = to.toLowerCase();
+          if (f === t) return true;
+          if (!KNOWN_SCALARS.has(t)) return f === "string" || f === "text"; // String→Enum
+          return COMPAT[f]?.has(t) ?? false;
+        }
 
-              {/* Migration order */}
-              {migrationOrder.length > 0 && (
-                <div>
-                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">Insert Order</p>
-                  <p className="font-mono text-xs text-slate-700">{migrationOrder.map((i) => i.modelName).join(" → ")}</p>
-                </div>
-              )}
+        // Build preflight items from comparison + tracking decisions
+        type PreflightItem = { id: string; field: string; change: string; resolution: string; actionLabel: string; hasValue: boolean };
+        const crucial: PreflightItem[] = [];
+        const warning: PreflightItem[] = [];
 
-              {/* Diff warnings from model comparison */}
-              {comparison && (() => {
-                const errors: string[] = [];
-                const warns: string[] = [];
-                for (const m of comparison.removedModels) errors.push(`Model "${m.name}" removed — all rows dropped`);
-                for (const m of comparison.matchedModels) {
-                  for (const f of m.matchedFields) {
-                    if (!f.isRelation && f.typeChanged) errors.push(`${m.toName}.${f.toName}: ${f.fromType} → ${f.toType} (type change)`);
-                    if (!f.isRelation && f.fromNullable && !f.toNullable) warns.push(`${m.toName}.${f.toName}: nullable → required`);
-                  }
-                  for (const f of m.removedFields) warns.push(`${m.toName}.${f.name}: field removed`);
-                  for (const f of m.addedFields) { if (!f.nullable) warns.push(`${m.toName}.${f.name}: new required field`); }
+        if (comparison) {
+          // Removed models → crucial
+          for (const m of comparison.removedModels) {
+            crucial.push({
+              id: `rm-${m.name}`, field: m.name, change: "model removed",
+              resolution: "All rows permanently dropped from the database.",
+              actionLabel: "Data deleted", hasValue: false,
+            });
+          }
+          for (const m of comparison.matchedModels) {
+            // Type-changed fields — split by compatibility
+            for (const f of m.matchedFields) {
+              if (!f.isRelation && f.typeChanged) {
+                const w = warningByEntity.get(`${m.toName}.${f.toName}`);
+                const rv = w?.replacementValue;
+                const compatible = isCompatible(f.fromType, f.toType);
+                if (compatible) {
+                  // e.g. String → Enum: existing values carry over as-is if they are valid members
+                  warning.push({
+                    id: `tc-${m.toName}-${f.toName}`,
+                    field: `${m.toName}.${f.toName}`,
+                    change: `${f.fromType} → ${f.toType}`,
+                    resolution: `Values will be cast to ${f.toType}. Existing string values carry over — ensure all are valid ${f.toType} members or the database will reject them on insert.`,
+                    actionLabel: "Cast — data carries over",
+                    hasValue: true,
+                  });
+                } else {
+                  // e.g. String → Int / Float: data cannot be preserved
+                  crucial.push({
+                    id: `tc-${m.toName}-${f.toName}`,
+                    field: `${m.toName}.${f.toName}`,
+                    change: `${f.fromType} → ${f.toType}`,
+                    resolution: rv
+                      ? `Existing data not convertable to ${f.toType}. All rows will receive "${rv}" as set in Tracking.`
+                      : `Existing data not convertable to ${f.toType}. All rows will receive an auto-generated placeholder — set a default in Tracking to control this value.`,
+                    actionLabel: rv ? `Replace → "${rv}"` : "Auto-generated placeholder",
+                    hasValue: Boolean(rv),
+                  });
                 }
-                if (errors.length === 0 && warns.length === 0) return null;
-                return (
-                  <div className="space-y-2">
-                    {errors.length > 0 && (
-                      <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 space-y-1">
-                        <p className="text-[10px] font-semibold uppercase tracking-widest text-rose-600">{errors.length} data-loss risk{errors.length !== 1 ? "s" : ""}</p>
-                        {errors.map((e, i) => <p key={i} className="font-mono text-xs text-rose-700">{e}</p>)}
-                      </div>
-                    )}
-                    {warns.length > 0 && (
-                      <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 space-y-1">
-                        <p className="text-[10px] font-semibold uppercase tracking-widest text-amber-600">{warns.length} warning{warns.length !== 1 ? "s" : ""}</p>
-                        {warns.map((w, i) => <p key={i} className="font-mono text-xs text-amber-700">{w}</p>)}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
+              }
+            }
+            // Removed fields → warning
+            for (const f of m.removedFields) {
+              warning.push({
+                id: `rf-${m.toName}-${f.name}`,
+                field: `${m.toName}.${f.name}`,
+                change: "field removed",
+                resolution: "Column and all its data will be permanently dropped from the target database.",
+                actionLabel: "Data dropped", hasValue: false,
+              });
+            }
+            // Added required fields → warning
+            for (const f of m.addedFields) {
+              if (!f.nullable) {
+                const w = warningByEntity.get(`${m.toName}.${f.name}`);
+                const rv = w?.replacementValue;
+                warning.push({
+                  id: `af-${m.toName}-${f.name}`,
+                  field: `${m.toName}.${f.name}`,
+                  change: `new required ${f.type} field`,
+                  resolution: rv
+                    ? `Field does not exist in the source version. All existing rows will receive "${rv}" as set in Tracking.`
+                    : `Field does not exist in the source version. Field is not nullable — all existing rows will receive an auto-generated placeholder. Set a backfill value in Tracking to use a real value.`,
+                  actionLabel: rv ? `Backfill → "${rv}"` : "Auto-generated placeholder",
+                  hasValue: Boolean(rv),
+                });
+              }
+            }
+            // Nullable → required → warning
+            for (const f of m.matchedFields) {
+              if (!f.isRelation && f.fromNullable && !f.toNullable) {
+                const w = warningByEntity.get(`${m.toName}.${f.toName}`);
+                const rv = w?.replacementValue;
+                warning.push({
+                  id: `nr-${m.toName}-${f.toName}`,
+                  field: `${m.toName}.${f.toName}`,
+                  change: "nullable → required",
+                  resolution: rv
+                    ? `Existing NULL rows will receive "${rv}" as set in Tracking.`
+                    : `Existing NULL rows will receive an auto-generated placeholder — set a backfill value in Tracking to control this.`,
+                  actionLabel: rv ? `Backfill NULLs → "${rv}"` : "Auto-generated for NULLs",
+                  hasValue: Boolean(rv),
+                });
+              }
+            }
+          }
+        }
 
-              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
-                <p className="text-xs font-semibold text-amber-700">The target database will be force-reset and rebuilt. Ensure the snapshot is current before proceeding.</p>
+        const activeItems = preflightTab === "crucial" ? crucial : warning;
+        const pageCount = Math.ceil(activeItems.length / PREFLIGHT_PAGE_SIZE);
+        const pageItems = activeItems.slice(preflightPage * PREFLIGHT_PAGE_SIZE, (preflightPage + 1) * PREFLIGHT_PAGE_SIZE);
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+            <div className="flex w-full max-w-5xl flex-col rounded-lg border border-slate-200 bg-white shadow-2xl" style={{ maxHeight: "88vh" }}>
+
+              {/* Header */}
+              <div className="shrink-0 border-b border-slate-200 px-6 py-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Migration Plan</p>
+                <h3 className="mt-0.5 text-lg font-semibold text-slate-950">Review before running</h3>
               </div>
-            </div>
 
-            <div className="shrink-0 flex items-center justify-end gap-3 border-t border-slate-200 px-5 py-4">
-              <button
-                type="button"
-                onClick={() => setShowPreflightModal(false)}
-                className="h-9 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => { setShowPreflightModal(false); void handleMigrate(); }}
-                className="h-9 min-w-40 rounded-md bg-slate-800 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700"
-              >
-                Begin Migration
-              </button>
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {/* Summary strip */}
+                <div className="grid grid-cols-4 gap-4 border-b border-slate-100 bg-slate-50 px-6 py-4 text-xs">
+                  <div>
+                    <p className="font-semibold uppercase tracking-widest text-slate-400">Connection</p>
+                    <p className="mt-1 font-semibold text-slate-800 truncate">{activeConnection?.name ?? "—"}</p>
+                    <p className="font-mono text-[10px] text-slate-500">{activeConnection ? `${activeConnection.host}:${activeConnection.port}/${activeConnection.database}` : ""}</p>
+                  </div>
+                  <div>
+                    <p className="font-semibold uppercase tracking-widest text-slate-400">Versions</p>
+                    <p className="mt-1 font-semibold text-slate-800">
+                      <span className="font-mono">{syncVersion}</span>
+                      <span className="mx-2 text-slate-400">→</span>
+                      <span className="font-mono">{targetVersion}</span>
+                    </p>
+                  </div>
+                  <div>
+                    <p className="font-semibold uppercase tracking-widest text-slate-400">Tables / Rows</p>
+                    <p className="mt-1 font-semibold text-slate-800">{collectTables.length} tables · {collectTotal.toLocaleString()} rows</p>
+                  </div>
+                  <div>
+                    <p className="font-semibold uppercase tracking-widest text-slate-400">Insert Order</p>
+                    <p className="mt-1 font-mono text-[10px] text-slate-700 truncate">{migrationOrder.map((i) => i.modelName).join(" → ") || "—"}</p>
+                  </div>
+                </div>
+
+                {/* Tabs */}
+                {(crucial.length > 0 || warning.length > 0) && (
+                  <div className="flex border-b border-slate-200 px-6 pt-3">
+                    {(["crucial", "warning"] as const).map((tab) => {
+                      const count = tab === "crucial" ? crucial.length : warning.length;
+                      const isActive = preflightTab === tab;
+                      return (
+                        <button
+                          key={tab}
+                          type="button"
+                          onClick={() => { setPreflightTab(tab); setPreflightPage(0); }}
+                          className={classNames(
+                            "relative mr-6 pb-3 text-sm font-semibold capitalize transition",
+                            isActive ? (tab === "crucial" ? "text-rose-600" : "text-amber-600") : "text-slate-500 hover:text-slate-700",
+                          )}
+                        >
+                          {tab}
+                          <span className={classNames(
+                            "ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold",
+                            tab === "crucial" ? "bg-rose-100 text-rose-600" : "bg-amber-100 text-amber-700",
+                          )}>
+                            {count}
+                          </span>
+                          {isActive && (
+                            <span className={classNames(
+                              "absolute bottom-0 left-0 right-0 h-0.5 rounded-full",
+                              tab === "crucial" ? "bg-rose-500" : "bg-amber-500",
+                            )} />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Item list */}
+                <div className="px-6 py-4 space-y-2">
+                  {pageItems.length === 0 ? (
+                    <p className="py-6 text-center text-sm text-slate-400">No {preflightTab} items for this migration.</p>
+                  ) : pageItems.map((item) => {
+                    const isCrucial = preflightTab === "crucial";
+                    return (
+                      <div
+                        key={item.id}
+                        className={classNames(
+                          "rounded-lg border px-4 py-3 grid grid-cols-[1fr_auto] gap-x-6 gap-y-1 items-start",
+                          isCrucial ? "border-rose-200 bg-rose-50/60" : "border-amber-100 bg-amber-50/50",
+                        )}
+                      >
+                        {/* Left: field + change + resolution */}
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <code className={classNames(
+                              "font-mono text-xs font-semibold",
+                              isCrucial ? "text-rose-800" : "text-amber-800",
+                            )}>
+                              {item.field}
+                            </code>
+                            <span className={classNames(
+                              "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                              isCrucial ? "bg-rose-200 text-rose-700" : "bg-amber-200 text-amber-700",
+                            )}>
+                              {item.change}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-600 leading-relaxed">{item.resolution}</p>
+                        </div>
+
+                        {/* Right: action badge */}
+                        <div className="shrink-0 mt-0.5">
+                          <span className={classNames(
+                            "inline-flex items-center rounded-md border px-2.5 py-1 text-[11px] font-semibold",
+                            item.hasValue
+                              ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                              : "border-slate-300 bg-slate-100 text-slate-500",
+                          )}>
+                            {item.actionLabel}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* Pagination */}
+                  {pageCount > 1 && (
+                    <div className="flex items-center justify-between pt-2">
+                      <span className="text-xs text-slate-400">
+                        {preflightPage * PREFLIGHT_PAGE_SIZE + 1}–{Math.min((preflightPage + 1) * PREFLIGHT_PAGE_SIZE, activeItems.length)} of {activeItems.length}
+                      </span>
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          disabled={preflightPage === 0 || undefined}
+                          onClick={() => setPreflightPage((p) => p - 1)}
+                          className="h-7 rounded border border-slate-300 px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          ← Prev
+                        </button>
+                        <button
+                          type="button"
+                          disabled={preflightPage >= pageCount - 1 || undefined}
+                          onClick={() => setPreflightPage((p) => p + 1)}
+                          className="h-7 rounded border border-slate-300 px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          Next →
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Force-reset notice */}
+                <div className="mx-6 mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2.5">
+                  <p className="text-xs font-semibold text-amber-700">The target database will be force-reset and rebuilt. Ensure the snapshot is current before proceeding.</p>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="shrink-0 flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+                <button
+                  type="button"
+                  onClick={() => setShowPreflightModal(false)}
+                  className="h-9 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowPreflightModal(false); void handleMigrate(); }}
+                  className="h-9 min-w-40 rounded-md bg-slate-800 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700"
+                >
+                  Begin Migration
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── Fix-rows modal ───────────────────────────────────────────────── */}
       {showFixModal && (
@@ -2320,6 +2625,99 @@ export function MigrationsPageContent() {
           onClose={() => setShowModelDiffModal(false)}
           onZodGenerated={() => { setModelDiffState("success"); void persistMigrationState({ zodGenerated: true }); }}
         />
+      )}
+
+      {/* ── Connection String modal ───────────────────────────────────── */}
+      {showConnStringModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+          <div className="flex w-full max-w-5xl flex-col rounded-lg border border-slate-200 bg-white shadow-2xl">
+            <div className="relative border-b border-slate-200 px-6 py-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Reference</p>
+              <h3 className="mt-0.5 text-lg font-semibold text-slate-950">Connection String</h3>
+              <p className="mt-0.5 text-xs text-slate-500">Copy this into your project&apos;s <span className="font-mono">.env</span> file.</p>
+              <button
+                type="button"
+                onClick={() => setShowConnStringModal(false)}
+                className="absolute right-4 top-4 rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+              >
+                <IconX size={18} stroke={1.5} />
+              </button>
+            </div>
+
+            <div className="space-y-4 p-6">
+              {/* ORM selector */}
+              <div>
+                <p className="mb-1.5 text-xs font-semibold text-slate-700">ORM / Format</p>
+                <div className="flex gap-2">
+                  {(["prisma", "drizzle", "custom"] as const).map((orm) => (
+                    <button
+                      key={orm}
+                      type="button"
+                      onClick={() => {
+                        setConnStringORM(orm);
+                        rebuildConnStringValue(orm, connStringEnvName);
+                        setConnStringCopied(false);
+                      }}
+                      className={classNames(
+                        "h-8 rounded-md border px-3 text-xs font-semibold capitalize transition",
+                        connStringORM === orm
+                          ? "border-slate-800 bg-slate-800 text-white"
+                          : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
+                      )}
+                    >
+                      {orm}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Custom env var name */}
+              {connStringORM === "custom" && (
+                <div>
+                  <p className="mb-1 text-xs font-semibold text-slate-700">Environment Variable Name</p>
+                  <input
+                    value={connStringEnvName}
+                    onChange={(e) => {
+                      setConnStringEnvName(e.target.value);
+                      rebuildConnStringValue("custom", e.target.value);
+                      setConnStringCopied(false);
+                    }}
+                    placeholder="DATABASE_URL"
+                    className="h-8 w-full rounded-md border border-slate-300 bg-white px-3 text-xs font-mono text-slate-800 focus:border-slate-500 focus:outline-none"
+                  />
+                </div>
+              )}
+
+              {/* Editable connection string with copy icon */}
+              <div>
+                <p className="mb-1 text-xs font-semibold text-slate-700">Connection String</p>
+                <div className="flex items-center gap-2">
+                  <input
+                    value={connStringValue}
+                    onChange={(e) => { setConnStringValue(e.target.value); setConnStringCopied(false); }}
+                    spellCheck={false}
+                    className="h-9 min-w-0 flex-1 rounded-md border border-slate-300 bg-slate-50 px-3 font-mono text-xs text-slate-800 focus:border-slate-500 focus:bg-white focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(connStringValue);
+                      setConnStringCopied(true);
+                      setTimeout(() => setConnStringCopied(false), 2000);
+                    }}
+                    title="Copy to clipboard"
+                    className="shrink-0 rounded p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                  >
+                    {connStringCopied
+                      ? <IconCheck size={16} stroke={2.5} className="text-emerald-600" />
+                      : <IconCopy size={16} stroke={1.5} />}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
       )}
     </div>
   );

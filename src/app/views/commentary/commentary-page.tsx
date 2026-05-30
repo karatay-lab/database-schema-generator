@@ -191,7 +191,7 @@ export function CommentaryPageContent() {
                 Commentary
               </h3>
               <p className="mt-1 text-sm text-slate-500">
-                Add <code className="rounded bg-slate-100 px-1 text-xs font-mono text-fuchsia-700">/// comment</code> style annotations to schema fields.
+                Add <code className="rounded bg-slate-100 px-1 text-xs font-mono text-fuchsia-700">{"/// comment"}</code> style annotations to schema fields.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -314,7 +314,7 @@ export function CommentaryPageContent() {
 
                         <div className="flex items-center gap-1.5">
                           <span className="shrink-0 select-none font-mono text-xs text-slate-400">
-                            ///
+                            {"///"}
                           </span>
                           <input
                             type="text"

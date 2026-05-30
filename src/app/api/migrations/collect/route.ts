@@ -152,7 +152,7 @@ async function queryMySQL(connectionUrl: string, modelInfos: ModelInfo[]): Promi
     const [tableRows] = await conn.execute<mysql.RowDataPacket[]>(
       `SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE' ORDER BY table_name`,
     );
-    const dbTables = tableRows.map((r) => r.table_name as string);
+    const dbTables = tableRows.map((r) => (r.TABLE_NAME ?? r.table_name) as string);
 
     for (const { modelName, tableName } of modelInfos) {
       const resolved = resolveTableName(tableName, dbTables);

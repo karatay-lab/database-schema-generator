@@ -91,6 +91,13 @@ export const menuItemsBase: MenuItem[] = [
     tone: "bg-fuchsia-400",
     metric: "",
   },
+  {
+    label: "Tracking",
+    href: "/tracking",
+    detail: "Default value changes",
+    tone: "bg-yellow-400",
+    metric: "0 changes",
+  },
   { label: "Validation", href: "/validation", tone: "bg-amber-400", metric: "0 rules" },
   {
     label: "SQL Query",

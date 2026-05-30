@@ -380,7 +380,7 @@ export function EnumsPageContent() {
   const queryClient = useQueryClient();
   const versionIdx = versions.indexOf(version);
   const previousVersion = versionIdx > 0 ? versions[versionIdx - 1]! : "";
-  const { getWarning, approve } = useSchemaWarnings(projectId, previousVersion, version);
+  const { getWarning, approve, unapprove } = useSchemaWarnings(projectId, previousVersion, version);
 
   const [enumName, setEnumName] = useState("");
   const [createError, setCreateError] = useState("");
@@ -587,6 +587,7 @@ export function EnumsPageContent() {
                             key={d.enumId}
                             warning={getWarning("enum", d.enumId, d.changeKind)}
                             onApprove={approve}
+                            onUnapprove={unapprove}
                           />
                         ))}
                       </div>
@@ -649,6 +650,7 @@ export function EnumsPageContent() {
                               <ApproveWarningButton
                                 warning={getWarning("enum", enumEntry.enumId, "removed")}
                                 onApprove={approve}
+                                onUnapprove={unapprove}
                               />
                             )}
                             <button
@@ -700,6 +702,7 @@ export function EnumsPageContent() {
                                     removedValue={v}
                                     availableValues={enumEntry.values.map((ev) => ev.name)}
                                     onApprove={approve}
+                                    onUnapprove={unapprove}
                                   />
                                 ))}
                               </div>

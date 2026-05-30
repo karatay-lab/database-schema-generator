@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 import { db } from "@/lib/db/client";
 import { upsertWarnings, type NewSchemaWarning } from "@/lib/schema-warnings-store";
 import { getTypeResolution, getPkTypeResolution, worstResolution, type Resolution } from "@/solutions/type-conversion-matrix";
-import type { VersionDiff, FieldDiff, TableDiff, EnumDiff, RelationDiff } from "@/lib/version-diff/detect-changes";
+import type { VersionDiff, FieldDiff, TableDiff, EnumDiff, RelationDiff, RestrictionDiff } from "@/lib/version-diff/detect-changes";
 
 function projectIdFromName(projectName: string): string | null {
   const row = db
@@ -173,5 +173,34 @@ export function writeWarningsForDiff(
     if (rw) warnings.push(rw);
   }
 
+  for (const resd of diff.restrictionDiffs) {
+    const rw = restrictionWarning(projectId, fromVersion, toVersion, resd);
+    if (rw) warnings.push(rw);
+  }
+
   if (warnings.length > 0) upsertWarnings(warnings);
+}
+
+function restrictionWarning(
+  projectId: string,
+  fromVersion: string,
+  toVersion: string,
+  rd: RestrictionDiff,
+): NewSchemaWarning | null {
+  // Only unique_added requires approval — others are safe info notices
+  if (rd.changeKind !== "unique_added") return null;
+  return {
+    id: randomUUID(),
+    projectId,
+    fromVersion,
+    toVersion,
+    entityKind: "restriction" as const,
+    entityId: rd.constraintKey,
+    entityName: `${rd.tableName}.(${rd.fields.join(",")})`,
+    changeKind: rd.changeKind,
+    resolution: "lossy_convert",
+    fromValue: null,
+    toValue: rd.dbName,
+    message: rd.message,
+  };
 }
