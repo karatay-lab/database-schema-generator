@@ -355,15 +355,22 @@ export function MigrationsPageContent() {
   }, [projectId]);
 
   const { warnings, defaultsRequiredCount } = useSchemaWarnings(projectId, syncVersion, targetVersion);
-  const breakingPendingCount = warnings.filter((w) => !w.approvedAt && w.resolution === "data_deleted").length;
+  const breakingPendingCount = warnings.filter(
+    (w) => !w.approvedAt && (
+      w.resolution === "data_deleted" ||
+      w.resolution === "lossy_convert" ||
+      w.resolution === "precision_loss"
+    ),
+  ).length;
 
   // Deep-link into the right resolver tab based on what's blocking
+  const BLOCKING_RESOLUTIONS = new Set(["data_deleted", "lossy_convert", "precision_loss"]);
   const trackingHref = (() => {
     if (breakingPendingCount > 0) {
-      if (warnings.some((w) => !w.approvedAt && w.resolution === "data_deleted" && w.entityKind === "table")) return "/tracking?resolve=tables";
-      if (warnings.some((w) => !w.approvedAt && w.resolution === "data_deleted" && w.entityKind === "enum")) return "/tracking?resolve=enums";
-      if (warnings.some((w) => !w.approvedAt && w.resolution === "data_deleted" && w.entityKind === "field")) return "/tracking?resolve=schema";
-      if (warnings.some((w) => !w.approvedAt && w.resolution === "data_deleted" && w.entityKind === "relation")) return "/tracking?resolve=relations";
+      if (warnings.some((w) => !w.approvedAt && BLOCKING_RESOLUTIONS.has(w.resolution) && w.entityKind === "table")) return "/tracking?resolve=tables";
+      if (warnings.some((w) => !w.approvedAt && BLOCKING_RESOLUTIONS.has(w.resolution) && w.entityKind === "enum")) return "/tracking?resolve=enums";
+      if (warnings.some((w) => !w.approvedAt && BLOCKING_RESOLUTIONS.has(w.resolution) && w.entityKind === "field")) return "/tracking?resolve=schema";
+      if (warnings.some((w) => !w.approvedAt && BLOCKING_RESOLUTIONS.has(w.resolution) && w.entityKind === "relation")) return "/tracking?resolve=relations";
     }
     if (defaultsRequiredCount > 0) return "/tracking?resolve=schema";
     return "/tracking";
