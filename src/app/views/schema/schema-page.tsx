@@ -20,6 +20,9 @@ import type { FieldTemplate, FieldTemplateInput } from "@/lib/field-template-sto
 import { providers as allProviders } from "../shared/dashboard-data";
 import { defaultFieldTypes, typeBadgeClass, typeSelectClass } from "@/constants/schema";
 import { FieldLegend } from "@/components/schema/field-legend";
+import { useFieldTemplates } from "@/hooks/use-field-templates";
+import { TableSelectorModal } from "./table-selector-modal";
+import { TemplatesModal } from "./templates-modal";
 
 type FieldsResponse = {
   fields?: PrismaField[];
@@ -129,19 +132,7 @@ export function SchemaPageContent() {
   const [isTemplateDropdownOpen, setIsTemplateDropdownOpen] = useState(false);
   const [templateDropdownSearch, setTemplateDropdownSearch] = useState("");
   const templateDropdownRef = useRef<HTMLDivElement>(null);
-  const [templateTypeFilter, setTemplateTypeFilter] = useState("All");
-  const [templatePage, setTemplatePage] = useState(1);
-  const [templateOverrideNames, setTemplateOverrideNames] = useState<Record<string, string>>({});
-  const [templateField, setTemplateField] = useState<FieldTemplateInput>(() => makeEmptyTemplateInput(projectProvider || "All"));
-  const [editDraft, setEditDraft] = useState<FieldTemplateInput | null>(null);
-  const [templateProviderFilter, setTemplateProviderFilter] = useState("relevant");
-  const [editingTemplateId, setEditingTemplateId] = useState("");
-  const [addingTemplateToTable, setAddingTemplateToTable] = useState("");
-  const [savingTemplateFieldId, setSavingTemplateFieldId] = useState("");
-  const [deletingTemplateFieldId, setDeletingTemplateFieldId] = useState("");
-  const [templateError, setTemplateError] = useState("");
   const fieldsPerPage = 12;
-  const templatesPerPage = 15;
 
   // ── Queries ──────────────────────────────────────────────────────────────────
 
@@ -185,9 +176,6 @@ export function SchemaPageContent() {
   const getEnumValues = (enumName: string) =>
     enumsList.find((e) => e.name === enumName)?.values ?? [];
 
-  const templatesQuery = useQuery(trpc.fieldTemplates.list.queryOptions());
-  const templates: FieldTemplate[] = (templatesQuery.data ?? []) as FieldTemplate[];
-
   // Sync fieldDrafts whenever the server fields change
   useEffect(() => {
     setFieldDrafts(
@@ -198,22 +186,20 @@ export function SchemaPageContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fieldsQuery.data]);
 
-  // Sync templateOverrideNames whenever templates change
-  useEffect(() => {
-    setTemplateOverrideNames((cur) =>
-      Object.fromEntries(templates.map((t) => [t.id, cur[t.id] || t.name])),
-    );
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templatesQuery.data]);
-
   // ── Invalidators ─────────────────────────────────────────────────────────────
 
   const invalidateFields = () =>
     queryClient.invalidateQueries({
       queryKey: trpc.fields.list.queryOptions({ projectName, version, modelName: selectedModelName, modelKey: selectedModelKey }).queryKey,
     });
-  const invalidateTemplates = () =>
-    queryClient.invalidateQueries({ queryKey: trpc.fieldTemplates.list.queryOptions().queryKey });
+  // ── Field templates (state, mutations, handlers in hook) ──────────────────────
+
+  const templateState = useFieldTemplates({
+    selectedModelName,
+    selectedModelKey,
+    fields,
+    invalidateFields,
+  });
 
   // ── Mutations ─────────────────────────────────────────────────────────────────
 
@@ -240,26 +226,6 @@ export function SchemaPageContent() {
     onSuccess: () => { void invalidateFields(); setDeletingFieldKey(""); },
     onError: (err) => { setError(err.message); setDeletingFieldKey(""); },
   });
-  const createTemplateMutation = useMutation({
-    ...trpc.fieldTemplates.create.mutationOptions(),
-    onSuccess: () => { void invalidateTemplates(); setTemplateField(makeEmptyTemplateInput(projectProvider || "All")); setEditingTemplateId(""); setSavingTemplateFieldId(""); },
-    onError: (err) => { setTemplateError(err.message); setSavingTemplateFieldId(""); },
-  });
-  const updateTemplateMutation = useMutation({
-    ...trpc.fieldTemplates.update.mutationOptions(),
-    onSuccess: () => { void invalidateTemplates(); setEditingTemplateId(""); setEditDraft(null); setSavingTemplateFieldId(""); },
-    onError: (err) => { setTemplateError(err.message); setSavingTemplateFieldId(""); },
-  });
-  const deleteTemplateMutation = useMutation({
-    ...trpc.fieldTemplates.delete.mutationOptions(),
-    onSuccess: () => { void invalidateTemplates(); setDeletingTemplateFieldId(""); },
-    onError: (err) => { setTemplateError(err.message); setDeletingTemplateFieldId(""); },
-  });
-  const addTemplateToTableMutation = useMutation({
-    ...trpc.fields.create.mutationOptions(),
-    onSuccess: () => { void invalidateFields(); setAddingTemplateToTable(""); },
-    onError: () => setAddingTemplateToTable(""),
-  });
 
   // ── Derived field type options ────────────────────────────────────────────────
 
@@ -278,47 +244,17 @@ export function SchemaPageContent() {
     [fields],
   );
 
-  const usedTemplateNames = useMemo(
-    () => new Set(fields.map((field) => field.name)),
-    [fields],
-  );
-
-  const filteredTemplates = useMemo(() => {
-    return templates.filter((template) => {
-      const typeMatch = templateTypeFilter === "All" || template.type === templateTypeFilter;
-      const providerMatch =
-        templateProviderFilter === "all" ||
-        template.provider === "All" ||
-        template.provider === projectProvider;
-      return typeMatch && providerMatch;
-    });
-  }, [templateTypeFilter, templateProviderFilter, templates, projectProvider]);
-
-  const templateTypeOptions = useMemo(
-    () => Array.from(new Set(templates.map((template) => template.type))).sort(),
-    [templates],
-  );
-
-  const templatePageCount = Math.max(
-    1,
-    Math.ceil(filteredTemplates.length / templatesPerPage),
-  );
-  const paginatedTemplates = filteredTemplates.slice(
-    (templatePage - 1) * templatesPerPage,
-    templatePage * templatesPerPage,
-  );
-
   const preservedFieldCount = fields.length - editableFields.length;
 
   const relevantDropdownTemplates = useMemo(() => {
     const search = templateDropdownSearch.toLowerCase();
-    return templates.filter(
+    return templateState.templates.filter(
       (t) =>
         (t.provider === "All" || t.provider === projectProvider) &&
-        !usedTemplateNames.has(t.name) &&
+        !templateState.usedTemplateNames.has(t.name) &&
         (!search || t.name.toLowerCase().includes(search)),
     );
-  }, [templates, projectProvider, templateDropdownSearch, usedTemplateNames]);
+  }, [templateState.templates, projectProvider, templateDropdownSearch, templateState.usedTemplateNames]);
 
   const fieldFilterOptions = useMemo(
     () => Array.from(new Set(editableFields.map((field) => field.type))).sort(),
@@ -371,14 +307,6 @@ export function SchemaPageContent() {
   useEffect(() => {
     setFieldPage((page) => Math.min(page, fieldPageCount));
   }, [fieldPageCount]);
-
-  useEffect(() => {
-    setTemplatePage(1);
-  }, [templateTypeFilter]);
-
-  useEffect(() => {
-    setTemplatePage((page) => Math.min(page, templatePageCount));
-  }, [templatePageCount]);
 
   useEffect(() => {
     if (!isTemplateDropdownOpen) return;
@@ -484,13 +412,6 @@ export function SchemaPageContent() {
     return suggestion;
   };
 
-  const templateDuplicateSuggestion = getDuplicateSuggestion(
-    templateField.name,
-    templates
-      .filter((template) => template.id !== editingTemplateId)
-      .map((template) => template.name),
-  );
-
   const selectModel = (modelName: string) => {
     setSelectedModelName(modelName);
     setIsTableSelectorOpen(false);
@@ -525,91 +446,6 @@ export function SchemaPageContent() {
       projectName, version,
       modelKey: selectedModelKey, modelName: selectedModelName,
       ...draft.input,
-    });
-  };
-
-  const updateTemplateField = (patch: Partial<FieldTemplateInput>) => {
-    setTemplateField((field) => {
-      const next = { ...field, ...patch, unique: patch.type === "Boolean" ? false : patch.unique ?? field.unique };
-      if (patch.type !== undefined && patch.type !== field.type) {
-        next.defaultValue = suggestDefault(patch.type, next.provider);
-      } else if (patch.provider !== undefined && patch.provider !== field.provider) {
-        const oldSuggestion = suggestDefault(field.type, field.provider);
-        if (!field.defaultValue.trim() || field.defaultValue === oldSuggestion) {
-          next.defaultValue = suggestDefault(field.type, patch.provider);
-        }
-      }
-      return next;
-    });
-    setTemplateError("");
-  };
-
-  const createTemplateField = () => {
-    if (templateDuplicateSuggestion) {
-      setTemplateError("A template field with this name already exists.");
-      return;
-    }
-    setTemplateError("");
-    createTemplateMutation.mutate(templateField);
-  };
-
-  const updateEditDraft = (patch: Partial<FieldTemplateInput>) => {
-    setEditDraft((d) => {
-      if (!d) return d;
-      const next = { ...d, ...patch, unique: patch.type === "Boolean" ? false : patch.unique ?? d.unique };
-      if (patch.type !== undefined && patch.type !== d.type) {
-        next.defaultValue = suggestDefault(patch.type, next.provider);
-      }
-      return next;
-    });
-    setTemplateError("");
-  };
-
-  const editTemplateField = (template: FieldTemplate) => {
-    setEditingTemplateId(template.id);
-    setEditDraft(templateToInput(template));
-    setTemplateError("");
-  };
-
-  const cancelTemplateEdit = () => {
-    setEditingTemplateId("");
-    setEditDraft(null);
-    setTemplateError("");
-  };
-
-  const saveTemplateField = () => {
-    if (!editingTemplateId || !editDraft) return;
-    setSavingTemplateFieldId(editingTemplateId);
-    setTemplateError("");
-    updateTemplateMutation.mutate({ id: editingTemplateId, ...editDraft });
-  };
-
-  const deleteTemplateField = (template: FieldTemplate) => {
-    setDeletingTemplateFieldId(template.id);
-    setTemplateError("");
-    deleteTemplateMutation.mutate({ id: template.id });
-    if (editingTemplateId === template.id) {
-      setEditingTemplateId("");
-      setEditDraft(null);
-    }
-  };
-
-  const addTemplateToTable = (template: FieldTemplate) => () => {
-    const overrideName = (templateOverrideNames[template.id] || template.name).trim();
-    if (!selectedModelName || usedTemplateNames.has(overrideName)) return;
-    setAddingTemplateToTable(template.id);
-    addTemplateToTableMutation.mutate({
-      projectName, version,
-      modelKey: selectedModelKey, modelName: selectedModelName,
-      name: overrideName,
-      type: template.type,
-      nullable: template.nullable,
-      unique: template.type === "Boolean" ? false : template.unique,
-      defaultValue: template.defaultValue,
-      comment: template.comment,
-      nativeAttribute: template.nativeAttribute,
-      updatedAtAttribute: template.updatedAtAttribute,
-      isId: template.isId,
     });
   };
 
@@ -697,11 +533,11 @@ export function SchemaPageContent() {
                       <div className="max-h-64 overflow-y-auto">
                         {relevantDropdownTemplates.length === 0 ? (
                           <div className="px-3 py-5 text-center text-xs font-medium text-slate-500">
-                            {templates.length === 0 ? "No templates yet." : "No matches."}
+                            {templateState.templates.length === 0 ? "No templates yet." : "No matches."}
                           </div>
                         ) : (
                           relevantDropdownTemplates.map((template) => {
-                            const isBusy = addingTemplateToTable === template.id;
+                            const isBusy = templateState.addingTemplateToTable === template.id;
                             return (
                               <button
                                 key={template.id}
@@ -709,7 +545,7 @@ export function SchemaPageContent() {
                                 onClick={() => {
                                   setIsTemplateDropdownOpen(false);
                                   setTemplateDropdownSearch("");
-                                  addTemplateToTable(template)();
+                                  templateState.addTemplateToTable(template)();
                                 }}
                                 disabled={isBusy}
                                 className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left transition hover:bg-slate-50 disabled:opacity-40"
@@ -1286,460 +1122,27 @@ export function SchemaPageContent() {
       </section>
       )}
 
-      {isTableSelectorOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-3">
-          <div className="max-h-[94vh] w-[96vw] max-w-[1500px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl">
-            <div className="border-b border-slate-200 px-5 py-4">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    Table Selector
-                  </p>
-                  <h3 className="mt-1 text-xl font-semibold text-slate-950">
-                    Tables
-                  </h3>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <span className="rounded-md border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-700">
-                    {models.length} tables
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setIsTableSelectorOpen(false)}
-                    className="h-9 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-            </div>
+      <TableSelectorModal
+        isOpen={isTableSelectorOpen}
+        models={models}
+        tableSearch={tableSearch}
+        filteredModels={filteredModels}
+        selectedModelName={selectedModelName}
+        isLoading={tablesQuery.isLoading}
+        onSearch={setTableSearch}
+        onSelect={selectModel}
+        onClose={() => setIsTableSelectorOpen(false)}
+      />
 
-            <div className="p-5">
-              <div className="mb-4">
-                <input
-                  type="text"
-                  value={tableSearch}
-                  onChange={(event) => setTableSearch(event.target.value)}
-                  placeholder="Search tables..."
-                  className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-600"
-                />
-              </div>
-
-              <div className="max-h-[70vh] overflow-y-auto pr-1">
-                {tablesQuery.isLoading ? (
-                  <div className="py-8 text-center text-sm font-medium text-slate-500">
-                    Loading...
-                  </div>
-                ) : filteredModels.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm font-medium text-slate-500">
-                    No tables found.
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-                    {filteredModels.map((model) => {
-                      const isSelected = model.name === selectedModelName;
-
-                      return (
-                        <button
-                          key={model.name}
-                          type="button"
-                          onClick={() => selectModel(model.name)}
-                          className={classNames(
-                            "flex min-h-16 items-center justify-between rounded-lg border p-4 text-left transition",
-                            isSelected
-                              ? "border-cyan-400 bg-cyan-50 shadow-sm"
-                              : "border-slate-200 bg-white hover:border-cyan-300",
-                          )}
-                        >
-                          <span className="min-w-0 truncate font-semibold text-slate-950">
-                            {model.name}
-                          </span>
-                          <span className={classNames("ml-3 inline-flex shrink-0 items-center rounded-md px-2 py-1 text-xs font-medium", typeBadgeClass(model.pkType))}>
-                            {model.pkType || "String"}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {isTemplatesOpen ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-3"
-          onClick={() => setIsTemplatesOpen(false)}
-        >
-          <div
-            className="flex h-[96vh] w-[98vw] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="shrink-0 border-b border-slate-200 px-5 py-4">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    Templates
-                  </p>
-                  <h3 className="mt-1 text-xl font-semibold text-slate-950">
-                    Field templates
-                  </h3>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <span className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
-                    {selectedModelName || "No table selected"}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setIsTemplatesOpen(false)}
-                    className="h-9 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="min-h-0 flex-1 overflow-y-auto p-5 xl:overflow-hidden">
-              <div className="flex min-h-full flex-col xl:h-full xl:min-h-0">
-                <div className="mb-4 shrink-0 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                      Reusable Templates
-                    </p>
-                    <p className="mt-1 text-sm font-medium text-slate-600">
-                      Stored in SQLite — apply to any table in any project
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                      Provider
-                      <select
-                        value={templateProviderFilter}
-                        onChange={(event) => setTemplateProviderFilter(event.target.value)}
-                        className="h-8 min-w-36 rounded-md border border-slate-300 bg-white px-2.5 text-xs font-semibold normal-case tracking-normal text-slate-700 outline-none transition focus:border-cyan-600"
-                      >
-                        <option value="relevant">Relevant ({projectProvider || "—"})</option>
-                        <option value="all">All providers</option>
-                      </select>
-                    </label>
-                    <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                      Type
-                      <select
-                        value={templateTypeFilter}
-                        onChange={(event) => setTemplateTypeFilter(event.target.value)}
-                        className="h-8 min-w-36 rounded-md border border-slate-300 bg-white px-2.5 text-xs font-semibold normal-case tracking-normal text-slate-700 outline-none transition focus:border-cyan-600"
-                      >
-                        <option value="All">All types</option>
-                        {templateTypeOptions.map((type) => (
-                          <option key={type} value={type}>{type}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <span className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">
-                      {filteredTemplates.length} / {templates.length} templates
-                    </span>
-                    {!selectedModelName ? (
-                      <button
-                        type="button"
-                        onClick={() => { setIsTemplatesOpen(false); setIsTableSelectorOpen(true); }}
-                        className="h-8 rounded-md bg-cyan-600 px-3 text-xs font-semibold text-white transition hover:bg-cyan-700"
-                      >
-                        Select Table
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-
-                {!selectedModelName ? (
-                  <div className="mb-4 shrink-0 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
-                    Select a table to see Used status and apply templates.
-                  </div>
-                ) : null}
-
-                {templateError ? (
-                  <div className="mb-3 shrink-0 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
-                    {templateError}
-                  </div>
-                ) : null}
-
-                {templatesQuery.isLoading ? (
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-8 text-center text-sm font-medium text-slate-500">
-                    Loading templates...
-                  </div>
-                ) : (
-                  <div className="overflow-hidden rounded-lg border border-slate-200 bg-white xl:flex xl:min-h-0 xl:flex-1 xl:flex-col">
-                    <div className="overflow-auto xl:min-h-0 xl:flex-1">
-                      <table className="min-w-[1300px] w-full border-collapse text-left text-sm">
-                        <thead className="sticky top-0 bg-slate-50 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                          <tr>
-                            <th className="border-b border-slate-200 px-3 py-3">Name</th>
-                            <th className="border-b border-slate-200 px-3 py-3">Provider</th>
-                            <th className="border-b border-slate-200 px-3 py-3">Type</th>
-                            <th className="border-b border-slate-200 px-3 py-3">Default</th>
-                            <th className="border-b border-slate-200 px-3 py-3">Nullable</th>
-                            <th className="border-b border-slate-200 px-3 py-3">Unique</th>
-                            <th className="border-b border-slate-200 px-3 py-3">Comment</th>
-                            <th className="border-b border-slate-200 px-3 py-3">Status</th>
-                            <th className="border-b border-slate-200 px-3 py-3">Override Name</th>
-                            <th className="border-b border-slate-200 px-3 py-3">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {/* Inline add row */}
-                          <tr className={classNames("align-middle border-b-2", editingTemplateId ? "border-slate-200 bg-slate-50/50" : "border-emerald-200 bg-emerald-50/30")}>
-                            {editingTemplateId ? (
-                              <td colSpan={10} className="px-3 py-2.5 text-xs font-medium text-slate-400">
-                                Save or cancel the row being edited to add a new template.
-                              </td>
-                            ) : (
-                              <>
-                                <td className="px-2 py-2">
-                                  <input
-                                    value={templateField.name}
-                                    onChange={(e) => updateTemplateField({ name: e.target.value })}
-                                    placeholder="field_name"
-                                    className={classNames("h-8 w-full rounded-md border bg-white px-2.5 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-cyan-600", templateDuplicateSuggestion ? "border-rose-400" : "border-slate-300")}
-                                  />
-                                  {templateDuplicateSuggestion ? (
-                                    <p className="mt-1 text-[10px] font-semibold text-rose-600">
-                                      Taken — use{" "}
-                                      <button type="button" onClick={() => updateTemplateField({ name: templateDuplicateSuggestion })} className="underline underline-offset-1">{templateDuplicateSuggestion}</button>?
-                                    </p>
-                                  ) : null}
-                                </td>
-                                <td className="px-2 py-2">
-                                  <select value={templateField.provider} onChange={(e) => updateTemplateField({ provider: e.target.value })} className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-950 outline-none focus:border-cyan-600">
-                                    <option value="All">All</option>
-                                    {allProviders.map((p) => <option key={p} value={p}>{p}</option>)}
-                                  </select>
-                                </td>
-                                <td className="px-2 py-2">
-                                  <select value={templateField.type} onChange={(e) => updateTemplateField({ type: e.target.value })} className={classNames("h-8 w-full rounded-md border px-2 text-xs font-medium outline-none focus:border-cyan-600", typeSelectClass(templateField.type))}>
-                                    {fieldTypeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
-                                  </select>
-                                </td>
-                                <td className="px-2 py-2">
-                                  <input value={templateField.defaultValue} onChange={(e) => updateTemplateField({ defaultValue: e.target.value })} placeholder="Default value" className="h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-cyan-600" />
-                                </td>
-                                <td className="px-2 py-2">
-                                  <button type="button" onClick={() => updateTemplateField({ nullable: !templateField.nullable })} className={classNames("h-8 w-20 rounded-md border text-xs font-semibold transition", templateField.nullable ? "border-emerald-500 bg-emerald-500 text-white" : "border-amber-400 bg-amber-400 text-white")}>
-                                    {templateField.nullable ? "Yes" : "No"}
-                                  </button>
-                                </td>
-                                <td className="px-2 py-2">
-                                  {templateField.type === "Boolean" ? (
-                                    <span className="text-xs font-semibold text-slate-400">N/A</span>
-                                  ) : (
-                                    <button type="button" onClick={() => updateTemplateField({ unique: !templateField.unique })} className={classNames("h-8 w-20 rounded-md border text-xs font-semibold transition", templateField.unique ? "border-violet-500 bg-violet-500 text-white" : "border-sky-400 bg-sky-400 text-white")}>
-                                      {templateField.unique ? "Yes" : "No"}
-                                    </button>
-                                  )}
-                                </td>
-                                <td className="px-2 py-2">
-                                  <input value={templateField.comment} onChange={(e) => updateTemplateField({ comment: e.target.value })} placeholder="Description" className="h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-cyan-600" />
-                                </td>
-                                <td className="px-3 py-2 text-xs font-semibold text-slate-400">—</td>
-                                <td className="px-3 py-2 text-xs font-semibold text-slate-400">—</td>
-                                <td className="px-2 py-2">
-                                  <button type="button" onClick={createTemplateField} disabled={!templateField.name.trim() || !!templateDuplicateSuggestion || createTemplateMutation.isPending} className="h-8 rounded-md border border-emerald-300 bg-white px-3 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40">
-                                    {createTemplateMutation.isPending ? "Adding..." : "Add"}
-                                  </button>
-                                </td>
-                              </>
-                            )}
-                          </tr>
-
-                          {filteredTemplates.length === 0 && templates.length > 0 ? (
-                            <tr>
-                              <td colSpan={10} className="px-3 py-6 text-center text-sm font-medium text-slate-500">
-                                No templates match the selected filters.
-                              </td>
-                            </tr>
-                          ) : (
-                            paginatedTemplates.map((template) => {
-                              const overrideName = (templateOverrideNames[template.id] || template.name).trim();
-                              const isUsed = selectedModelName ? usedTemplateNames.has(overrideName) : false;
-                              const canAdd = Boolean(selectedModelName) && !isUsed && Boolean(overrideName);
-                              const isBusy = addingTemplateToTable === template.id || savingTemplateFieldId === template.id || deletingTemplateFieldId === template.id;
-                              const isEditing = editingTemplateId === template.id;
-
-                              if (isEditing && editDraft) {
-                                return (
-                                  <tr key={template.id} className="bg-cyan-50/60 align-middle">
-                                    <td className="px-2 py-2">
-                                      <input
-                                        value={editDraft.name}
-                                        onChange={(e) => updateEditDraft({ name: e.target.value })}
-                                        className="h-8 w-full rounded-md border border-cyan-300 bg-white px-2.5 text-xs font-medium text-slate-950 outline-none focus:border-cyan-600"
-                                        autoFocus
-                                      />
-                                    </td>
-                                    <td className="px-2 py-2">
-                                      <select
-                                        value={editDraft.provider}
-                                        onChange={(e) => updateEditDraft({ provider: e.target.value })}
-                                        className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-950 outline-none focus:border-cyan-600"
-                                      >
-                                        <option value="All">All</option>
-                                        {allProviders.map((p) => <option key={p} value={p}>{p}</option>)}
-                                      </select>
-                                    </td>
-                                    <td className="px-2 py-2">
-                                      <select
-                                        value={editDraft.type}
-                                        onChange={(e) => updateEditDraft({ type: e.target.value })}
-                                        className={classNames("h-8 w-full rounded-md border px-2 text-xs font-medium outline-none focus:border-cyan-600", typeSelectClass(editDraft.type))}
-                                      >
-                                        {fieldTypeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
-                                      </select>
-                                    </td>
-                                    <td className="px-2 py-2">
-                                      <input
-                                        value={editDraft.defaultValue}
-                                        onChange={(e) => updateEditDraft({ defaultValue: e.target.value })}
-                                        placeholder="Default value"
-                                        className="h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-cyan-600"
-                                      />
-                                    </td>
-                                    <td className="px-2 py-2 text-center">
-                                      <button
-                                        type="button"
-                                        onClick={() => updateEditDraft({ nullable: !editDraft.nullable })}
-                                        className={classNames("h-8 w-20 rounded-md border text-xs font-semibold transition", editDraft.nullable ? "border-emerald-500 bg-emerald-500 text-white" : "border-amber-400 bg-amber-400 text-white")}
-                                      >
-                                        {editDraft.nullable ? "Yes" : "No"}
-                                      </button>
-                                    </td>
-                                    <td className="px-2 py-2 text-center">
-                                      {editDraft.type === "Boolean" ? (
-                                        <span className="text-xs font-semibold text-slate-400">N/A</span>
-                                      ) : (
-                                        <button
-                                          type="button"
-                                          onClick={() => updateEditDraft({ unique: !editDraft.unique })}
-                                          className={classNames("h-8 w-20 rounded-md border text-xs font-semibold transition", editDraft.unique ? "border-violet-500 bg-violet-500 text-white" : "border-sky-400 bg-sky-400 text-white")}
-                                        >
-                                          {editDraft.unique ? "Yes" : "No"}
-                                        </button>
-                                      )}
-                                    </td>
-                                    <td className="px-2 py-2">
-                                      <input
-                                        value={editDraft.comment}
-                                        onChange={(e) => updateEditDraft({ comment: e.target.value })}
-                                        placeholder="Description"
-                                        className="h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-cyan-600"
-                                      />
-                                    </td>
-                                    <td className="px-3 py-2 text-xs font-semibold text-slate-400">—</td>
-                                    <td className="px-3 py-2 text-xs font-semibold text-slate-400">—</td>
-                                    <td className="px-2 py-2">
-                                      <div className="flex gap-1.5">
-                                        <button
-                                          type="button"
-                                          onClick={saveTemplateField}
-                                          disabled={!editDraft.name.trim() || isBusy}
-                                          className="h-8 rounded-md border border-cyan-300 bg-white px-2.5 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-40"
-                                        >
-                                          {savingTemplateFieldId === template.id ? "Saving..." : "Save"}
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={cancelTemplateEdit}
-                                          className="h-8 rounded-md border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                                        >
-                                          Cancel
-                                        </button>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                );
-                              }
-
-                              return (
-                                <tr key={template.id} className="align-middle">
-                                  <td className="px-3 py-3 font-semibold text-slate-950">{template.name}</td>
-                                  <td className="px-3 py-3">
-                                    <span className={classNames("rounded-md px-2 py-1 text-xs font-semibold", template.provider === "All" ? "bg-slate-100 text-slate-600" : template.provider === projectProvider ? "bg-violet-100 text-violet-700" : "bg-amber-100 text-amber-700")}>
-                                      {template.provider}
-                                    </span>
-                                  </td>
-                                  <td className="px-3 py-3">
-                                    <span className={classNames("rounded-md px-2 py-1 text-xs font-semibold", typeBadgeClass(template.type))}>
-                                      {templateTypeLabel(template)}
-                                    </span>
-                                  </td>
-                                  <td className="max-w-48 truncate px-3 py-3 font-mono text-xs text-slate-600">{template.defaultValue || "—"}</td>
-                                  <td className="px-3 py-3">
-                                    <span className={classNames("rounded-md px-2 py-1 text-xs font-semibold", template.nullable ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700")}>
-                                      {template.nullable ? "Yes" : "No"}
-                                    </span>
-                                  </td>
-                                  <td className="px-3 py-3">
-                                    {template.type === "Boolean" ? (
-                                      <span className="text-xs font-semibold text-slate-400">N/A</span>
-                                    ) : (
-                                      <span className={classNames("rounded-md px-2 py-1 text-xs font-semibold", template.unique ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700")}>
-                                        {template.unique ? "Yes" : "No"}
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td className="max-w-56 px-3 py-3 text-slate-600">
-                                    <span className="line-clamp-2">{template.comment || "—"}</span>
-                                  </td>
-                                  <td className="px-3 py-3">
-                                    <span className={classNames("rounded-md px-2 py-1 text-xs font-semibold", !selectedModelName ? "bg-slate-100 text-slate-500" : isUsed ? "bg-emerald-100 text-emerald-700" : "bg-cyan-100 text-cyan-700")}>
-                                      {!selectedModelName ? "No table" : isUsed ? "Used" : "Ready"}
-                                    </span>
-                                  </td>
-                                  <td className="px-3 py-3">
-                                    <input
-                                      value={templateOverrideNames[template.id] ?? template.name}
-                                      onChange={(e) => setTemplateOverrideNames((cur) => ({ ...cur, [template.id]: e.target.value }))}
-                                      className="h-8 w-48 rounded-md border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-950 outline-none transition focus:border-cyan-600"
-                                      placeholder={template.name}
-                                    />
-                                  </td>
-                                  <td className="px-3 py-3">
-                                    <div className="flex flex-wrap gap-1.5">
-                                      <button type="button" onClick={() => editTemplateField(template)} disabled={isBusy || !!editingTemplateId} className="h-8 rounded-md border border-cyan-300 bg-white px-2.5 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-40">Edit</button>
-                                      <button type="button" onClick={() => deleteTemplateField(template)} disabled={isBusy || !!editingTemplateId} className="h-8 rounded-md border border-rose-200 bg-white px-2.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40">
-                                        {deletingTemplateFieldId === template.id ? "Deleting..." : "Delete"}
-                                      </button>
-                                      <button type="button" onClick={addTemplateToTable(template)} disabled={!canAdd || isBusy} className="h-8 min-w-24 rounded-md border border-emerald-300 bg-white px-3 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 disabled:hover:bg-white">
-                                        {addingTemplateToTable === template.id ? "Adding..." : isUsed ? "Used" : selectedModelName ? "Add to Table" : "Select Table"}
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                            })
-                          )}
-
-                        </tbody>
-                      </table>
-                    </div>
-                    {templatePageCount > 1 ? (
-                      <div className="flex shrink-0 items-center justify-center gap-2 border-t border-slate-200 bg-slate-50 px-3 py-3">
-                        <button type="button" onClick={() => setTemplatePage((p) => Math.max(1, p - 1))} disabled={templatePage === 1} className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-cyan-200 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-50">
-                          <IconChevronLeft size={15} stroke={2} />
-                        </button>
-                        <span className="text-sm font-semibold text-slate-600">{templatePage} / {templatePageCount}</span>
-                        <button type="button" onClick={() => setTemplatePage((p) => Math.min(templatePageCount, p + 1))} disabled={templatePage === templatePageCount} className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-cyan-200 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-50">
-                          <IconChevronRight size={15} stroke={2} />
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <TemplatesModal
+        isOpen={isTemplatesOpen}
+        selectedModelName={selectedModelName}
+        projectProvider={projectProvider}
+        fieldTypeOptions={fieldTypeOptions}
+        onClose={() => setIsTemplatesOpen(false)}
+        onSelectTable={() => { setIsTemplatesOpen(false); setIsTableSelectorOpen(true); }}
+        {...templateState}
+      />
 
     </div>
   );
