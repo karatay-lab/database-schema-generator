@@ -4,6 +4,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
+import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 import { getSchema } from "@mrleebo/prisma-ast";
 import type { Attribute, Field, Model } from "@mrleebo/prisma-ast";
@@ -480,7 +481,6 @@ function transformRecord(
     // Unique String fields: replacementValue is a prefix — generate a fresh UUID per row
     // so each existing row gets a distinct value (required by the UNIQUE constraint).
     if (targetUnique && (type === "String") && replacementValue) {
-      const { randomUUID } = require("node:crypto") as { randomUUID: () => string };
       out[name] = `${replacementValue}-${randomUUID()}`;
       continue;
     }

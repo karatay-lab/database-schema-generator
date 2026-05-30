@@ -2634,7 +2634,7 @@ export function MigrationsPageContent() {
             <div className="relative border-b border-slate-200 px-6 py-4">
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Reference</p>
               <h3 className="mt-0.5 text-lg font-semibold text-slate-950">Connection String</h3>
-              <p className="mt-0.5 text-xs text-slate-500">Copy this into your project's <span className="font-mono">.env</span> file.</p>
+              <p className="mt-0.5 text-xs text-slate-500">Copy this into your project&apos;s <span className="font-mono">.env</span> file.</p>
               <button
                 type="button"
                 onClick={() => setShowConnStringModal(false)}
