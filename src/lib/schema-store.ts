@@ -2611,6 +2611,57 @@ export async function updateModel(
     model.fields.unshift(nextPk);
   }
 
+  // Cascade PK type/name change to FK scalar fields in all other models.
+  // Without this, changing Organization.id from Int→String leaves every
+  // orgId: Int FK field in child tables untouched, producing P1012 on validate.
+  if (currentPk) {
+    const oldPkType = currentPk.type;
+    const newPkType = nextPk.type;
+    const oldPkName = currentPk.name;
+    const newPkName = nextPk.name;
+    const typeChanged = oldPkType !== newPkType;
+    const nameChanged = oldPkName !== newPkName;
+
+    if (typeChanged || nameChanged) {
+      const newPkNativeConstraints = nextPk.constraints.filter((c) => c.type === "NATIVE");
+
+      for (const otherModel of store.models) {
+        if (otherModel.key === model.key) continue;
+
+        for (const field of otherModel.fields) {
+          // Only owner-side relation fields carry FK scalar names in relation.fields
+          if (!field.relation || field.relation.fields.length === 0) continue;
+          // Match by stable key or by either name variant (legacy data may store by name)
+          if (
+            field.type !== model.key &&
+            field.type !== oldModelName &&
+            field.type !== model.name
+          ) continue;
+
+          if (typeChanged) {
+            for (const fkFieldName of field.relation.fields) {
+              const fkField = otherModel.fields.find((f) => f.name === fkFieldName);
+              if (!fkField || fkField.type !== oldPkType) continue;
+              fkField.type = newPkType;
+              // Swap NATIVE constraints (e.g. @db.Uuid) to match the new PK;
+              // preserve UNIQUE/INDEX constraints that belong to the FK itself.
+              fkField.constraints = [
+                ...fkField.constraints.filter((c) => c.type !== "NATIVE"),
+                ...newPkNativeConstraints.map((c) => ({ ...c })),
+              ];
+            }
+          }
+
+          if (nameChanged) {
+            field.relation.references = field.relation.references.map(
+              (ref) => (ref === oldPkName ? newPkName : ref),
+            );
+          }
+        }
+      }
+    }
+  }
+
   await writeModelStore(store);
 }
 
