@@ -47,7 +47,7 @@ async function insertAll(
     const placeholders = cols.map(() => "?").join(", ");
     await conn.execute(
       `INSERT IGNORE INTO \`${table}\` (${colList}) VALUES (${placeholders})`,
-      vals,
+      vals as (string | number | boolean | null | Date | Buffer)[],
     );
   }
   console.log(`  ✓ ${table.padEnd(12)} ${rows.length} rows`);
