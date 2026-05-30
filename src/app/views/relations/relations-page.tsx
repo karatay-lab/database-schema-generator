@@ -26,6 +26,7 @@ import type {
 } from "@/types/relation";
 import { relationKindLabel, relationKindClass } from "@/constants/relations";
 import { RelationCard } from "./relation-card";
+import { useRelationForm } from "@/hooks/use-relation-form";
 
 type RelationsResponse = Partial<PrismaModelRelations> & {
   error?: string;
@@ -87,21 +88,11 @@ export function RelationsPageContent() {
   const [relationKindFilter, setRelationKindFilter] =
     useState<PrismaRelation["kind"] | "">("");
   const [relationPage, setRelationPage] = useState(1);
-  const [draft, setDraft] = useState<RelationDraft>(emptyRelationDraft);
-  const [editingRelationKey, setEditingRelationKey] = useState("");
-  const [deletingRelationKey, setDeletingRelationKey] = useState("");
-  const [isRelationFormOpen, setIsRelationFormOpen] = useState(false);
-  const [fkFieldType, setFkFieldType] = useState("String");
-  const [fkFieldDbName, setFkFieldDbName] = useState("");
-  const [modalTableSearch, setModalTableSearch] = useState("");
-  const [modalTablePage, setModalTablePage] = useState(1);
-  const [error, setError] = useState("");
   const [fkDetailModal, setFkDetailModal] = useState<{
     relationName: string;
     targetTableName: string;
     mismatches: FkTypeMismatch[];
   } | null>(null);
-  const lastEditedKeyRef = useRef("");
   const modalTablesPerPage = 12;
   const relationsPerPage = 6;
 
@@ -142,6 +133,21 @@ export function RelationsPageContent() {
     [sourceFields],
   );
 
+  const invalidateRelations = () =>
+    queryClient.invalidateQueries({
+      queryKey: trpc.relations.list.queryOptions({ projectName, version, modelName: selectedModelName, modelKey: selectedModelKey }).queryKey,
+    });
+
+  // ── Relation form hook (manages draft, edit state, mutations, handlers) ────
+
+  const {
+    draft, editingRelationKey, isRelationFormOpen, modalTableSearch, modalTablePage,
+    fkFieldType, fkFieldDbName, deletingRelationKey, error, savingRelation,
+    setFkFieldType, setFkFieldDbName, setModalTableSearch, setModalTablePage,
+    setIsRelationFormOpen, setError,
+    updateDraft, resetDraft, editRelation, saveRelation, deleteRelation,
+  } = useRelationForm({ selectedModelName, selectedModelKey, models, invalidateRelations });
+
   const targetModel = models.find((m) => m.name === draft.targetModel);
   const targetFieldsQuery = useQuery(
     trpc.fields.list.queryOptions(
@@ -154,33 +160,6 @@ export function RelationsPageContent() {
     () => targetFields.filter((field) => !field.isRelation && (field.isId || field.unique)),
     [targetFields],
   );
-
-  const invalidateRelations = () =>
-    queryClient.invalidateQueries({
-      queryKey: trpc.relations.list.queryOptions({ projectName, version, modelName: selectedModelName, modelKey: selectedModelKey }).queryKey,
-    });
-
-  const createFkFieldMutation = useMutation({
-    ...trpc.fields.create.mutationOptions(),
-    onError: (err) => setError(err.message),
-  });
-  const createRelationMutation = useMutation({
-    ...trpc.relations.create.mutationOptions(),
-    onSuccess: () => { void invalidateRelations(); resetDraft(); },
-    onError: (err) => setError(err.message),
-  });
-  const updateRelationMutation = useMutation({
-    ...trpc.relations.update.mutationOptions(),
-    onSuccess: () => { void invalidateRelations(); resetDraft(); },
-    onError: (err) => setError(err.message),
-  });
-  const deleteRelationMutation = useMutation({
-    ...trpc.relations.delete.mutationOptions(),
-    onSuccess: () => { void invalidateRelations(); setDeletingRelationKey(""); },
-    onError: (err) => { setError(err.message); setDeletingRelationKey(""); },
-  });
-
-  const savingRelation = createFkFieldMutation.isPending || createRelationMutation.isPending || updateRelationMutation.isPending;
 
   const filteredModels = useMemo(
     () =>
@@ -258,12 +237,6 @@ export function RelationsPageContent() {
   }, [models, selectedModelName]);
 
   useEffect(() => {
-    setDraft(emptyRelationDraftForModel(selectedModelName));
-    setEditingRelationKey("");
-    setError("");
-  }, [selectedModelName]);
-
-  useEffect(() => {
     setRelationPage(1);
   }, [activeRelationTab, filteredVisibleRelations.length, relationKindFilter, relationTargetFilter, selectedModelName]);
 
@@ -308,111 +281,6 @@ export function RelationsPageContent() {
     setRelationTargetFilter("");
     setRelationKindFilter("");
     setIsTableSelectorOpen(false);
-  };
-
-  const updateDraft = (patch: Partial<RelationDraft>) => {
-    setDraft((currentDraft) => {
-      const nextDraft = { ...currentDraft, ...patch };
-      if (patch.targetModel !== undefined) {
-        const targetModel = models.find((model) => model.name === patch.targetModel);
-        nextDraft.references = targetModel?.pkName || "id";
-      }
-      if (patch.name !== undefined || patch.targetModel !== undefined) {
-        nextDraft.backReferenceName = deriveBackReferenceName(selectedModelName, nextDraft.name);
-      }
-      if (patch.name !== undefined) {
-        nextDraft.fields = patch.name ? `${patch.name}Id` : "";
-      }
-      // If nullable is switched off, reset any SetNull cascade actions
-      if (patch.nullable === false) {
-        if (nextDraft.onDelete === "SetNull") nextDraft.onDelete = "NoAction";
-        if (nextDraft.onUpdate === "SetNull") nextDraft.onUpdate = "NoAction";
-      }
-      return nextDraft;
-    });
-    setError("");
-  };
-
-  const resetDraft = () => {
-    const scrollKey = lastEditedKeyRef.current;
-    setDraft(emptyRelationDraftForModel(selectedModelName));
-    setEditingRelationKey("");
-    setIsRelationFormOpen(false);
-    setModalTableSearch("");
-    setModalTablePage(1);
-    setFkFieldDbName("");
-    setError("");
-    if (scrollKey) {
-      setTimeout(() => {
-        document.getElementById(`relation-card-${scrollKey}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-        lastEditedKeyRef.current = "";
-      }, 120);
-    }
-  };
-
-  const editRelation = (relation: PrismaRelation) => {
-    const nullable = relation.nullable;
-    setDraft({
-      name: relation.name,
-      targetModel: relation.targetModel,
-      backReferenceName:
-        relation.backReferenceName || deriveBackReferenceName(selectedModelName, relation.name),
-      cardinality: relation.kind === "one-to-one" ? "one-to-one" : "one-to-many",
-      fields: toCsv(relation.fields),
-      references: toCsv(relation.references),
-      onDelete: !nullable && relation.onDelete === "SetNull" ? "NoAction" : (relation.onDelete || "NoAction"),
-      onUpdate: !nullable && relation.onUpdate === "SetNull" ? "NoAction" : (relation.onUpdate || "NoAction"),
-      nullable,
-    });
-    setEditingRelationKey(relation.key);
-    lastEditedKeyRef.current = relation.key;
-    setIsRelationFormOpen(true);
-    setError("");
-  };
-
-  const saveRelation = () => {
-    if (!selectedModelName || !draft.name.trim() || !draft.targetModel.trim() || !draft.backReferenceName.trim() || !draft.fields.trim() || !draft.references.trim()) {
-      setError("Relation field, target table, back reference, local field, and target reference are required.");
-      return;
-    }
-    setError("");
-    const payload = {
-      projectName, version,
-      modelKey: selectedModelKey, modelName: selectedModelName,
-      name: draft.name, targetModel: draft.targetModel,
-      backReferenceName: draft.backReferenceName,
-      fields: toList(draft.fields), references: toList(draft.references),
-      onDelete: draft.onDelete, onUpdate: draft.onUpdate,
-      nullable: draft.nullable, isArray: false,
-      backReferenceIsArray: draft.cardinality === "one-to-many",
-    };
-    if (editingRelationKey) {
-      updateRelationMutation.mutate({ ...payload, relationKey: editingRelationKey });
-    } else {
-      createFkFieldMutation.mutate({
-        projectName, version,
-        modelKey: selectedModelKey, modelName: selectedModelName,
-        name: draft.fields.trim(),
-        type: fkFieldType,
-        nullable: draft.nullable,
-        unique: false,
-        defaultValue: "",
-        comment: "",
-      }, {
-        onSuccess: () => createRelationMutation.mutate(payload),
-      });
-    }
-  };
-
-  const deleteRelation = (relation: PrismaRelation) => {
-    setDeletingRelationKey(relation.key);
-    setError("");
-    deleteRelationMutation.mutate({
-      projectName, version,
-      modelKey: selectedModelKey, modelName: selectedModelName,
-      relationKey: relation.key,
-    });
-    if (editingRelationKey === relation.key) resetDraft();
   };
 
   if (!hasProject) {
@@ -701,7 +569,7 @@ export function RelationsPageContent() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => saveRelation()}
+                    onClick={saveRelation}
                     disabled={
                       savingRelation ||
                       fkNameConflict ||
