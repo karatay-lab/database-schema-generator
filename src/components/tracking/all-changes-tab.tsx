@@ -73,7 +73,6 @@ export function AllChangesTab({
 
   return (
     <div className="space-y-4">
-      {/* Summary chips */}
       <div className="flex flex-wrap items-center gap-2">
         {counts.field_default > 0 && (
           <span className="rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700">
@@ -92,7 +91,6 @@ export function AllChangesTab({
         )}
       </div>
 
-      {/* Filters */}
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
         <div className="flex items-center gap-3">
           <span className="w-14 shrink-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Kind</span>

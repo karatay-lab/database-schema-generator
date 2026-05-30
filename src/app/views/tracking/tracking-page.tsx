@@ -6,12 +6,10 @@ import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useSchemaWarnings } from "../shared/use-schema-warnings";
 import { Tabs, TabsList, TabsContent } from "@/components/ui/tabs";
-import { TabTrigger } from "./tab-trigger";
-import { AllChangesTab } from "./all-changes-tab";
-import { WarningsPanel } from "./warnings-panel";
-
-const VALID_TABS = ["all", "tables", "enums", "schema", "relations", "restrictions"] as const;
-type TrackingTab = typeof VALID_TABS[number];
+import { TabTrigger } from "@/components/tracking/tab-trigger";
+import { AllChangesTab } from "@/components/tracking/all-changes-tab";
+import { WarningsPanel } from "@/components/tracking/warnings-panel";
+import { VALID_TABS, type TrackingTab } from "@/constants/tracking";
 
 export function TrackingPageContent() {
   const { projectId, projectName, versions, version, hasProject } = useProjectInfo();

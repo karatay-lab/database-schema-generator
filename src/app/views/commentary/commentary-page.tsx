@@ -8,15 +8,7 @@ import { classNames } from "../shared/dashboard-data";
 import { fieldTypeBadgeClass } from "@/lib/badge-utils";
 import { useProjectInfo } from "../shared/project-info-context";
 import type { PrismaField, PrismaModel } from "@/lib/schema-store";
-
-type FieldCommentUpdate = { fieldKey: string; comment: string };
-
-function displayType(field: PrismaField, enumTypes: string[]) {
-  if (enumTypes.includes(field.type)) return field.type;
-  if (field.nativeAttribute?.name === "Uuid") return "Uuid";
-  if (field.nativeAttribute?.name === "Timestamptz") return "Timestamptz";
-  return field.type;
-}
+import { displayType } from "@/lib/display-utils";
 
 export function CommentaryPageContent() {
   const { projectName, version, hasProject } = useProjectInfo();

@@ -1,5 +1,8 @@
 import type { TrackingEntryKind, TrackingChangeKind } from "@/lib/tracking-utils";
 
+export const VALID_TABS = ["all", "tables", "enums", "schema", "relations", "restrictions"] as const;
+export type TrackingTab = typeof VALID_TABS[number];
+
 export const changeBadge: Record<TrackingChangeKind, { cls: string; label: string }> = {
   added:         { cls: "border-emerald-200 bg-emerald-50 text-emerald-700",  label: "Added"         },
   removed:       { cls: "border-red-200 bg-red-50 text-red-700",              label: "Removed"       },

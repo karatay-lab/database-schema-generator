@@ -7,14 +7,10 @@ import Link from "next/link";
 import { useTRPC } from "@/trpc/client";
 import type { SchemaWarning } from "@/lib/schema-warnings-store";
 
-// ─── severity helpers ─────────────────────────────────────────────────────────
-
 type Severity = "breaking" | "warning" | "info" | "approved";
 
 function resolutionSeverity(w: SchemaWarning): Severity {
   if (w.approvedAt) {
-    // backfill_required on a non-nullable field without a replacement value is still incomplete
-    // even if the client clicked approve. Keep it amber so the row doesn't look done.
     if (
       w.resolution === "backfill_required" &&
       w.targetNullable === false &&
@@ -74,16 +70,12 @@ function SeverityBadge({ w }: { w: SchemaWarning }) {
   );
 }
 
-// ─── nav links ────────────────────────────────────────────────────────────────
-
 function navHref(w: SchemaWarning): string {
   if (w.entityKind === "field") return `/schema?table=${w.entityName.split(".")[0] ?? ""}`;
   if (w.entityKind === "enum") return "/enums";
   if (w.entityKind === "relation") return "/relations";
   return "/tables";
 }
-
-// ─── approve cell (✓ / ✗ icons only) ─────────────────────────────────────────
 
 function ApproveCell({
   warning,
@@ -136,10 +128,6 @@ function ApproveCell({
   );
 }
 
-// ─── resolve cell (value-setting only, no approve button) ─────────────────────
-
-// ─── resolve modal ────────────────────────────────────────────────────────────
-
 function ResolveModal({
   warning,
   pendingValue,
@@ -168,12 +156,10 @@ function ResolveModal({
 
   const isStringTarget = !["Int","BigInt","Float","Decimal","Boolean","DateTime","Json","Bytes"].includes(targetType);
   const isUniqueField = warning.targetUnique === true;
-  // For unique String fields: pendingValue is the PREFIX only — migration appends -{uuid} per row.
-  // For non-unique fields: pendingValue is the literal static default.
   const isUniquePrefix = isStringTarget && isUniqueField;
 
-  // Default the prefix to the field name if nothing is set yet
   function generate() { setPendingValue(fieldName); }
+  void generate;
 
   const canApprove = isEnumRemoval
     ? pendingValue.trim().length > 0
@@ -190,30 +176,19 @@ function ResolveModal({
   }
 
   async function handleResolveForMe() {
-    // Auto-fill with field name as prefix then immediately approve
     const prefix = fieldName;
     setPendingValue(prefix);
     await handleApprove(prefix);
   }
 
-  // placeholder only used for non-unique fields; unique prefix has its own UI
-  const placeholder = isNullable ? "Leave empty to set NULL"
-    : targetType === "Int" || targetType === "BigInt" ? "e.g. 0"
-    : targetType === "Float" || targetType === "Decimal" ? "e.g. 0.0"
-    : targetType === "Boolean" ? "true or false"
-    : "default value";
-
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
       <div className="w-full max-w-lg rounded-lg border border-slate-200 bg-white shadow-2xl">
-
-        {/* Header */}
         <div className="border-b border-slate-200 px-5 py-4">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Resolve</p>
           <h3 className="mt-0.5 text-base font-semibold text-slate-950">{warning.entityName}</h3>
         </div>
 
-        {/* Context */}
         <div className="space-y-3 px-5 py-4">
           <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 space-y-2 text-xs">
             <div className="flex items-center gap-2">
@@ -230,7 +205,6 @@ function ResolveModal({
                 </span>
               </div>
             )}
-            {/* Field properties — nullable + unique */}
             {warning.entityKind === "field" && (
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-slate-500 w-16">Field</span>
@@ -256,7 +230,6 @@ function ResolveModal({
             </div>
           </div>
 
-          {/* Resolve input */}
           {isEnumRemoval && (
             <div className="space-y-2">
               <p className="text-sm font-semibold text-slate-700">
@@ -337,7 +310,6 @@ function ResolveModal({
           )}
         </div>
 
-        {/* Footer */}
         <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-5 py-4">
           <button
             type="button"
@@ -361,14 +333,33 @@ function ResolveModal({
   );
 }
 
-// ─── strategy legend (per entity kind) ───────────────────────────────────────
-
 const STRATEGIES_BY_KIND: Record<string, StrategyName[]> = {
   table:       ["Data Dropped", "Acknowledged"],
   enum:        ["Remapped", "Set NULL", "Data Dropped", "Acknowledged"],
   field:       ["Unique Prefix + UUID", "Static Default", "Type Cast", "Set NULL", "Data Dropped", "Acknowledged"],
   relation:    ["Data Dropped", "Acknowledged"],
   restriction: ["Acknowledged"],
+};
+
+type StrategyName =
+  | "Unique Prefix + UUID"
+  | "Static Default"
+  | "Set NULL"
+  | "Type Cast"
+  | "Remapped"
+  | "Data Dropped"
+  | "Acknowledged"
+  | "Pending";
+
+const strategyStyle: Record<StrategyName, { cls: string }> = {
+  "Unique Prefix + UUID": { cls: "border-violet-200 bg-violet-50 text-violet-700" },
+  "Static Default":       { cls: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+  "Set NULL":             { cls: "border-slate-200 bg-slate-50 text-slate-500" },
+  "Type Cast":            { cls: "border-sky-200 bg-sky-50 text-sky-700" },
+  "Remapped":             { cls: "border-amber-200 bg-amber-50 text-amber-700" },
+  "Data Dropped":         { cls: "border-rose-200 bg-rose-50 text-rose-700" },
+  "Acknowledged":         { cls: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+  "Pending":              { cls: "border-slate-200 bg-white text-slate-400" },
 };
 
 function StrategyLegend({
@@ -403,7 +394,6 @@ function StrategyLegend({
       (incompleteCount ?? 0) > 0 ? "border-amber-200 bg-amber-50/50" :
       "border-slate-200 bg-slate-50"
     }`}>
-      {/* Merged resolver header */}
       {title && (
         <div className="mb-3 flex items-start justify-between gap-4">
           <div className="flex items-start gap-2.5">
@@ -442,18 +432,6 @@ function StrategyLegend({
   );
 }
 
-// ─── strategy badge ────────────────────────────────────────────────────────────
-
-type StrategyName =
-  | "Unique Prefix + UUID"
-  | "Static Default"
-  | "Set NULL"
-  | "Type Cast"
-  | "Remapped"
-  | "Data Dropped"
-  | "Acknowledged"
-  | "Pending";
-
 function resolveStrategy(w: SchemaWarning): StrategyName {
   if (!w.approvedAt) return "Pending";
   if (w.entityKind === "restriction") return "Acknowledged";
@@ -470,7 +448,6 @@ function resolveStrategy(w: SchemaWarning): StrategyName {
     if (w.resolution === "data_deleted" && w.changeKind !== "type_changed" && w.changeKind !== "multiple") {
       return "Data Dropped";
     }
-    // String → Enum (compatible cast, no replacement value)
     if ((w.changeKind === "type_changed" || w.changeKind === "multiple") && !w.replacementValue) {
       return "Type Cast";
     }
@@ -484,17 +461,6 @@ function resolveStrategy(w: SchemaWarning): StrategyName {
   return "Acknowledged";
 }
 
-const strategyStyle: Record<StrategyName, { cls: string }> = {
-  "Unique Prefix + UUID": { cls: "border-violet-200 bg-violet-50 text-violet-700" },
-  "Static Default":       { cls: "border-emerald-200 bg-emerald-50 text-emerald-700" },
-  "Set NULL":             { cls: "border-slate-200 bg-slate-50 text-slate-500" },
-  "Type Cast":            { cls: "border-sky-200 bg-sky-50 text-sky-700" },
-  "Remapped":             { cls: "border-amber-200 bg-amber-50 text-amber-700" },
-  "Data Dropped":         { cls: "border-rose-200 bg-rose-50 text-rose-700" },
-  "Acknowledged":         { cls: "border-emerald-200 bg-emerald-50 text-emerald-700" },
-  "Pending":              { cls: "border-slate-200 bg-white text-slate-400" },
-};
-
 function StrategyBadge({ w }: { w: SchemaWarning }) {
   if (!w.approvedAt) return null;
   const name = resolveStrategy(w);
@@ -506,12 +472,9 @@ function StrategyBadge({ w }: { w: SchemaWarning }) {
   );
 }
 
-// ─── warning cell + resolve cell helpers ─────────────────────────────────────
-
 function WarningCellContent({ w }: { w: SchemaWarning }) {
   const isNullable = w.targetNullable === true;
 
-  // Enum value removed
   if (w.entityKind === "enum" && w.changeKind === "value_removed") {
     const removedValue = w.entityName.split(".")[1] ?? "";
     if (w.approvedAt && w.replacementValue) {
@@ -530,7 +493,6 @@ function WarningCellContent({ w }: { w: SchemaWarning }) {
     );
   }
 
-  // Field with required default (backfill / lossy)
   if (
     w.entityKind === "field" &&
     (w.resolution === "backfill_required" || w.resolution === "lossy_convert" || w.resolution === "precision_loss") &&
@@ -553,7 +515,6 @@ function WarningCellContent({ w }: { w: SchemaWarning }) {
       : <span className="text-xs text-amber-600">auto-generated placeholder</span>;
   }
 
-  // Toggle-style: show approved or nothing
   if (w.approvedAt) {
     return <span className="text-[10px] font-semibold text-emerald-600">✓ Acknowledged</span>;
   }
@@ -584,15 +545,8 @@ function WarningRow({
     (w.resolution === "backfill_required" || w.resolution === "lossy_convert" || w.resolution === "precision_loss") &&
     w.targetNullable !== null;
 
-  // Needs a modal to resolve: enum remaps and field default values
   const needsResolution = (isEnumRemoval || (isFieldDefault && !isNullable)) && !w.approvedAt;
-  const resolvedDisplay = w.approvedAt && w.replacementValue
-    ? <code className="rounded bg-emerald-100 px-1.5 py-0.5 font-mono text-xs text-emerald-700">✓ &quot;{w.replacementValue}&quot;</code>
-    : w.approvedAt && isNullable
-      ? <span className="text-[10px] text-emerald-600 font-semibold">→ NULL</span>
-      : null;
 
-  // For simple approvals (no value needed), the approve column handles it directly
   const canApprove = isEnumRemoval
     ? pendingValue.trim().length > 0
     : isFieldDefault && !isNullable
@@ -625,13 +579,9 @@ function WarningRow({
           </span>
         )}
       </td>
-
-      {/* Warning — current state / what will happen */}
       <td className="py-3 pr-4 align-middle">
         <WarningCellContent w={w} />
       </td>
-
-      {/* Resolve — strategy badge (approved) or Resolve button (pending) */}
       <td className="py-3 pr-4 align-middle">
         {needsResolution ? (
           <button
@@ -645,8 +595,6 @@ function WarningRow({
           <StrategyBadge w={w} />
         )}
       </td>
-
-      {/* Approve — ✓ / ✗ circles, centered */}
       <td className="py-3 pr-4 align-middle text-center">
         <ApproveCell
           warning={w}
@@ -656,7 +604,6 @@ function WarningRow({
           onUnapprove={unapprove}
         />
       </td>
-
       <td className="py-3 pr-4 align-middle">
         <Link
           href={navHref(w)}
@@ -667,7 +614,6 @@ function WarningRow({
       </td>
     </tr>
 
-    {/* ResolveModal must be outside <tr> — fixed overlay, sibling placement is fine */}
     {resolveOpen && (
       <ResolveModal
         warning={w}
@@ -681,9 +627,6 @@ function WarningRow({
   </>
   );
 }
-
-
-// ─── panel ────────────────────────────────────────────────────────────────────
 
 export type WarningEntityKind =
   | "table"
@@ -735,7 +678,6 @@ export function WarningsPanel({
   const enumValuesMap = data?.enumValuesMap ?? {};
   const pending = warnings.filter((w) => !w.approvedAt);
   const approved = warnings.filter((w) => !!w.approvedAt);
-  // Approved but still missing a required backfill/replacement value — not truly complete
   const incomplete = approved.filter(
     (w) =>
       !w.replacementValue &&
@@ -788,7 +730,6 @@ export function WarningsPanel({
 
   async function approveAll() {
     if (pending.length === 0) return;
-    // Enum value_removed warnings require an explicit replacement mapping — exclude from bulk approve
     const bulkApprovable = pending.filter(
       (w) => !(w.entityKind === "enum" && w.changeKind === "value_removed"),
     );
@@ -814,7 +755,6 @@ export function WarningsPanel({
     await invalidate();
     setBulkBusy(false);
   }
-
 
   if (isLoading) {
     return (
@@ -846,20 +786,12 @@ export function WarningsPanel({
   }
 
   const TABLE_HEADERS = [
-    "Severity",
-    "Entity",
-    "Change",
-    "Message",
-    "From → To",
-    "Warning",
-    "Resolve",
-    "Approve",
-    "View",
+    "Severity", "Entity", "Change", "Message", "From → To",
+    "Warning", "Resolve", "Approve", "View",
   ] as const;
 
   return (
     <div className="space-y-3">
-      {/* ── Resolver header + Resolution Strategies — always on top ── */}
       <StrategyLegend
         entityKind={entityKind}
         title={title}
@@ -869,31 +801,19 @@ export function WarningsPanel({
         incompleteCount={externalIncompleteCount}
       />
 
-      {/* ── Bulk action bar ── */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
           {pending.length > 0 && (
-            <span>
-              <span className="font-semibold text-red-600">{pending.length}</span>{" "}
-              pending
-            </span>
+            <span><span className="font-semibold text-red-600">{pending.length}</span>{" "}pending</span>
           )}
-          {pending.length > 0 && approved.length > 0 && (
-            <span className="text-slate-300">·</span>
-          )}
+          {pending.length > 0 && approved.length > 0 && <span className="text-slate-300">·</span>}
           {fullyApproved > 0 && (
-            <span>
-              <span className="font-semibold text-emerald-600">{fullyApproved}</span>{" "}
-              approved
-            </span>
+            <span><span className="font-semibold text-emerald-600">{fullyApproved}</span>{" "}approved</span>
           )}
           {incomplete.length > 0 && (
             <>
               {fullyApproved > 0 && <span className="text-slate-300">·</span>}
-              <span>
-                <span className="font-semibold text-amber-600">{incomplete.length}</span>{" "}
-                need{incomplete.length === 1 ? "s" : ""} default value
-              </span>
+              <span><span className="font-semibold text-amber-600">{incomplete.length}</span>{" "}need{incomplete.length === 1 ? "s" : ""} default value</span>
             </>
           )}
         </div>
@@ -922,7 +842,6 @@ export function WarningsPanel({
         </div>
       </div>
 
-      {/* ── Unified warnings table ── */}
       <div className="overflow-x-auto rounded-lg border border-slate-200">
         <table className="w-full text-sm">
           <thead>
@@ -951,7 +870,6 @@ export function WarningsPanel({
           </tbody>
         </table>
       </div>
-
     </div>
   );
 }

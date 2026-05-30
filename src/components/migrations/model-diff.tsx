@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { classNames } from "../shared/dashboard-data";
+import { cn } from "@/lib/utils";
+import { StateChip } from "./phase-state";
 import type {
   CompareResponse,
   FieldMatchResult,
@@ -11,37 +12,20 @@ import type {
   ZodPairResponse,
 } from "@/types/migrations";
 
-// ─── local helpers ─────────────────────────────────────────────────────────────
-
-function StateChip({ state }: { state: PhaseState }) {
-  const map: Record<PhaseState, { label: string; cls: string }> = {
-    idle: { label: "Pending", cls: "bg-slate-100 text-slate-500" },
-    loading: { label: "Running…", cls: "bg-amber-100 text-amber-700" },
-    success: { label: "Done", cls: "bg-emerald-100 text-emerald-700" },
-    error: { label: "Failed", cls: "bg-rose-100 text-rose-700" },
-  };
-  const { label, cls } = map[state];
-  return (
-    <span className={classNames("rounded-full px-2.5 py-0.5 text-[11px] font-semibold", cls)}>
-      {label}
-    </span>
-  );
-}
-
 type ChangeBadge = "SAME" | "RENAMED" | "MODIFIED" | "ADDED" | "REMOVED" | "RELATION" | "COMMENT";
 
 function Badge({ type }: { type: ChangeBadge }) {
   const map: Record<ChangeBadge, string> = {
-    SAME: "bg-slate-100 text-slate-500",
-    RENAMED: "bg-amber-100 text-amber-700",
+    SAME:     "bg-slate-100 text-slate-500",
+    RENAMED:  "bg-amber-100 text-amber-700",
     MODIFIED: "bg-blue-100 text-blue-700",
-    ADDED: "bg-emerald-100 text-emerald-700",
-    REMOVED: "bg-rose-100 text-rose-700",
+    ADDED:    "bg-emerald-100 text-emerald-700",
+    REMOVED:  "bg-rose-100 text-rose-700",
     RELATION: "bg-violet-100 text-violet-700",
-    COMMENT: "bg-sky-100 text-sky-700",
+    COMMENT:  "bg-sky-100 text-sky-700",
   };
   return (
-    <span className={classNames("rounded px-2 py-0.5 text-[10px] font-bold tracking-wide uppercase", map[type])}>
+    <span className={cn("rounded px-2 py-0.5 text-[10px] font-bold tracking-wide uppercase", map[type])}>
       {type}
     </span>
   );
@@ -68,14 +52,12 @@ function Chevron({ open }: { open: boolean }) {
       fill="none"
       strokeWidth={2}
       stroke="currentColor"
-      className={classNames("h-3.5 w-3.5 shrink-0 transition-transform duration-150", open ? "rotate-90" : "")}
+      className={cn("h-3.5 w-3.5 shrink-0 transition-transform duration-150", open ? "rotate-90" : "")}
     >
       <path strokeLinecap="round" strokeLinejoin="round" d="M6 4l4 4-4 4" />
     </svg>
   );
 }
-
-// ─── field rows ────────────────────────────────────────────────────────────────
 
 function FieldRow({ field }: { field: FieldMatchResult }) {
   const badge = fieldBadge(field);
@@ -147,8 +129,6 @@ function RemovedFieldRow({ f }: { f: { key: string; name: string; type: string; 
   );
 }
 
-// ─── model row ─────────────────────────────────────────────────────────────────
-
 function ModelRow({
   model,
   expanded,
@@ -219,8 +199,6 @@ function ModelRow({
   );
 }
 
-// ─── summary bar ───────────────────────────────────────────────────────────────
-
 function SummaryBar({ c }: { c: ModelComparisonResult }) {
   const changedCount = c.matchedModels.filter((m) => m.hasChanges).length;
   const sameCount = c.matchedModels.length - changedCount;
@@ -266,8 +244,6 @@ function SummaryBar({ c }: { c: ModelComparisonResult }) {
     </div>
   );
 }
-
-// ─── diff warnings ─────────────────────────────────────────────────────────────
 
 type DiffWarning = {
   severity: "error" | "warning";
@@ -315,13 +291,13 @@ function computeWarnings(c: ModelComparisonResult): DiffWarning[] {
   return out;
 }
 
-function WarningsPanel({ warnings }: { warnings: DiffWarning[] }) {
+function DiffWarningsPanel({ warnings }: { warnings: DiffWarning[] }) {
   const [open, setOpen] = useState(false);
   if (warnings.length === 0) return null;
   const errors = warnings.filter((w) => w.severity === "error");
   const warns = warnings.filter((w) => w.severity === "warning");
   return (
-    <div className={classNames(
+    <div className={cn(
       "rounded-md border text-xs",
       errors.length > 0 ? "border-rose-200 bg-rose-50" : "border-amber-200 bg-amber-50",
     )}>
@@ -331,7 +307,7 @@ function WarningsPanel({ warnings }: { warnings: DiffWarning[] }) {
         className="flex w-full items-center gap-2 px-3 py-2 text-left"
       >
         <Chevron open={open} />
-        <span className={classNames("font-semibold", errors.length > 0 ? "text-rose-700" : "text-amber-700")}>
+        <span className={cn("font-semibold", errors.length > 0 ? "text-rose-700" : "text-amber-700")}>
           {errors.length > 0 && `${errors.length} data-loss risk${errors.length !== 1 ? "s" : ""}`}
           {errors.length > 0 && warns.length > 0 && " · "}
           {warns.length > 0 && `${warns.length} warning${warns.length !== 1 ? "s" : ""}`}
@@ -342,7 +318,7 @@ function WarningsPanel({ warnings }: { warnings: DiffWarning[] }) {
         <div className="divide-y border-t border-inherit">
           {warnings.map((w, i) => (
             <div key={i} className="flex items-start gap-2 px-3 py-1.5">
-              <span className={classNames(
+              <span className={cn(
                 "mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase",
                 w.severity === "error" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700",
               )}>
@@ -359,8 +335,6 @@ function WarningsPanel({ warnings }: { warnings: DiffWarning[] }) {
     </div>
   );
 }
-
-// ─── main component ─────────────────────────────────────────────────────────────
 
 export function ModelDiff({
   projectName,
@@ -383,7 +357,6 @@ export function ModelDiff({
   onOpenFullScreen?: () => void;
   onComparisonReady?: (comparison: ModelComparisonResult) => void;
 }) {
-  // Versions always come from props — no local selectors in either mode.
   const fromVersion = fromVersionProp ?? versions[0] ?? "";
   const toVersion   = toVersionProp   ?? versions[1] ?? versions[0] ?? "";
 
@@ -432,7 +405,6 @@ export function ModelDiff({
     }
   }
 
-  // Auto-compare: full-screen modal on mount, inline mode whenever versions change.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (!inline && !autoCompared.current && fromVersion && toVersion && fromVersion !== toVersion) { autoCompared.current = true; void runCompare(); } }, []);
   // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
@@ -463,12 +435,10 @@ export function ModelDiff({
     }
   }
 
-  // ── inline variant ────────────────────────────────────────────────────────────
   if (inline) {
     const warnings = comparison ? computeWarnings(comparison) : [];
     return (
       <div className="space-y-3">
-        {/* version + compare status */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-sm">
             <span className="font-semibold text-slate-700">{fromVersion}</span>
@@ -494,8 +464,8 @@ export function ModelDiff({
           )}
         </div>
 
+        {warnings.length > 0 && <DiffWarningsPanel warnings={warnings} />}
 
-        {/* Zod generation — required to proceed */}
         {compareState === "success" && (
           <div className="flex items-center gap-3 border-t border-slate-100 pt-3">
             <button
@@ -516,11 +486,8 @@ export function ModelDiff({
     );
   }
 
-  // ── full-screen modal variant (unchanged) ─────────────────────────────────────
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-white">
-
-      {/* ── modal header ── */}
       <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-6 py-4">
         <div className="flex items-center gap-4">
           <div>
@@ -550,7 +517,6 @@ export function ModelDiff({
         </div>
       </div>
 
-      {/* ── column header (shown after compare) ── */}
       {comparison && (
         <div className="shrink-0 border-b border-slate-200 bg-slate-50 px-6 py-2.5">
           <div className="flex items-center justify-between">
@@ -575,34 +541,27 @@ export function ModelDiff({
         </div>
       )}
 
-      {/* ── scrollable body ── */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-
-        {/* error */}
         {compareState === "error" && compareError && (
           <div className="m-6 rounded-md border border-rose-200 bg-rose-50 px-4 py-3">
             <p className="whitespace-pre-wrap font-mono text-xs text-rose-700">{compareError}</p>
           </div>
         )}
 
-        {/* zod error */}
         {zodState === "error" && zodError && (
           <div className="mx-6 mt-4 rounded-md border border-rose-200 bg-rose-50 px-4 py-3">
             <p className="whitespace-pre-wrap font-mono text-xs text-rose-700">{zodError}</p>
           </div>
         )}
 
-        {/* loading state */}
         {compareState === "loading" && (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
             <p className="text-sm font-semibold text-slate-500">Comparing versions…</p>
           </div>
         )}
 
-        {/* model list */}
         {comparison && (
           <div className="divide-y divide-slate-100">
-            {/* column header row */}
             <div className="grid grid-cols-[8rem_1fr_1fr_minmax(0,1.5fr)_7rem] gap-x-4 bg-slate-50 px-6 py-2 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
               <span>Key</span>
               <span>Field / Model name</span>

@@ -6,7 +6,14 @@ import { IconCheck, IconCopy, IconX } from "@tabler/icons-react";
 import { classNames } from "../shared/dashboard-data";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useSchemaWarnings } from "../shared/use-schema-warnings";
-import { ModelDiff } from "./model-diff";
+import { ModelDiff } from "@/components/migrations/model-diff";
+import { StateChip, StepBadge } from "@/components/migrations/phase-state";
+import { Card, CardHeader, CardBody } from "@/components/migrations/migration-card";
+import { ErrorBox } from "@/components/migrations/error-box";
+import { MigrationLabel as Label, MigrationInput as Input } from "@/components/migrations/migration-form";
+import { IssueSection } from "@/components/migrations/issue-section";
+import { shortUuid } from "@/constants/migrations";
+import type { MigrationPlan } from "@/types/migrations";
 import type {
   CheckSyncResponse,
   CollectResponse,
@@ -23,124 +30,6 @@ import type {
   ValidateResponse,
   ValidationIssue,
 } from "@/types/migrations";
-
-// ─── small helpers ────────────────────────────────────────────────────────────
-
-function StateChip({ state }: { state: PhaseState }) {
-  const map: Record<PhaseState, { label: string; cls: string }> = {
-    idle: { label: "Pending", cls: "bg-slate-100 text-slate-500" },
-    loading: { label: "Running…", cls: "bg-amber-100 text-amber-700" },
-    success: { label: "Done", cls: "bg-emerald-100 text-emerald-700" },
-    error: { label: "Failed", cls: "bg-rose-100 text-rose-700" },
-  };
-  const { label, cls } = map[state];
-  return (
-    <span className={classNames("rounded-full px-2.5 py-0.5 text-[11px] font-semibold", cls)}>
-      {label}
-    </span>
-  );
-}
-
-function StepBadge({ n, state }: { n: number; state: PhaseState }) {
-  const base = "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold";
-  if (state === "success") return <span className={classNames(base, "bg-emerald-500 text-white")}>✓</span>;
-  if (state === "error") return <span className={classNames(base, "bg-rose-500 text-white")}>✗</span>;
-  if (state === "loading") return <span className={classNames(base, "bg-amber-400 text-white")}>{n}</span>;
-  return <span className={classNames(base, "bg-slate-200 text-slate-600")}>{n}</span>;
-}
-
-function Card({ children, locked }: { children: React.ReactNode; locked?: boolean }) {
-  return (
-    <div className={classNames("rounded-lg border border-slate-200 bg-white", locked ? "opacity-50 pointer-events-none select-none" : "")}>
-      {children}
-    </div>
-  );
-}
-
-function CardHeader({ children }: { children: React.ReactNode }) {
-  return <div className="border-b border-slate-200 px-5 py-4">{children}</div>;
-}
-
-function CardBody({ children }: { children: React.ReactNode }) {
-  return <div className="space-y-4 p-5">{children}</div>;
-}
-
-function ErrorBox({ message }: { message: string }) {
-  return (
-    <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3">
-      <p className="whitespace-pre-wrap font-mono text-xs text-rose-700">{message}</p>
-    </div>
-  );
-}
-
-function Label({ children }: { children: React.ReactNode }) {
-  return <label className="block text-xs font-semibold text-slate-600">{children}</label>;
-}
-
-function Input({
-  value, onChange, placeholder, type = "text",
-}: {
-  value: string; onChange: (v: string) => void; placeholder?: string; type?: string;
-}) {
-  return (
-    <input
-      type={type}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      autoComplete="off"
-      className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-slate-500"
-    />
-  );
-}
-
-function shortUuid(uuid: string) {
-  return uuid.slice(0, 8);
-}
-
-// ─── issue section ────────────────────────────────────────────────────────────
-
-function IssueSection({ title, issues }: { title: string; issues: ValidationIssue[] }) {
-  const errors = issues.filter((i) => i.severity === "error");
-  const warnings = issues.filter((i) => i.severity === "warning");
-  if (issues.length === 0) return null;
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{title}</p>
-        {errors.length > 0 && (
-          <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700">
-            {errors.length} error{errors.length !== 1 ? "s" : ""}
-          </span>
-        )}
-        {warnings.length > 0 && (
-          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-            {warnings.length} warning{warnings.length !== 1 ? "s" : ""}
-          </span>
-        )}
-      </div>
-      <div className="max-h-48 overflow-y-auto rounded-md border border-slate-200 divide-y divide-slate-100">
-        {issues.map((issue, idx) => (
-          <div key={idx} className="grid grid-cols-[160px_60px_1fr] items-start gap-3 px-4 py-2.5 text-xs hover:bg-slate-50">
-            <p className="truncate font-semibold text-slate-800">
-              {issue.model}.<span className="text-slate-400">{issue.field}</span>
-            </p>
-            <span className={classNames(
-              "inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold",
-              issue.severity === "error" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700",
-            )}>
-              {issue.severity}
-            </span>
-            <div>
-              <p className="text-slate-700">{issue.issue}</p>
-              {issue.suggestion && <p className="mt-0.5 italic text-slate-400">{issue.suggestion}</p>}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -163,8 +52,6 @@ type MigrationSession = {
 type MigrationOrderItem = NonNullable<CollectResponse["migrationOrder"]>[number];
 
 // ─── main component ───────────────────────────────────────────────────────────
-
-type MigrationPlan = "new" | "version";
 
 export function MigrationsPageContent() {
   const { projectId, projectName, provider, versions, hasProject } = useProjectInfo();

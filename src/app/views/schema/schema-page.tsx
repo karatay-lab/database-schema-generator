@@ -19,7 +19,7 @@ import type {
 import type { FieldTemplate, FieldTemplateInput } from "@/lib/field-template-store";
 import { providers as allProviders } from "../shared/dashboard-data";
 import { defaultFieldTypes, typeBadgeClass, typeSelectClass } from "@/constants/schema";
-import { FieldLegend } from "./field-legend";
+import { FieldLegend } from "@/components/schema/field-legend";
 
 type FieldsResponse = {
   fields?: PrismaField[];

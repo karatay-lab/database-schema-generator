@@ -12,19 +12,16 @@ export function highlightCode(code: string, lang: "ts" | "prisma"): React.ReactN
 
     let match: RegExpExecArray | null;
 
-    // Strings
     const stringRe = /("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)/g;
     while ((match = stringRe.exec(line)) !== null) {
       tokens.push({ start: match.index, end: match.index + match[0].length, kind: "string", text: match[0] });
     }
 
-    // Comments
     const commentRe = /(\/\/.*$)/g;
     while ((match = commentRe.exec(line)) !== null) {
       tokens.push({ start: match.index, end: match.index + match[0].length, kind: "comment", text: match[0] });
     }
 
-    // Prisma @attributes
     if (lang === "prisma") {
       const attrRe = /(@{1,2}[a-zA-Z_][a-zA-Z0-9_]*)/g;
       while ((match = attrRe.exec(line)) !== null) {
@@ -32,7 +29,6 @@ export function highlightCode(code: string, lang: "ts" | "prisma"): React.ReactN
       }
     }
 
-    // Words (keywords / types)
     const wordRe = /\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g;
     while ((match = wordRe.exec(line)) !== null) {
       const word = match[1];
@@ -43,7 +39,6 @@ export function highlightCode(code: string, lang: "ts" | "prisma"): React.ReactN
       }
     }
 
-    // Sort, deduplicate overlapping tokens (first wins)
     tokens.sort((a, b) => a.start - b.start);
     const dedupedTokens: typeof tokens = [];
     let cursor = 0;

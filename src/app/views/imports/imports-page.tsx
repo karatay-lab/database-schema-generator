@@ -4,76 +4,10 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
 import { classNames } from "../shared/dashboard-data";
-import { DropZone } from "./drop-zone";
-import { VersionPreviewCard, ProviderBadge } from "./version-preview-card";
-
-type ImportMode = "version" | "project";
-
-type VersionStats = {
-  name: string;
-  tableCount: number;
-  fieldCount: number;
-  relationCount: number;
-  enumCount: number;
-};
-
-type ParsedPreview = {
-  type: "version" | "project";
-  exportedAt: string;
-  sourceProjectName: string;
-  provider: string;
-  versionCount: number;
-  versions: VersionStats[];
-};
-
-function todayVersionName(): string {
-  const now = new Date();
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
-  return `1.${mm}${dd}`;
-}
-
-function parsePicklePreview(content: string): ParsedPreview {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    throw new Error("Not valid JSON.");
-  }
-  if (!parsed || typeof parsed !== "object") throw new Error("Invalid pickle file.");
-  const p = parsed as Record<string, unknown>;
-  if (p.pickleVersion !== 1) throw new Error("Unsupported pickle version.");
-  if (p.type !== "version" && p.type !== "project") throw new Error("Unknown pickle type.");
-  const project = p.project as Record<string, unknown>;
-  if (!project) throw new Error("Missing project info.");
-
-  const toStats = (v: unknown): VersionStats => {
-    const vd = v as Record<string, unknown>;
-    return {
-      name: String(vd.name ?? ""),
-      tableCount: Array.isArray(vd.tables) ? vd.tables.length : 0,
-      fieldCount: Array.isArray(vd.fields) ? vd.fields.length : 0,
-      relationCount: Array.isArray(vd.relations) ? vd.relations.length : 0,
-      enumCount: Array.isArray(vd.enums) ? vd.enums.length : 0,
-    };
-  };
-
-  const versions: VersionStats[] =
-    p.type === "version"
-      ? [toStats(p.version)]
-      : Array.isArray(p.versions)
-        ? (p.versions as unknown[]).map(toStats)
-        : [];
-
-  return {
-    type: p.type as "version" | "project",
-    exportedAt: String(p.exportedAt ?? ""),
-    sourceProjectName: String(project.name ?? ""),
-    provider: String(project.provider ?? ""),
-    versionCount: versions.length,
-    versions,
-  };
-}
+import { DropZone } from "@/components/imports/drop-zone";
+import { VersionPreviewCard, ProviderBadge } from "@/components/imports/version-preview-card";
+import type { ImportMode, ParsedPreview } from "@/types/imports";
+import { todayVersionName, parsePicklePreview } from "@/constants/imports";
 
 export function ImportsPageContent() {
   const trpc = useTRPC();

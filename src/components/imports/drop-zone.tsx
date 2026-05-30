@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { classNames } from "../shared/dashboard-data";
+import { cn } from "@/lib/utils";
 
 export function DropZone({
   accept,
@@ -24,7 +24,7 @@ export function DropZone({
 
   return (
     <div
-      className={classNames(
+      className={cn(
         "flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors cursor-pointer",
         dragging
           ? "border-lime-400 bg-lime-50"

@@ -188,3 +188,5 @@ export type CheckSyncResponse = {
   columnIssues?: ColumnIssue[];
   error?: string;
 };
+
+export type MigrationPlan = "new" | "version";

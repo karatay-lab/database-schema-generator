@@ -10,22 +10,8 @@ import { useProjectInfo } from "../shared/project-info-context";
 import { IconCheck, IconCopy, IconEye, IconPencil, IconSettings2, IconTrash, IconX } from "@tabler/icons-react";
 import type { PrismaField, PrismaModel } from "@/lib/schema-store";
 import type { GenerateResponse } from "@/types/validation";
-import { highlightCode } from "./highlight-code";
-
-
-
-function displayType(field: PrismaField, enumTypes: string[]) {
-  if (enumTypes.includes(field.type)) {
-    return field.type;
-  }
-  if (field.nativeAttribute?.name === "Uuid") {
-    return "Uuid";
-  }
-  if (field.nativeAttribute?.name === "Timestamptz") {
-    return "Timestamptz";
-  }
-  return field.type;
-}
+import { highlightCode } from "@/components/highlight-code";
+import { displayType } from "@/lib/display-utils";
 
 export function ValidationPageContent() {
   const { projectName, version: selectedVersion, hasProject } = useProjectInfo();
@@ -1102,7 +1088,7 @@ export function ValidationPageContent() {
             </div>
             <div className="custom-scrollbar overflow-y-auto p-5 pb-12" style={{ maxHeight: "calc(92vh - 140px)" }}>
               <div className="min-w-max rounded-md border border-slate-200 bg-white px-4 py-4 text-xs font-mono">
-                {highlightCode(dialogCode)}
+                {highlightCode(dialogCode, "ts")}
               </div>
             </div>
           </div>

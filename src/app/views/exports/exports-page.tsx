@@ -6,7 +6,7 @@ import { IconCopy, IconCheck, IconX, IconDownload, IconChevronLeft, IconChevronR
 import { useTRPC } from "@/trpc/client";
 import { classNames } from "../shared/dashboard-data";
 import { useProjectInfo } from "../shared/project-info-context";
-import { highlightCode } from "./highlight-code";
+import { highlightCode } from "@/components/highlight-code";
 import { EXPORT_OPTIONS, type ExportType } from "@/constants/exports";
 
 // ─── types ────────────────────────────────────────────────────────────────────

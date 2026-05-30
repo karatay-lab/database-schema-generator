@@ -1,14 +1,7 @@
 "use client";
 
-import { classNames } from "../shared/dashboard-data";
-
-type VersionStats = {
-  name: string;
-  tableCount: number;
-  fieldCount: number;
-  relationCount: number;
-  enumCount: number;
-};
+import { cn } from "@/lib/utils";
+import type { VersionStats } from "@/types/imports";
 
 function StatPill({ value, label }: { value: number; label: string }) {
   return (
@@ -28,7 +21,7 @@ export function ProviderBadge({ provider }: { provider: string }) {
         ? "bg-sky-50 text-sky-700"
         : "bg-blue-50 text-blue-700";
   return (
-    <span className={classNames("rounded px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide", cls)}>
+    <span className={cn("rounded px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide", cls)}>
       {label}
     </span>
   );
