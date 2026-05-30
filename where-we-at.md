@@ -42,10 +42,12 @@
 All 14 workflows are fully implemented (no placeholders).
 
 **Known gaps / not started:**
-1. **Restrictions tracking** — Restrictions tab in Tracking shows "not yet implemented" placeholder. No approval-gate tracking for UNIQUE/INDEX constraint changes.
-2. **TableDiffDetailModal** (`lucky-orbiting-rabbit.md` plan) — click badge on Tables workflow → modal showing field-level diff. Not started.
-3. **Fourth-workflows ToDo** — `docs/version3/ToDo.md` has remaining items for the Diff Exhaustive Test scenario.
-4. **Enum value removed without replacement on non-nullable field** — orphaned string values hit DB enum constraint at INSERT time. Gate does not currently block this case.
+1. **🚨 MAJOR BUG — PK type/name change does not cascade to FK fields** — discovered 2026-05-30 while testing the saas-platform scenario. `updateModel()` in `schema-store.ts` updates the PK on the target model but never updates FK scalar fields in other models that reference it. Produces invalid Prisma schema (P1012) silently. Immediate action required. See `docs/enhancements.md` Critical section for full fix spec.
+   - **"SaaS Workflow Schema"** is the project in the app where this bug is fully visible — Stage 2 validation shows 61 errors: all FK fields (`orgId`, `workspaceId`, `projectId`, `assigneeId`, `taskId`, `authorId`) collected as Int from v1 but v2 schema expects String (Uuid). Use this project to verify the fix once `updateModel()` is patched.
+2. **Restrictions tracking** — Restrictions tab in Tracking shows "not yet implemented" placeholder. No approval-gate tracking for UNIQUE/INDEX constraint changes.
+3. **TableDiffDetailModal** (`lucky-orbiting-rabbit.md` plan) — click badge on Tables workflow → modal showing field-level diff. Not started.
+4. **Fourth-workflows ToDo** — `docs/version3/ToDo.md` has remaining items for the Diff Exhaustive Test scenario.
+5. **Enum value removed without replacement on non-nullable field** — orphaned string values hit DB enum constraint at INSERT time. Gate does not currently block this case.
 
 ---
 

@@ -6,6 +6,44 @@ async function fieldNames(version: string, modelName: string): Promise<Set<strin
 }
 
 export async function updateFields(version: string) {
+  // ─── FK field upgrades (Int → String) ────────────────────────────────────
+  // All PKs changed to Uuid in phase-1-tables. The FK fields that reference
+  // those PKs are stored as regular fields (auto-created by relations) and
+  // must be explicitly updated to String so Prisma accepts the schema.
+
+  type FkUpgrade = { modelName: string; fieldName: string; nullable: boolean };
+  const fkUpgrades: FkUpgrade[] = [
+    { modelName: "User",       fieldName: "orgId",        nullable: false },
+    { modelName: "Space",      fieldName: "orgId",        nullable: false }, // Workspace renamed → Space in phase-1
+    { modelName: "Project",    fieldName: "workspaceId",  nullable: false },
+    { modelName: "Task",       fieldName: "projectId",    nullable: false },
+    { modelName: "Task",       fieldName: "assigneeId",   nullable: true  },
+    { modelName: "Comment",    fieldName: "taskId",       nullable: false },
+    { modelName: "Comment",    fieldName: "authorId",     nullable: false },
+    { modelName: "Attachment", fieldName: "taskId",       nullable: false },
+  ];
+
+  for (const fk of fkUpgrades) {
+    const current = await api.fields.list({ projectName: PROJECT_NAME, version, modelName: fk.modelName });
+    const field = current?.fields.find((f) => f.name === fk.fieldName);
+    if (!field) {
+      console.log(`  ✗ ${fk.modelName}.${fk.fieldName} not found — skipping FK upgrade.`);
+      continue;
+    }
+    if (field.type === "String") {
+      console.log(`  ✓ ${fk.modelName}.${fk.fieldName} already String — skipping.`);
+      continue;
+    }
+    await api.fields.update({
+      projectName: PROJECT_NAME, version,
+      modelName: fk.modelName,
+      oldFieldName: fk.fieldName, name: fk.fieldName,
+      type: "String", nullable: fk.nullable,
+      unique: false, defaultValue: "", comment: "",
+    });
+    console.log(`  ✓ ${fk.modelName}.${fk.fieldName}  Int → String (Uuid FK)`);
+  }
+
   // ─── Deletions ─────────────────────────────────────────────────────────────
 
   // estimatedHours (String?) deleted — data dropped; replaced by separate additions below
