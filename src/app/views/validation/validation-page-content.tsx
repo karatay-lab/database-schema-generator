@@ -10,8 +10,8 @@ import { useProjectInfo } from "../shared/project-info-context";
 import { IconCheck, IconCopy, IconEye, IconPencil, IconSettings2, IconTrash, IconX } from "@tabler/icons-react";
 import type { PrismaField, PrismaModel } from "@/lib/schema-store";
 import type { GenerateResponse } from "@/types/validation";
-import { highlightCode } from "@/components/highlight-code";
 import { displayType } from "@/lib/display-utils";
+import { GeneratedCodeDialog } from "./generated-code-dialog";
 
 export function ValidationPageContent() {
   const { projectName, version: selectedVersion, hasProject } = useProjectInfo();
@@ -1020,80 +1020,20 @@ export function ValidationPageContent() {
         </div>
       ) : null}
 
-      {dialogOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-3">
-          <div className="max-h-[92vh] w-[96vw] max-w-[1400px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl">
-            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
-              <div className="min-w-0">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  Generated Code
-                </p>
-                <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                  <span className="text-lg font-semibold text-slate-950">
-                    {dialogSchemaName}
-                  </span>
-                  {dialogModelName && dialogSchemaName !== dialogModelName && (
-                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-500">
-                      {dialogModelName}
-                    </span>
-                  )}
-                  {dialogDate && (
-                    <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
-                      v{dialogDate}
-                    </span>
-                  )}
-                  {dialogSchemaCount > 0 && (
-                    <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">
-                      {dialogSchemaCount} schema{dialogSchemaCount !== 1 ? "s" : ""}
-                      {dialogEnumCount > 0 ? ` · ${dialogEnumCount} enum${dialogEnumCount !== 1 ? "s" : ""}` : ""}
-                    </span>
-                  )}
-                  {dialogFilePath && (
-                    <span className="truncate text-xs font-medium text-slate-500" title={dialogFilePath}>
-                      {dialogFilePath}
-                    </span>
-                  )}
-                </div>
-                {dialogWarnings.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    {dialogWarnings.map((warning, i) => (
-                      <p key={i} className="text-xs font-medium text-amber-600">{warning}</p>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <button
-                  type="button"
-                  onClick={handleCopy}
-                  title={copied ? "Copied!" : "Copy code"}
-                  className={classNames(
-                    "flex h-8 w-8 items-center justify-center rounded border transition",
-                    copied
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-600"
-                      : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700",
-                  )}
-                >
-                  {copied ? <IconCheck size={15} stroke={2.5} /> : <IconCopy size={15} stroke={2} />}
-                </button>
-                <button
-                  type="button"
-                  onClick={closeDialog}
-                  title="Close"
-                  className="flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
-                >
-                  <IconX size={15} stroke={2} />
-                </button>
-              </div>
-            </div>
-            <div className="custom-scrollbar overflow-y-auto p-5 pb-12" style={{ maxHeight: "calc(92vh - 140px)" }}>
-              <div className="min-w-max rounded-md border border-slate-200 bg-white px-4 py-4 text-xs font-mono">
-                {highlightCode(dialogCode, "ts")}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <GeneratedCodeDialog
+        isOpen={dialogOpen}
+        code={dialogCode}
+        filePath={dialogFilePath}
+        schemaName={dialogSchemaName}
+        modelName={dialogModelName}
+        date={dialogDate}
+        schemaCount={dialogSchemaCount}
+        enumCount={dialogEnumCount}
+        warnings={dialogWarnings}
+        copied={copied}
+        onCopy={handleCopy}
+        onClose={closeDialog}
+      />
     </div>
   );
 }

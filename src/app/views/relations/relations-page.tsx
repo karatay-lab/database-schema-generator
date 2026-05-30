@@ -25,6 +25,7 @@ import type {
   RelationTab,
 } from "@/types/relation";
 import { relationKindLabel, relationKindClass } from "@/constants/relations";
+import { RelationCard } from "./relation-card";
 
 type RelationsResponse = Partial<PrismaModelRelations> & {
   error?: string;
@@ -608,11 +609,10 @@ export function RelationsPageContent() {
                 ) : (
                   <div className="grid gap-3 lg:grid-cols-2">
                     {paginatedRelations.map((relation) => {
-                      const fksMissing = activeRelationTab === "relations" &&
-                        relation.fields.length > 0 &&
-                        sourceFields.length > 0 &&
-                        relation.fields.some((f) => !sourceFieldNames.has(f));
                       const modelCascadeHints = fkCascadeMap.get(selectedModelName);
+                      const fksMissing = activeRelationTab === "relations" &&
+                        relation.fields.length > 0 && sourceFields.length > 0 &&
+                        relation.fields.some((f) => !sourceFieldNames.has(f));
                       const fkTypeMismatches = activeRelationTab === "relations"
                         ? relation.fields.flatMap((f) => {
                             const info = modelCascadeHints?.get(f);
@@ -620,159 +620,27 @@ export function RelationsPageContent() {
                           })
                         : [];
                       const hasFkTypeMismatch = fkTypeMismatches.length > 0;
-                      const relationDiff = diffByRelationId.get(relation.key);
-                      const isNewRelation = relationDiff?.changeKind === "added";
+                      const isNewRelation = diffByRelationId.get(relation.key)?.changeKind === "added";
                       return (
-                      <div
-                        key={relation.key}
-                        id={`relation-card-${relation.key}`}
-                        className={classNames(
-                          "rounded-lg border bg-white p-3 shadow-sm",
-                          hasFkTypeMismatch ? "border-red-300" : isNewRelation ? "border-sky-300" : fksMissing ? "border-amber-300" : "border-slate-200",
-                        )}
-                      >
-                        {/* Row 1: kind + name → target + backref + actions */}
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                            <span
-                              className={classNames(
-                                "rounded border px-1.5 py-0.5 text-xs font-semibold",
-                                relationKindClass(relation.kind),
-                              )}
-                            >
-                              {relationKindLabel(relation.kind)}
-                            </span>
-                            <span className="text-sm font-bold text-slate-950">
-                              {relation.name}
-                            </span>
-                            <span className="text-xs font-semibold text-slate-400">
-                              {activeRelationTab === "references" ? "←" : "→"}
-                            </span>
-                            <span
-                              className={classNames(
-                                "rounded border px-1.5 py-0.5 text-xs font-semibold",
-                                activeRelationTab === "references"
-                                  ? "border-amber-200 bg-amber-50 text-amber-700"
-                                  : "border-cyan-200 bg-cyan-50 text-cyan-700",
-                              )}
-                            >
-                              {relation.targetModel}
-                            </span>
-                            {activeRelationTab === "relations" && relation.backReferenceName ? (
-                              <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-xs font-semibold text-emerald-700">
-                                ↩ {relation.backReferenceName}
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="flex shrink-0 items-center gap-1">
-                            {isNewRelation ? (
-                              <VersionDiffBadge severity="info" label="new" />
-                            ) : null}
-                            {hasFkTypeMismatch ? (
-                              <button
-                                type="button"
-                                onClick={() => setFkDetailModal({
-                                  relationName: relation.name,
-                                  targetTableName: relation.targetModel,
-                                  mismatches: fkTypeMismatches,
-                                })}
-                                className="cursor-pointer"
-                              >
-                                <VersionDiffBadge severity="breaking" label="FK type" />
-                              </button>
-                            ) : null}
-                            {fksMissing ? (
-                              <span
-                                title={`FK column "${relation.fields.find((f) => !sourceFieldNames.has(f))}" not found on ${selectedModelName}`}
-                                className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700"
-                              >
-                                FK missing
-                              </span>
-                            ) : null}
-                            {activeRelationTab === "relations" ? (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => editRelation(relation)}
-                                  title="Edit"
-                                  className="flex h-7 w-7 items-center justify-center rounded border border-violet-200 bg-white text-violet-700 transition hover:bg-violet-50"
-                                >
-                                  <IconPencil size={13} stroke={2} />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => deleteRelation(relation)}
-                                  disabled={deletingRelationKey === relation.key}
-                                  title="Delete"
-                                  className="flex h-7 w-7 items-center justify-center rounded border border-rose-200 bg-white text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:text-slate-400"
-                                >
-                                  <IconTrash size={13} stroke={2} />
-                                </button>
-                              </>
-                            ) : null}
-                          </div>
-                        </div>
-
-                        {/* Row 2: field mapping + nullable + cascade badges */}
-                        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <div className="flex flex-wrap items-center gap-1">
-                            {relation.fields.length > 0 ? (
-                              relation.fields.map((f) => {
-                                const mismatch = modelCascadeHints?.get(f);
-                                return (
-                                  <span
-                                    key={f}
-                                    title={mismatch ? `Update to ${mismatch.toType} — ${mismatch.targetTableName} PK changed from ${mismatch.fromType}` : undefined}
-                                    className={classNames(
-                                      "rounded border px-1.5 py-0.5 text-xs font-semibold",
-                                      mismatch
-                                        ? "border-red-300 bg-red-50 text-red-700"
-                                        : "border-transparent bg-slate-100 text-slate-700",
-                                    )}
-                                  >
-                                    {f}
-                                  </span>
-                                );
-                              })
-                            ) : (
-                              <span className="text-xs text-slate-400">implicit</span>
-                            )}
-                            <span className="text-xs font-semibold text-slate-400">→</span>
-                            {relation.references.length > 0 ? (
-                              relation.references.map((r) => (
-                                <span key={r} className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-700">{r}</span>
-                              ))
-                            ) : (
-                              <span className="text-xs text-slate-400">managed</span>
-                            )}
-                          </div>
-                          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-600">
-                            {relation.isArray ? "List" : relation.nullable ? "Optional" : "Required"}
-                          </span>
-                          {relation.onDelete ? (
-                            <span className="rounded bg-rose-50 px-1.5 py-0.5 text-xs font-semibold text-rose-700">
-                              onDelete: {relation.onDelete}
-                            </span>
-                          ) : null}
-                          {relation.onUpdate ? (
-                            <span className="rounded bg-cyan-50 px-1.5 py-0.5 text-xs font-semibold text-cyan-700">
-                              onUpdate: {relation.onUpdate}
-                            </span>
-                          ) : null}
-                        </div>
-
-                        {/* Row 3: collapsible Prisma preview */}
-                        <details className="mt-2 group">
-                          <summary className="flex cursor-pointer select-none items-center gap-1 text-xs font-semibold text-slate-400 hover:text-slate-600">
-                            <IconChevronDown size={11} className="transition-transform group-open:rotate-0 -rotate-90" />
-                            Prisma preview
-                          </summary>
-                          <code className="mt-1.5 block overflow-x-auto rounded bg-slate-950 px-2.5 py-1.5 text-xs font-semibold text-slate-50">
-                            {relation.preview}
-                          </code>
-                        </details>
-                      </div>
-                    );})}
+                        <RelationCard
+                          key={relation.key}
+                          relation={relation}
+                          activeRelationTab={activeRelationTab}
+                          selectedModelName={selectedModelName}
+                          modelCascadeHints={modelCascadeHints}
+                          fksMissing={fksMissing}
+                          hasFkTypeMismatch={hasFkTypeMismatch}
+                          fkTypeMismatches={fkTypeMismatches}
+                          isNewRelation={!!isNewRelation}
+                          isDeleting={deletingRelationKey === relation.key}
+                          onEdit={() => editRelation(relation)}
+                          onDelete={() => deleteRelation(relation)}
+                          onShowFkDetail={(mismatches, relationName, targetTableName) =>
+                            setFkDetailModal({ relationName, targetTableName, mismatches })
+                          }
+                        />
+                      );
+                    })}
                   </div>
                 )}
 
