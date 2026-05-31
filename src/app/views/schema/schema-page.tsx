@@ -1,54 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useVersionDiffLookup } from "@/hooks/use-version-diff";
 import { useSchemaWarnings } from "@/hooks/use-schema-warnings";
+import { useFieldEditor } from "@/hooks/use-field-editor";
+import { useFieldTemplates } from "@/hooks/use-field-templates";
 import { VersionDiffBadge } from "@/components/shared/version-diff-badge";
 import { classNames } from "@/lib/utils";
 import { EmptyState, InlineError, LoadingCard, Pagination } from "@/components/built";
-import type { FieldDiff } from "@/lib/version-diff/detect-changes";
-import type {
-  PrismaField,
-  PrismaFieldInput,
-  PrismaModel,
-} from "@/lib/schema-store";
-import { defaultFieldTypes, typeBadgeClass } from "@/constants/schema";
+import type { PrismaModel } from "@/lib/schema-store";
+import { typeBadgeClass } from "@/constants/schema";
 import { FieldLegend } from "@/components/schema/field-legend";
-import { useFieldTemplates } from "@/hooks/use-field-templates";
 import { TableSelectorModal } from "@/features/table-selector";
 import { TemplatesModal } from "@/components/schema/templates-modal";
 import { FieldCard } from "@/components/schema/field-card";
 import { NewFieldCard } from "@/components/schema/new-field-card";
 import { TemplateDropdown } from "@/components/schema/template-dropdown";
 import { RemovedFieldsSection } from "@/components/schema/removed-fields-section";
-
-const emptyFieldInput: PrismaFieldInput = {
-  name: "",
-  type: "String",
-  nullable: false,
-  unique: false,
-  defaultValue: "",
-  comment: "",
-};
-
-function fieldToInput(field: PrismaField): PrismaFieldInput {
-  return {
-    name: field.name,
-    dbName: field.dbName,
-    type: field.type,
-    nullable: field.nullable,
-    unique: field.unique,
-    defaultValue: field.defaultValue,
-    comment: field.comment,
-    nativeAttribute: field.nativeAttribute,
-    updatedAtAttribute: field.updatedAtAttribute,
-    isId: field.isId,
-  };
-}
 
 export function SchemaPageContent() {
   const { projectName, version, versions, hasProject, provider: projectProvider, projectId } = useProjectInfo();
@@ -62,38 +34,18 @@ export function SchemaPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [selectedModelName, setSelectedModelName] = useState(
-    () => searchParams.get("table") ?? "",
-  );
+  // ── URL-synced + UI toggle state ───────────────────────────────────────────
+  const [selectedModelName, setSelectedModelName] = useState(() => searchParams.get("table") ?? "");
   const [tableSearch, setTableSearch] = useState("");
-  const [fieldDrafts, setFieldDrafts] = useState<Record<string, PrismaFieldInput>>({});
-  const [newFieldDrafts, setNewFieldDrafts] = useState<Array<{id: string; input: PrismaFieldInput}>>([]);
-  const [savingNewCardId, setSavingNewCardId] = useState("");
-  const savingNewCardIdRef = useRef("");
-  const [savingFieldKey, setSavingFieldKey] = useState("");
   const [isFieldLegendOpen, setIsFieldLegendOpen] = useState(true);
-  const [deletingFieldKey, setDeletingFieldKey] = useState("");
-  const [error, setError] = useState("");
-  const [fieldTypeFilter, setFieldTypeFilter] = useState("All");
-  const [fieldPage, setFieldPage] = useState(1);
   const [isTableSelectorOpen, setIsTableSelectorOpen] = useState(false);
   const [isTemplatesOpen, setIsTemplatesOpen] = useState(false);
-  const fieldsPerPage = 12;
 
-  // ── Queries ──────────────────────────────────────────────────────────────────
-
-  const tablesQuery = useQuery(
-    trpc.tables.list.queryOptions(
-      { projectName, version },
-      { enabled: !!projectName && !!version },
-    ),
-  );
+  // ── Queries ────────────────────────────────────────────────────────────────
+  const tablesQuery = useQuery(trpc.tables.list.queryOptions({ projectName, version }, { enabled: !!projectName && !!version }));
   const models: PrismaModel[] = (tablesQuery.data ?? []) as PrismaModel[];
 
-  const selectedModel = useMemo(
-    () => models.find((m) => m.name === selectedModelName) ?? null,
-    [models, selectedModelName],
-  );
+  const selectedModel = useMemo(() => models.find((m) => m.name === selectedModelName) ?? null, [models, selectedModelName]);
   const selectedModelKey = selectedModel?.key ?? "";
 
   const removedFieldDiffs = useMemo(() => {
@@ -101,96 +53,31 @@ export function SchemaPageContent() {
     return (td?.fieldDiffs ?? []).filter((fd) => fd.changeKind === "removed" && !fd.isPk);
   }, [selectedModelKey, diffByTableKey]);
 
-  const fieldsQuery = useQuery(
-    trpc.fields.list.queryOptions(
-      { projectName, version, modelName: selectedModelName, modelKey: selectedModelKey },
-      { enabled: !!selectedModelName },
-    ),
-  );
-  const fields: PrismaField[] = fieldsQuery.data?.fields ?? [];
+  const fieldsQuery = useQuery(trpc.fields.list.queryOptions(
+    { projectName, version, modelName: selectedModelName, modelKey: selectedModelKey },
+    { enabled: !!selectedModelName },
+  ));
+  const fields = fieldsQuery.data?.fields ?? [];
   const enumTypes: string[] = fieldsQuery.data?.enumTypes ?? [];
   const scalarTypes: string[] = fieldsQuery.data?.scalarTypes ?? [];
 
-  const enumsListQuery = useQuery(
-    trpc.enums.list.queryOptions(
-      { projectName, version },
-      { enabled: !!projectName && !!version },
-    ),
-  );
+  const enumsListQuery = useQuery(trpc.enums.list.queryOptions({ projectName, version }, { enabled: !!projectName && !!version }));
   const enumsList = enumsListQuery.data ?? [];
+  const getEnumValues = (enumName: string) => enumsList.find((e) => e.name === enumName)?.values ?? [];
 
-  const getEnumValues = (enumName: string) =>
-    enumsList.find((e) => e.name === enumName)?.values ?? [];
+  // ── Field editor hook (mutations, drafts, filter, pagination) ──────────────
+  const editor = useFieldEditor({
+    projectName, version, selectedModelName, selectedModelKey,
+    fields, enumTypes, scalarTypes,
+  });
 
-  // Sync fieldDrafts whenever the server fields change
-  useEffect(() => {
-    setFieldDrafts(
-      Object.fromEntries(
-        fields.filter((f) => f.isEditable).map((f) => [f.key, fieldToInput(f)]),
-      ),
-    );
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fieldsQuery.data]);
-
-  // ── Invalidators ─────────────────────────────────────────────────────────────
-
+  // ── Field templates hook ───────────────────────────────────────────────────
   const invalidateFields = () =>
     queryClient.invalidateQueries({
       queryKey: trpc.fields.list.queryOptions({ projectName, version, modelName: selectedModelName, modelKey: selectedModelKey }).queryKey,
     });
-  // ── Field templates (state, mutations, handlers in hook) ──────────────────────
 
-  const templateState = useFieldTemplates({
-    selectedModelName,
-    selectedModelKey,
-    fields,
-    invalidateFields,
-  });
-
-  // ── Mutations ─────────────────────────────────────────────────────────────────
-
-  const createFieldMutation = useMutation({
-    ...trpc.fields.create.mutationOptions(),
-    onSuccess: () => {
-      void invalidateFields();
-      const id = savingNewCardIdRef.current;
-      if (id) {
-        setNewFieldDrafts(prev => prev.filter(d => d.id !== id));
-        savingNewCardIdRef.current = "";
-      }
-      setSavingNewCardId("");
-    },
-    onError: (err) => { setError(err.message); setSavingNewCardId(""); savingNewCardIdRef.current = ""; },
-  });
-  const updateFieldMutation = useMutation({
-    ...trpc.fields.update.mutationOptions(),
-    onSuccess: () => { void invalidateFields(); setSavingFieldKey(""); },
-    onError: (err) => { setError(err.message); setSavingFieldKey(""); },
-  });
-  const deleteFieldMutation = useMutation({
-    ...trpc.fields.delete.mutationOptions(),
-    onSuccess: () => { void invalidateFields(); setDeletingFieldKey(""); },
-    onError: (err) => { setError(err.message); setDeletingFieldKey(""); },
-  });
-
-  // ── Derived field type options ────────────────────────────────────────────────
-
-  const fieldTypeOptions = useMemo(
-    () => Array.from(new Set([...defaultFieldTypes, ...scalarTypes, ...enumTypes])),
-    [enumTypes, scalarTypes],
-  );
-
-  const scalarTypeOptions = useMemo(
-    () => Array.from(new Set([...defaultFieldTypes, ...scalarTypes])),
-    [scalarTypes],
-  );
-
-  const editableFields = useMemo(
-    () => fields.filter((field) => field.isEditable && !field.isId),
-    [fields],
-  );
-
-  const preservedFieldCount = fields.length - editableFields.length;
+  const templateState = useFieldTemplates({ selectedModelName, selectedModelKey, fields, invalidateFields });
 
   const baseDropdownTemplates = useMemo(
     () => templateState.templates.filter(
@@ -199,24 +86,7 @@ export function SchemaPageContent() {
     [templateState.templates, projectProvider, templateState.usedTemplateNames],
   );
 
-  const fieldFilterOptions = useMemo(
-    () => Array.from(new Set(editableFields.map((field) => field.type))).sort(),
-    [editableFields],
-  );
-
-  const filteredFields = useMemo(
-    () =>
-      fieldTypeFilter === "All"
-        ? editableFields
-        : editableFields.filter((field) => field.type === fieldTypeFilter),
-    [editableFields, fieldTypeFilter],
-  );
-
-  const fieldPageCount = Math.max(1, Math.ceil(filteredFields.length / fieldsPerPage));
-  const paginatedFields = filteredFields.slice(
-    (fieldPage - 1) * fieldsPerPage,
-    fieldPage * fieldsPerPage,
-  );
+  // ── Effects ────────────────────────────────────────────────────────────────
 
   // Deselect model if it disappears from the list
   useEffect(() => {
@@ -225,394 +95,184 @@ export function SchemaPageContent() {
     }
   }, [models, selectedModelName]);
 
+  // Sync selected model name to URL
   useEffect(() => {
     const params = new URLSearchParams(searchParams.toString());
-    if (selectedModelName) {
-      params.set("table", selectedModelName);
-    } else {
-      params.delete("table");
-    }
-    if (params.toString() !== searchParams.toString()) {
-      router.replace(`?${params.toString()}`, { scroll: false });
-    }
+    if (selectedModelName) { params.set("table", selectedModelName); } else { params.delete("table"); }
+    if (params.toString() !== searchParams.toString()) router.replace(`?${params.toString()}`, { scroll: false });
   }, [selectedModelName]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    setFieldPage(1);
-    setFieldTypeFilter("All");
-    setNewFieldDrafts([]);
-  }, [selectedModelName]);
+  const selectModel = (modelName: string) => { setSelectedModelName(modelName); setIsTableSelectorOpen(false); };
 
-  useEffect(() => {
-    setFieldPage(1);
-  }, [fieldTypeFilter, selectedModelName]);
-
-  useEffect(() => {
-    setFieldPage((page) => Math.min(page, fieldPageCount));
-  }, [fieldPageCount]);
-
-  const updateDraft = (
-    fieldKey: string,
-    patch: Partial<PrismaFieldInput>,
-  ) => {
-    setFieldDrafts((currentDrafts) => ({
-      ...currentDrafts,
-      [fieldKey]: {
-        ...currentDrafts[fieldKey],
-        ...patch,
-        unique:
-          patch.type === "Boolean"
-            ? false
-            : patch.unique ?? currentDrafts[fieldKey]?.unique ?? false,
-      },
-    }));
-    setError("");
-  };
-
-  const saveField = (field: PrismaField) => {
-    const draft = fieldDrafts[field.key];
-    if (!selectedModelName || !draft) return;
-    setSavingFieldKey(field.key);
-    setError("");
-    updateFieldMutation.mutate({
-      projectName, version,
-      modelKey: selectedModelKey, modelName: selectedModelName,
-      fieldKey: field.key, oldFieldName: field.name,
-      ...draft,
-    });
-  };
-
-  const deleteField = (field: PrismaField) => {
-    if (!selectedModelName) return;
-    setDeletingFieldKey(field.key);
-    setError("");
-    deleteFieldMutation.mutate({
-      projectName, version,
-      modelKey: selectedModelKey, modelName: selectedModelName,
-      fieldKey: field.key, fieldName: field.name,
-    });
-  };
-
-  const displayTypeToInputType: Record<string, string> = {
-    String: "String", Int: "Int", Boolean: "Boolean", Float: "Float",
-    BigInt: "BigInt", Decimal: "Decimal", DateTime: "DateTime",
-    Uuid: "String", Json: "Json", Bytes: "Bytes",
-  };
-
-  const restoreRemovedField = (fd: FieldDiff) => {
-    if (!selectedModelName) return;
-    const type = displayTypeToInputType[fd.from] ?? "String";
-    setError("");
-    createFieldMutation.mutate({
-      projectName, version,
-      modelKey: selectedModelKey, modelName: selectedModelName,
-      name: fd.fieldName, type, nullable: true, unique: false, defaultValue: "", comment: "",
-    });
-  };
-
-  const getDuplicateSuggestion = (fieldName: string, existingFieldNames: string[]) => {
-    const trimmedName = fieldName.trim();
-
-    if (!trimmedName) {
-      return "";
-    }
-
-    const existingNames = new Set(existingFieldNames);
-
-    if (!existingNames.has(trimmedName)) {
-      return "";
-    }
-
-    const baseName = trimmedName.replace(/\d+$/, "") || trimmedName;
-    let index = 2;
-    let suggestion = `${baseName}${index}`;
-
-    while (existingNames.has(suggestion)) {
-      index += 1;
-      suggestion = `${baseName}${index}`;
-    }
-
-    return suggestion;
-  };
-
-  const selectModel = (modelName: string) => {
-    setSelectedModelName(modelName);
-    setIsTableSelectorOpen(false);
-  };
-
-  const addNewFieldCard = () => {
-    setNewFieldDrafts(prev => [...prev, { id: crypto.randomUUID(), input: { ...emptyFieldInput } }]);
-  };
-
-  const updateNewFieldDraft = (draftId: string, patch: Partial<PrismaFieldInput>) => {
-    setNewFieldDrafts(prev =>
-      prev.map(d =>
-        d.id === draftId
-          ? { ...d, input: { ...d.input, ...patch, unique: patch.type === "Boolean" ? false : patch.unique ?? d.input.unique } }
-          : d,
-      ),
-    );
-    setError("");
-  };
-
-  const removeNewFieldDraft = (draftId: string) => {
-    setNewFieldDrafts(prev => prev.filter(d => d.id !== draftId));
-  };
-
-  const saveNewFieldDraft = (draftId: string) => {
-    const draft = newFieldDrafts.find(d => d.id === draftId);
-    if (!draft || !selectedModelName) return;
-    setSavingNewCardId(draftId);
-    savingNewCardIdRef.current = draftId;
-    setError("");
-    createFieldMutation.mutate({
-      projectName, version,
-      modelKey: selectedModelKey, modelName: selectedModelName,
-      ...draft.input,
-    });
-  };
-
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-5">
       {!activeProject ? (
         <div className="rounded-lg border border-slate-200 bg-white p-8 text-center">
           <p className="text-slate-600">Select a project to manage schema fields.</p>
-          <button
-            type="button"
-            onClick={() => setIsTemplatesOpen(true)}
-            className="mt-4 h-9 rounded-md border border-emerald-300 bg-white px-5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50"
-          >
+          <button type="button" onClick={() => setIsTemplatesOpen(true)}
+            className="mt-4 h-9 rounded-md border border-emerald-300 bg-white px-5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50">
             Field Templates
           </button>
         </div>
       ) : (
-      <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 px-5 py-4">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                Main Window
-              </p>
-              <h3 className="mt-1 text-xl font-semibold text-slate-950">
-                Schema workspace
-              </h3>
-              <div className="mt-2 flex items-center gap-2">
-                <span className="text-xs font-medium text-slate-400">
-                  {projectName}-{version}.prisma
-                </span>
-                <span className="text-slate-300">·</span>
-                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Table:</span>
-                <span className="text-base font-bold text-cyan-700">
-                  {selectedModel ? selectedModel.name : "—"}
-                </span>
+        <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 px-5 py-4">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Main Window</p>
+                <h3 className="mt-1 text-xl font-semibold text-slate-950">Schema workspace</h3>
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="text-xs font-medium text-slate-400">{projectName}-{version}.prisma</span>
+                  <span className="text-slate-300">·</span>
+                  <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Table:</span>
+                  <span className="text-base font-bold text-cyan-700">{selectedModel ? selectedModel.name : "—"}</span>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <button type="button" onClick={() => setIsTemplatesOpen(true)}
+                  className="h-9 min-w-32 rounded-md border border-emerald-300 bg-white px-4 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50">
+                  Templates
+                </button>
+                <button type="button" onClick={() => setIsTableSelectorOpen(true)}
+                  className="h-9 min-w-36 rounded-md border border-cyan-300 bg-white px-5 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-50">
+                  Select Table
+                </button>
+                {selectedModelName ? (
+                  <TemplateDropdown
+                    baseTemplates={baseDropdownTemplates}
+                    addingTemplateId={templateState.addingTemplateToTable}
+                    onAddNewField={editor.addNewFieldCard}
+                    onAddTemplate={(t) => templateState.addTemplateToTable(t)()}
+                    onOpenFullTemplates={() => setIsTemplatesOpen(true)}
+                  />
+                ) : null}
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setIsTemplatesOpen(true)}
-                className="h-9 min-w-32 rounded-md border border-emerald-300 bg-white px-4 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50"
-              >
-                Templates
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsTableSelectorOpen(true)}
-                className="h-9 min-w-36 rounded-md border border-cyan-300 bg-white px-5 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-50"
-              >
-                Select Table
-              </button>
-              {selectedModelName ? (
-                <TemplateDropdown
-                  baseTemplates={baseDropdownTemplates}
-                  addingTemplateId={templateState.addingTemplateToTable}
-                  onAddNewField={addNewFieldCard}
-                  onAddTemplate={(t) => templateState.addTemplateToTable(t)()}
-                  onOpenFullTemplates={() => setIsTemplatesOpen(true)}
-                />
-              ) : null}
-            </div>
           </div>
-        </div>
 
-        <div className="p-5">
-          {!selectedModelName ? (
-            <EmptyState
-              message="Select a table to edit its fields."
-              action={{ label: "Select Table", onClick: () => setIsTableSelectorOpen(true), tone: "cyan" }}
-            />
-          ) : fieldsQuery.isLoading ? (
-            <LoadingCard message="Loading fields…" />
-          ) : (
-            <div className="space-y-5">
-              <div>
+          <div className="p-5">
+            {!selectedModelName ? (
+              <EmptyState
+                message="Select a table to edit its fields."
+                action={{ label: "Select Table", onClick: () => setIsTableSelectorOpen(true), tone: "cyan" }}
+              />
+            ) : fieldsQuery.isLoading ? (
+              <LoadingCard message="Loading fields…" />
+            ) : (
+              <div className="space-y-5">
+                <div>
                   <div className="mb-3 flex flex-col gap-3 2xl:flex-row 2xl:items-center 2xl:justify-between">
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                        Selected Table
-                      </p>
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Selected Table</p>
                       <div className="mt-1 flex flex-wrap items-center gap-2">
-                        <h4 className="text-lg font-semibold text-slate-950">
-                          {selectedModelName}
-                        </h4>
+                        <h4 className="text-lg font-semibold text-slate-950">{selectedModelName}</h4>
                         {(() => {
                           const td = selectedModelKey ? diffByTableKey.get(selectedModelKey) : null;
-                          return td ? (
-                            <VersionDiffBadge
-                              severity={td.severity}
-                              title={td.message}
-                            />
-                          ) : null;
+                          return td ? <VersionDiffBadge severity={td.severity} title={td.message} /> : null;
                         })()}
                       </div>
                     </div>
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                       <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
                         Type
-                        <select
-                          value={fieldTypeFilter}
-                          onChange={(event) => setFieldTypeFilter(event.target.value)}
-                          className="h-9 min-w-36 rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold normal-case tracking-normal text-slate-700 outline-none transition focus:border-cyan-600"
-                        >
+                        <select value={editor.fieldTypeFilter} onChange={(e) => editor.setFieldTypeFilter(e.target.value)}
+                          className="h-9 min-w-36 rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold normal-case tracking-normal text-slate-700 outline-none transition focus:border-cyan-600">
                           <option value="All">All fields</option>
-                          {fieldFilterOptions.map((type) => (
-                            <option key={type} value={type}>
-                              {type}
-                            </option>
-                          ))}
+                          {editor.fieldFilterOptions.map((type) => <option key={type} value={type}>{type}</option>)}
                         </select>
                       </label>
                       <span className="text-xs font-semibold text-slate-500">
-                        {filteredFields.length} shown / {editableFields.length} editable / {preservedFieldCount} preserved
+                        {editor.filteredFields.length} shown / {editor.editableFields.length} editable / {editor.preservedFieldCount} preserved
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => setIsFieldLegendOpen((o) => !o)}
+                      <button type="button" onClick={() => setIsFieldLegendOpen((o) => !o)}
                         className={classNames(
                           "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-bold transition",
                           isFieldLegendOpen
                             ? "border-cyan-300 bg-cyan-50 text-cyan-700"
                             : "border-slate-300 bg-white text-slate-500 hover:border-cyan-200 hover:text-cyan-600",
                         )}
-                        title="Field legend"
-                      >
-                        ?
-                      </button>
+                        title="Field legend">?</button>
                     </div>
                   </div>
 
                   {isFieldLegendOpen ? <FieldLegend /> : null}
 
-                  {editableFields.length === 0 ? (
+                  {editor.editableFields.length === 0 ? (
                     <EmptyState message="No editable scalar fields found." />
-                  ) : filteredFields.length === 0 ? (
+                  ) : editor.filteredFields.length === 0 ? (
                     <EmptyState message="No fields match the selected type filter." />
                   ) : (
                     <div className="space-y-4">
-                      {newFieldDrafts.length > 0 ? (
+                      {editor.newFieldDrafts.length > 0 && (
                         <div className="grid gap-3 xl:grid-cols-2 2xl:grid-cols-3">
-                          {newFieldDrafts.map((draft) => (
-                            <NewFieldCard
-                              key={draft.id}
-                              draft={draft}
-                              enumTypes={enumTypes}
-                              scalarTypeOptions={scalarTypeOptions}
-                              savingNewCardId={savingNewCardId}
-                              getEnumValues={getEnumValues}
-                              onUpdate={updateNewFieldDraft}
-                              onSave={saveNewFieldDraft}
-                              onRemove={removeNewFieldDraft}
+                          {editor.newFieldDrafts.map((draft) => (
+                            <NewFieldCard key={draft.id} draft={draft}
+                              enumTypes={enumTypes} scalarTypeOptions={editor.scalarTypeOptions}
+                              savingNewCardId={editor.savingNewCardId} getEnumValues={getEnumValues}
+                              onUpdate={editor.updateNewFieldDraft} onSave={editor.saveNewFieldDraft} onRemove={editor.removeNewFieldDraft}
                             />
                           ))}
                         </div>
-                      ) : null}
+                      )}
                       <div className="grid gap-3 xl:grid-cols-2 2xl:grid-cols-3">
-                        {paginatedFields.map((field) => {
-                          const draft = fieldDrafts[field.key] ?? fieldToInput(field);
+                        {editor.paginatedFields.map((field) => {
+                          const draft = editor.fieldDrafts[field.key];
+                          if (!draft) return null;
                           const hasChanges =
-                            draft.name !== field.name ||
-                            draft.type !== field.type ||
-                            draft.nullable !== field.nullable ||
-                            draft.unique !== field.unique ||
-                            (draft.defaultValue ?? '') !== (field.defaultValue ?? '') ||
-                            (draft.comment ?? '') !== (field.comment ?? '');
+                            draft.name !== field.name || draft.type !== field.type || draft.nullable !== field.nullable ||
+                            draft.unique !== field.unique || (draft.defaultValue ?? "") !== (field.defaultValue ?? "") ||
+                            (draft.comment ?? "") !== (field.comment ?? "");
                           const fieldDiff = diffByFieldKey.get(field.key);
                           const cardBorder = fieldDiff
-                            ? fieldDiff.severity === 'breaking' ? 'border-red-300'
-                              : fieldDiff.severity === 'warning' ? 'border-amber-300'
-                              : 'border-sky-300'
-                            : 'border-slate-200';
+                            ? fieldDiff.severity === "breaking" ? "border-red-300"
+                              : fieldDiff.severity === "warning" ? "border-amber-300" : "border-sky-300"
+                            : "border-slate-200";
                           return (
-                            <FieldCard
-                              key={field.key}
-                              field={field}
-                              draft={draft}
-                              hasChanges={hasChanges}
-                              fieldDiff={fieldDiff}
-                              cardBorder={cardBorder}
-                              enumTypes={enumTypes}
-                              scalarTypeOptions={scalarTypeOptions}
-                              savingFieldKey={savingFieldKey}
-                              deletingFieldKey={deletingFieldKey}
+                            <FieldCard key={field.key} field={field} draft={draft} hasChanges={hasChanges}
+                              fieldDiff={fieldDiff} cardBorder={cardBorder}
+                              enumTypes={enumTypes} scalarTypeOptions={editor.scalarTypeOptions}
+                              savingFieldKey={editor.savingFieldKey} deletingFieldKey={editor.deletingFieldKey}
                               getEnumValues={getEnumValues}
-                              onUpdateDraft={updateDraft}
-                              onSave={saveField}
-                              onDelete={deleteField}
-                              getWarning={getWarning}
-                              onApprove={approve}
-                              onUnapprove={unapprove}
+                              onUpdateDraft={editor.updateDraft} onSave={editor.saveField} onDelete={editor.deleteField}
+                              getWarning={getWarning} onApprove={approve} onUnapprove={unapprove}
                             />
                           );
                         })}
                       </div>
-                      <Pagination
-                        page={fieldPage}
-                        pageCount={fieldPageCount}
-                        onPageChange={setFieldPage}
-                      />
+                      <Pagination page={editor.fieldPage} pageCount={editor.fieldPageCount} onPageChange={editor.setFieldPage} />
                     </div>
                   )}
+                </div>
+
+                <RemovedFieldsSection
+                  removedFieldDiffs={removedFieldDiffs}
+                  isPending={editor.isCreatingField}
+                  getWarning={getWarning} onApprove={approve} onUnapprove={unapprove}
+                  onRestore={editor.restoreRemovedField}
+                />
+
+                <InlineError message={editor.error} />
               </div>
-
-              <RemovedFieldsSection
-                removedFieldDiffs={removedFieldDiffs}
-                isPending={createFieldMutation.isPending}
-                getWarning={getWarning}
-                onApprove={approve}
-                onUnapprove={unapprove}
-                onRestore={restoreRemovedField}
-              />
-
-              <InlineError message={error} />
-            </div>
-          )}
-        </div>
-      </section>
+            )}
+          </div>
+        </section>
       )}
 
       <TableSelectorModal
-        isOpen={isTableSelectorOpen}
-        models={models}
-        selectedModelName={selectedModelName}
-        search={tableSearch}
-        isLoading={tablesQuery.isLoading}
-        tone="cyan"
-        onSearch={setTableSearch}
-        onSelect={selectModel}
-        onClose={() => setIsTableSelectorOpen(false)}
+        isOpen={isTableSelectorOpen} models={models} selectedModelName={selectedModelName}
+        search={tableSearch} isLoading={tablesQuery.isLoading} tone="cyan"
+        onSearch={setTableSearch} onSelect={selectModel} onClose={() => setIsTableSelectorOpen(false)}
         typeBadgeClass={typeBadgeClass}
       />
 
       <TemplatesModal
-        isOpen={isTemplatesOpen}
-        selectedModelName={selectedModelName}
-        projectProvider={projectProvider}
-        fieldTypeOptions={fieldTypeOptions}
+        isOpen={isTemplatesOpen} selectedModelName={selectedModelName}
+        projectProvider={projectProvider} fieldTypeOptions={editor.fieldTypeOptions}
         onClose={() => setIsTemplatesOpen(false)}
         onSelectTable={() => { setIsTemplatesOpen(false); setIsTableSelectorOpen(true); }}
         {...templateState}
       />
-
     </div>
   );
 }

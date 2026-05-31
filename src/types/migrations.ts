@@ -192,3 +192,26 @@ export type CheckSyncResponse = {
 export type MigrationPlan = "new" | "version";
 
 export type MigrationOrderItem = { modelName: string; parentCount?: number };
+
+export type MigrateProgressEvent = {
+  name: string;
+  created: number;
+  updated: number;
+  errors: number;
+};
+
+export type MigrationSession = {
+  id: string;
+  projectId: string;
+  projectName: string;
+  connectionId: string;
+  fromVersion: string;
+  toVersion: string;
+  collectTimestamp: string | null;
+  collectTableCount: number | null;
+  collectRowCount: number | null;
+  collectTables: { name: string; count: number }[] | null;
+  runStatus: string | null;
+  runLogPath: string | null;
+  updatedAt: string;
+};
