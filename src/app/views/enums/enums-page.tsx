@@ -6,10 +6,8 @@ import { IconPencil, IconTrash } from "@tabler/icons-react";
 import { useEnumsQuery, useEnumMutations } from "@/queries/enums";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useVersionDiff, useVersionDiffLookup } from "@/hooks/use-version-diff";
-import { useSchemaWarnings } from "@/hooks/use-schema-warnings";
 import Link from "next/link";
-import { VersionDiffBadge, ApproveWarningButton } from "@/components/shared/version-diff-badge";
-import { EnumValueReplacementPicker } from "@/components/enums/enum-value-replacement-picker";
+import { VersionDiffBadge } from "@/components/shared/version-diff-badge";
 import { EnumEditPanel, type CanonicalEnum } from "@/components/enums/enum-edit-panel";
 import { validateEnumName } from "@/constants/enums";
 import { EmptyState, LoadingCard } from "@/components/built";
@@ -19,7 +17,6 @@ export function EnumsPageContent() {
   const isSQLite = provider === "SQLite";
   const versionIdx = versions.indexOf(version);
   const previousVersion = versionIdx > 0 ? versions[versionIdx - 1]! : "";
-  const { getWarning, approve, unapprove } = useSchemaWarnings(projectId, previousVersion, version);
 
   const [enumName, setEnumName] = useState("");
   const [createError, setCreateError] = useState("");
@@ -304,13 +301,6 @@ export function EnumsPageContent() {
                             </div>
                           </div>
                           <div className="flex shrink-0 items-center gap-1">
-                            {enumDiff?.changeKind === "removed" && (
-                              <ApproveWarningButton
-                                warning={getWarning("enum", enumEntry.enumId, "removed")}
-                                onApprove={approve}
-                                onUnapprove={unapprove}
-                              />
-                            )}
                             <button
                               type="button"
                               onClick={() => setEditingEnum(enumEntry)}
@@ -354,14 +344,13 @@ export function EnumsPageContent() {
                             {removedValueNames.length > 0 && (
                               <div className="flex flex-wrap gap-1.5">
                                 {removedValueNames.map((v) => (
-                                  <EnumValueReplacementPicker
+                                  <span
                                     key={v}
-                                    warning={getWarning("enum", `${enumEntry.enumId}:${v}`, "value_removed")}
-                                    removedValue={v}
-                                    availableValues={enumEntry.values.map((ev) => ev.name)}
-                                    onApprove={approve}
-                                    onUnapprove={unapprove}
-                                  />
+                                    className="rounded border border-rose-200 bg-rose-50 px-2 py-0.5 font-mono text-[11px] font-semibold text-rose-500 line-through"
+                                    title={`"${v}" was removed — remap it in the Tracking workflow`}
+                                  >
+                                    {v}
+                                  </span>
                                 ))}
                               </div>
                             )}
