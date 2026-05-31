@@ -8,6 +8,8 @@ type SyncCheckState = "idle" | "loading" | "compatible" | "incompatible";
 
 type MigrationTypeSelectorProps = {
   canDoAnyMigration: boolean;
+  /** When true the selector is dimmed and interactions are blocked — shown before a connection is established. */
+  connectionRequired?: boolean;
   isNewPlan: boolean;
   isVersionPlan: boolean;
   canVersionMigrate: boolean;
@@ -23,13 +25,21 @@ type MigrationTypeSelectorProps = {
 };
 
 export function MigrationTypeSelector({
-  canDoAnyMigration, isNewPlan, isVersionPlan, canVersionMigrate, dbIsEmpty,
+  canDoAnyMigration, connectionRequired, isNewPlan, isVersionPlan, canVersionMigrate, dbIsEmpty,
   syncVersion, targetVersion, versions, syncCheckState, syncCheckResult,
   onChangePlan, onSyncVersionChange, onTargetVersionChange,
 }: MigrationTypeSelectorProps) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm">
-      <p className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Migration Type</p>
+    <div className={classNames("rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm transition",
+      connectionRequired && "pointer-events-none select-none opacity-50")}>
+      <div className="mb-3 flex items-center gap-2">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Migration Type</p>
+        {connectionRequired && (
+          <span className="rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">
+            Connect first
+          </span>
+        )}
+      </div>
 
       {!canDoAnyMigration ? (
         <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
