@@ -109,8 +109,8 @@ export function WarningRow({
         </td>
         <td className="py-3 pr-4 align-middle">
           <Link href={warningNavHref(w)}
-            className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600 transition hover:border-teal-300 hover:text-teal-700 whitespace-nowrap">
-            View →
+            className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 shadow-sm transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700 whitespace-nowrap">
+            View
           </Link>
         </td>
       </tr>

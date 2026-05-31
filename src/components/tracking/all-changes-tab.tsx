@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useTRPC } from "@/trpc/client";
@@ -8,6 +8,7 @@ import type { TrackingEntry, TrackingEntryKind, TrackingChangeKind } from "@/lib
 import { rowTint, kindLabel } from "@/constants/tracking";
 import { ChangeBadge } from "./change-badge";
 import { ValueDisplay } from "./value-display";
+import { Pagination } from "@/components/built";
 
 export function AllChangesTab({
   projectId,
@@ -46,6 +47,13 @@ export function AllChangesTab({
     if (entityFilter !== "all" && e.entityName  !== entityFilter) return false;
     return true;
   }), [allEntries, kindFilter, changeFilter, entityFilter]);
+
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
+  useEffect(() => { setPage(1); }, [filtered]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pagedFiltered = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const counts = useMemo(() => {
     const c = { field_default: 0, enum: 0, enum_value: 0 };
@@ -143,6 +151,14 @@ export function AllChangesTab({
           <p className="text-sm font-medium text-slate-500">No entries match the current filters.</p>
         </div>
       ) : (
+        <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-slate-400">
+            {filtered.length} entr{filtered.length !== 1 ? "ies" : "y"} · page {page} of {pageCount}
+          </p>
+          <Pagination page={page} pageCount={pageCount} onPageChange={setPage} />
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -153,7 +169,7 @@ export function AllChangesTab({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filtered.map((entry, idx) => {
+              {pagedFiltered.map((entry, idx) => {
                 const isField = entry.entityKind === "field_default";
                 return (
                   <tr key={idx} className={`${rowTint[entry.changeKind] ?? ""} transition-colors`}>
@@ -178,9 +194,9 @@ export function AllChangesTab({
                     <td className="py-2.5 align-middle">
                       <Link
                         href={isField ? `/schema?table=${entry.entityName}` : "/enums"}
-                        className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600 transition hover:border-teal-300 hover:text-teal-700"
+                        className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 shadow-sm transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700"
                       >
-                        View →
+                        View
                       </Link>
                     </td>
                   </tr>
@@ -188,6 +204,7 @@ export function AllChangesTab({
               })}
             </tbody>
           </table>
+        </div>
         </div>
       )}
     </div>
