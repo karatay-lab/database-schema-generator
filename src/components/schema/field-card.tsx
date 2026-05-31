@@ -38,7 +38,10 @@ export function FieldCard({
     : "bg-sky-50/40";
 
   return (
-    <div className={classNames("relative rounded-lg border p-3 shadow-sm", cardBorder, diffBg)}>
+    // When a badge is present, extra top padding clears the badge so it never overlaps content
+    <div className={classNames("relative rounded-lg border shadow-sm",
+      fieldDiff ? "px-3 pb-3 pt-5" : "p-3",
+      cardBorder, diffBg)}>
       <div className="flex gap-3">
         <div className="min-w-0 flex-1 grid gap-2">
           <div className={classNames("grid gap-2", isEnum ? "grid-cols-[1fr_minmax(0,120px)_minmax(0,140px)_1fr]" : "grid-cols-[1fr_minmax(0,140px)_1fr]")}>
@@ -154,15 +157,15 @@ export function FieldCard({
         </div>
       </div>
 
-      {/* Alert badge — anchored top-left, tooltip only on badge hover */}
+      {/* Alert badge — straddles the top-left border, never overlaps content */}
       {fieldDiff && (
-        <div className="group/badge pointer-events-auto absolute -left-3.5 -top-3.5 z-20">
-          {/* Badge — bigger, cursor-help signals hover intent */}
+        <div className="group/badge pointer-events-auto absolute -left-2 -top-4 z-20">
+          {/* h-8 badge centred on the card's top border; pt-5 on the card keeps content clear */}
           <div className={classNames(
-            "flex h-9 w-9 cursor-help items-center justify-center rounded-full shadow-lg ring-2 ring-white transition-transform duration-100 group-hover/badge:scale-110",
+            "flex h-8 w-8 cursor-help items-center justify-center rounded-full shadow-lg ring-2 ring-white transition-transform duration-100 group-hover/badge:scale-110",
             fieldDiff.severity === "breaking" ? "bg-rose-500" : fieldDiff.severity === "warning" ? "bg-amber-400" : "bg-sky-400",
           )}>
-            <IconAlertCircle size={20} stroke={2} className="text-white" />
+            <IconAlertCircle size={17} stroke={2} className="text-white" />
           </div>
 
           {/* Tooltip — only visible when hovering the badge */}
