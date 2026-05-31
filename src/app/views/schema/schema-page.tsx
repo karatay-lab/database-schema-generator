@@ -244,6 +244,8 @@ export function SchemaPageContent() {
                               savingFieldKey={editor.savingFieldKey} deletingFieldKey={editor.deletingFieldKey}
                               getEnumValues={getEnumValues}
                               onUpdateDraft={editor.updateDraft} onSave={editor.saveField} onDelete={editor.deleteField}
+                              previousVersion={previousVersion}
+                              currentVersion={version}
                             />
                           );
                         })}

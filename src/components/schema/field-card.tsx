@@ -22,12 +22,17 @@ type FieldCardProps = {
   onUpdateDraft: (fieldKey: string, patch: Partial<PrismaFieldInput>) => void;
   onSave: (field: PrismaField) => void;
   onDelete: (field: PrismaField) => void;
+  /** Previous version label shown in the diff tooltip (e.g. "1.0111") */
+  previousVersion?: string;
+  /** Current / selected version label (e.g. "1.0112") */
+  currentVersion?: string;
 };
 
 export function FieldCard({
   field, draft, hasChanges, fieldDiff, cardBorder,
   enumTypes, scalarTypeOptions, savingFieldKey, deletingFieldKey,
   getEnumValues, onUpdateDraft, onSave, onDelete,
+  previousVersion, currentVersion,
 }: FieldCardProps) {
   const isEnum = enumTypes.includes(draft.type);
 
@@ -169,9 +174,9 @@ export function FieldCard({
           </div>
 
           {/* Tooltip — only visible when hovering the badge */}
-          <div className="pointer-events-none absolute left-0 top-full z-30 mt-2 w-96 opacity-0 transition-opacity duration-150 group-hover/badge:opacity-100">
+          <div className="pointer-events-none absolute left-0 top-full z-30 mt-2 w-[640px] opacity-0 transition-opacity duration-150 group-hover/badge:opacity-100">
             <div className={classNames(
-              "rounded-xl border px-4 py-3.5 shadow-xl",
+              "rounded-xl border px-5 py-4 shadow-xl",
               fieldDiff.severity === "breaking"
                 ? "border-rose-200 bg-white text-rose-700"
                 : fieldDiff.severity === "warning"
@@ -182,14 +187,33 @@ export function FieldCard({
                 {fieldDiff.severity === "breaking" ? "Breaking Change" : fieldDiff.severity === "warning" ? "Warning" : "Info"}
               </p>
               <p className="mt-1.5 text-sm font-semibold leading-snug">{fieldDiff.message}</p>
+
+              {/* version:type → version:type row */}
               {fieldDiff.from && fieldDiff.to && (
-                <p className="mt-2 font-mono text-[11px] opacity-60">
-                  {fieldDiff.from} → {fieldDiff.to}
-                </p>
+                <div className="mt-3 flex items-center gap-3 rounded-lg border border-current/10 bg-current/5 px-3 py-2">
+                  <div className="flex items-center gap-1.5">
+                    {previousVersion && (
+                      <span className="rounded bg-current/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold opacity-60">
+                        {previousVersion}
+                      </span>
+                    )}
+                    <span className="font-mono text-sm font-bold">{fieldDiff.from}</span>
+                  </div>
+                  <span className="text-base opacity-40">→</span>
+                  <div className="flex items-center gap-1.5">
+                    {currentVersion && (
+                      <span className="rounded bg-current/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold opacity-60">
+                        {currentVersion}
+                      </span>
+                    )}
+                    <span className="font-mono text-sm font-bold">{fieldDiff.to}</span>
+                  </div>
+                </div>
               )}
+
               {fieldDiff.cascade.length > 0 && (
-                <p className="mt-1.5 text-[11px] opacity-50">
-                  {fieldDiff.cascade.length} FK field{fieldDiff.cascade.length > 1 ? "s" : ""} affected
+                <p className="mt-2 text-[11px] opacity-50">
+                  {fieldDiff.cascade.length} FK field{fieldDiff.cascade.length > 1 ? "s" : ""} also affected
                 </p>
               )}
             </div>
