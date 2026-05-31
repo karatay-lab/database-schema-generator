@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { classNames } from "@/lib/utils";
-import { Card, CardHeader, CardBody } from "@/components/migrations/migration-card";
+import { Card, CardHeader, CardBody } from "@/components/built";
 import { StateChip, StepBadge } from "@/components/migrations/phase-state";
 import { ErrorBox } from "@/components/migrations/error-box";
 import { IssueSection } from "@/components/migrations/issue-section";

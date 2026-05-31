@@ -8,7 +8,7 @@ import { useProjectInfo } from "../shared/project-info-context";
 import { useVersionDiff, useVersionDiffLookup } from "@/hooks/use-version-diff";
 import { useSchemaWarnings } from "@/hooks/use-schema-warnings";
 import { VersionDiffBadge, ApproveWarningButton } from "@/components/shared/version-diff-badge";
-import { EnumValueReplacementPicker } from "@/components/shared/enum-value-replacement-picker";
+import { EnumValueReplacementPicker } from "@/components/enums/enum-value-replacement-picker";
 import { EnumEditPanel, type CanonicalEnum } from "@/components/enums/enum-edit-panel";
 import { validateEnumName } from "@/constants/enums";
 import { EmptyState, LoadingCard } from "@/components/built";

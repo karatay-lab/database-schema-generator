@@ -10,7 +10,8 @@ import {
 import { classNames } from "@/lib/utils";
 import { graphqlOptions, prismaClients, providers } from "@/constants/projects";
 import type { Project } from "@/types/projects";
-import { Stat, PencilIcon } from "@/components/projects/project-icons";
+import { PencilIcon } from "@/components/projects/project-icons";
+import { Stat } from "@/components/built";
 
 type ProjectFormValues = {
   name: string;

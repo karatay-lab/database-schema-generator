@@ -5,3 +5,4 @@ export { InlineError } from "./inline-error";
 export { LoadingCard } from "./loading-card";
 export { LoadingButton } from "./loading-button";
 export { SectionHeader } from "./section-header";
+export { Stat } from "./stat";

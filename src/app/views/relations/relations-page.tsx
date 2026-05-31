@@ -14,8 +14,8 @@ import { fieldTypeBadgeClass } from "@/lib/badge-utils";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useVersionDiffLookup } from "@/hooks/use-version-diff";
 import { VersionDiffBadge, ApproveWarningButton } from "@/components/shared/version-diff-badge";
-import { FkTypeDetailModal } from "@/components/shared/fk-type-detail-modal";
-import type { FkTypeMismatch } from "@/components/shared/fk-type-detail-modal";
+import { FkTypeDetailModal } from "@/components/relations/fk-type-detail-modal";
+import type { FkTypeMismatch } from "@/components/relations/fk-type-detail-modal";
 import { useSchemaWarnings } from "@/hooks/use-schema-warnings";
 import type {
   PrismaField,

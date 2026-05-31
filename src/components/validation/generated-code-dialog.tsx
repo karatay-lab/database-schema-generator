@@ -2,7 +2,7 @@
 
 import { IconCopy, IconCheck, IconX } from "@tabler/icons-react";
 import { classNames } from "@/lib/utils";
-import { highlightCode } from "@/components/shared/highlight-code";
+import { highlightCode } from "@/lib/code-highlighting";
 
 type GeneratedCodeDialogProps = {
   isOpen: boolean;

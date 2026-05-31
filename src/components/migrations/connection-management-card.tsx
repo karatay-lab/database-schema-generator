@@ -1,7 +1,7 @@
 "use client";
 
 import { classNames } from "@/lib/utils";
-import { Card, CardHeader, CardBody } from "@/components/migrations/migration-card";
+import { Card, CardHeader, CardBody } from "@/components/built";
 import { StateChip, StepBadge } from "@/components/migrations/phase-state";
 import { ErrorBox } from "@/components/migrations/error-box";
 import { MigrationLabel as Label, MigrationInput as Input } from "@/components/migrations/migration-form";

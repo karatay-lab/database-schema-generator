@@ -5,7 +5,7 @@ import { classNames } from "@/lib/utils";
 import { VersionDiffBadge } from "@/components/shared/version-diff-badge";
 import type { PrismaRelation } from "@/lib/schema-store";
 import type { RelationTab } from "@/types/relation";
-import type { FkTypeMismatch } from "@/components/shared/fk-type-detail-modal";
+import type { FkTypeMismatch } from "@/components/relations/fk-type-detail-modal";
 import { relationKindLabel, relationKindClass } from "@/constants/relations";
 
 type FkCascadeHint = { toType: string; targetTableName: string; fromType: string };
