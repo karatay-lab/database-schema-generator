@@ -2,7 +2,6 @@
 
 import { IconCheck, IconTrash } from "@tabler/icons-react";
 import { classNames } from "@/lib/utils";
-import { FieldDiffTooltip } from "@/components/shared/version-diff-badge";
 import { typeSelectClass } from "@/constants/schema";
 import type { PrismaField, PrismaFieldInput } from "@/lib/schema-store";
 import type { FieldDiff } from "@/lib/version-diff/detect-changes";
@@ -32,8 +31,14 @@ export function FieldCard({
 }: FieldCardProps) {
   const isEnum = enumTypes.includes(draft.type);
 
+  // Background tint based on severity
+  const diffBg = !fieldDiff ? "bg-white"
+    : fieldDiff.severity === "breaking" ? "bg-rose-50/50"
+    : fieldDiff.severity === "warning"  ? "bg-amber-50/50"
+    : "bg-sky-50/40";
+
   return (
-    <div className={classNames("rounded-lg border bg-white p-3 shadow-sm", cardBorder)}>
+    <div className={classNames("group/fc relative rounded-lg border p-3 shadow-sm", cardBorder, diffBg)}>
       <div className="flex gap-3">
         <div className="min-w-0 flex-1 grid gap-2">
           <div className={classNames("grid gap-2", isEnum ? "grid-cols-[1fr_minmax(0,120px)_minmax(0,140px)_1fr]" : "grid-cols-[1fr_minmax(0,140px)_1fr]")}>
@@ -116,7 +121,6 @@ export function FieldCard({
             />
           </label>
 
-          {fieldDiff && <FieldDiffTooltip diff={fieldDiff} />}
         </div>
 
         <div className="flex w-1/5 min-w-0 flex-col gap-1.5">
@@ -149,6 +153,50 @@ export function FieldCard({
           </div>
         </div>
       </div>
+
+      {/* Compact warning strip — always visible, full message on hover */}
+      {fieldDiff && (
+        <div className="relative mt-2 pt-2 border-t border-current/10">
+          <div className={classNames(
+            "flex items-center gap-1.5 text-[10px] font-semibold",
+            fieldDiff.severity === "breaking" ? "text-rose-600"
+            : fieldDiff.severity === "warning" ? "text-amber-600"
+            : "text-sky-600",
+          )}>
+            <span>{fieldDiff.severity === "breaking" ? "●" : "○"}</span>
+            <span className="truncate">{fieldDiff.message}</span>
+            {fieldDiff.from && fieldDiff.to && (
+              <span className="ml-auto shrink-0 font-mono text-[10px] opacity-60">
+                {fieldDiff.from} → {fieldDiff.to}
+              </span>
+            )}
+          </div>
+
+          {/* Full tooltip shown above card on hover */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-full z-30 mb-2 opacity-0 transition-opacity duration-150 group-hover/fc:opacity-100">
+            <div className={classNames(
+              "rounded-lg border px-3 py-2.5 text-xs shadow-lg",
+              fieldDiff.severity === "breaking"
+                ? "border-rose-200 bg-white text-rose-700"
+                : fieldDiff.severity === "warning"
+                  ? "border-amber-200 bg-white text-amber-700"
+                  : "border-sky-200 bg-white text-sky-700",
+            )}>
+              <p className="font-semibold">{fieldDiff.message}</p>
+              {fieldDiff.from && fieldDiff.to && (
+                <p className="mt-0.5 font-mono text-[10px] opacity-75">
+                  {fieldDiff.from} → {fieldDiff.to}
+                </p>
+              )}
+              {fieldDiff.cascade.length > 0 && (
+                <p className="mt-1 text-[10px] opacity-70">
+                  {fieldDiff.cascade.length} FK field{fieldDiff.cascade.length > 1 ? "s" : ""} affected
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
