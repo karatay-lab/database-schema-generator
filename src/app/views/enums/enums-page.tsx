@@ -7,6 +7,7 @@ import { useEnumsQuery, useEnumMutations } from "@/queries/enums";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useVersionDiff, useVersionDiffLookup } from "@/hooks/use-version-diff";
 import { useSchemaWarnings } from "@/hooks/use-schema-warnings";
+import Link from "next/link";
 import { VersionDiffBadge, ApproveWarningButton } from "@/components/shared/version-diff-badge";
 import { EnumValueReplacementPicker } from "@/components/enums/enum-value-replacement-picker";
 import { EnumEditPanel, type CanonicalEnum } from "@/components/enums/enum-edit-panel";
@@ -194,27 +195,28 @@ export function EnumsPageContent() {
 
                 {removedEnumDiffs.length > 0 && (
                   <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-semibold text-red-800">
-                        {removedEnumDiffs.length} enum{removedEnumDiffs.length > 1 ? "s" : ""} removed since {versionDiff?.fromVersion}
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {removedEnumDiffs.map((d) => (
-                          <ApproveWarningButton
-                            key={d.enumId}
-                            warning={getWarning("enum", d.enumId, d.changeKind)}
-                            onApprove={approve}
-                            onUnapprove={unapprove}
-                          />
-                        ))}
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-semibold text-red-800">
+                          {removedEnumDiffs.length} enum{removedEnumDiffs.length > 1 ? "s" : ""} removed since {versionDiff?.fromVersion}
+                        </p>
+                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                          {removedEnumDiffs.map((d) => (
+                            <span key={d.enumId} className="rounded border border-red-300 bg-white px-2 py-0.5 font-mono text-[11px] font-semibold text-red-700 line-through">
+                              {d.enumName}
+                            </span>
+                          ))}
+                        </div>
+                        <p className="mt-2 text-xs text-red-600">
+                          Review and approve these changes in the Tracking workflow before running a migration.
+                        </p>
                       </div>
-                    </div>
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      {removedEnumDiffs.map((d) => (
-                        <span key={d.enumId} className="rounded border border-red-300 bg-white px-2 py-0.5 font-mono text-[11px] font-semibold text-red-700 line-through">
-                          {d.enumName}
-                        </span>
-                      ))}
+                      <Link
+                        href="/tracking?resolve=enums"
+                        className="flex shrink-0 items-center gap-1.5 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-700 shadow-sm transition hover:bg-red-50 hover:border-red-400"
+                      >
+                        Go to Tracking →
+                      </Link>
                     </div>
                   </div>
                 )}
