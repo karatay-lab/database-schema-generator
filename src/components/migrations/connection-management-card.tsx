@@ -126,24 +126,28 @@ export function ConnectionManagementCard({
 
                 return (
                   <div key={conn.uuid} className={classNames("transition", rowBg)}>
-                    <div className="grid grid-cols-[1fr_auto_auto] items-center gap-4 px-4 py-3">
+                    {/*
+                      4-column grid:
+                      [dot + name + badges]  [host:port / db — fills centre]  [date]  [| actions]
+                    */}
+                    <div className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-x-6 px-4 py-3">
 
-                      {/* Col 1: select button with name + provider + host */}
+                      {/* Col 1: status dot + name + provider/status badges — auto-width */}
                       <button
                         type="button"
                         onClick={() => { if (!providerMismatch) onSelectConnection(conn.uuid); }}
                         title={providerMismatch ? `Provider mismatch — connection is ${conn.provider}, project is ${projectProvider}` : undefined}
-                        className={classNames("flex min-w-0 items-center gap-3 text-left", providerMismatch && "cursor-not-allowed")}
+                        className={classNames("flex items-center gap-3 text-left", providerMismatch && "cursor-not-allowed")}
                       >
-                        <span className={classNames("mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full ring-2",
+                        <span className={classNames("h-2.5 w-2.5 shrink-0 rounded-full ring-2",
                           isActive
                             ? "bg-emerald-500 ring-emerald-100"
                             : providerMismatch
                               ? "bg-amber-400 ring-amber-100"
                               : "bg-slate-200 ring-transparent")} />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className={classNames("truncate text-sm font-semibold",
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className={classNames("text-sm font-semibold whitespace-nowrap",
                               isActive ? "text-emerald-900" : "text-slate-900")}>
                               {conn.name}
                             </p>
@@ -161,13 +165,15 @@ export function ConnectionManagementCard({
                               </span>
                             )}
                           </div>
-                          <p className="mt-0.5 font-mono text-[11px] text-slate-400">
-                            {conn.host ? `${conn.host}:${conn.port} / ${conn.database}` : conn.database}
-                          </p>
                         </div>
                       </button>
 
-                      {/* Col 2: date + test result */}
+                      {/* Col 2: host:port / database — grows to fill empty centre */}
+                      <p className="min-w-0 truncate font-mono text-[11px] text-slate-400">
+                        {conn.host ? `${conn.host}:${conn.port} / ${conn.database}` : conn.database}
+                      </p>
+
+                      {/* Col 3: date + test result */}
                       <div className="shrink-0 text-right">
                         <p className="text-[11px] text-slate-400">{new Date(conn.lastUsedAt).toLocaleDateString()}</p>
                         {testResult && (
@@ -180,7 +186,7 @@ export function ConnectionManagementCard({
                         )}
                       </div>
 
-                      {/* Col 3: actions */}
+                      {/* Col 4: actions */}
                       <div className="flex shrink-0 items-center gap-1 border-l border-slate-100 pl-4">
                         <button type="button" onClick={() => onTestConnection(conn.uuid)}
                           disabled={testingId === conn.uuid || undefined}
