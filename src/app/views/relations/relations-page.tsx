@@ -5,8 +5,9 @@ import { useRelationFilters } from "@/hooks/use-relation-filters";
 import { useRouter, useSearchParams } from "next/navigation";
 import { IconChevronDown } from "@tabler/icons-react";
 import { EmptyState, LoadingCard, Pagination } from "@/components/built";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useTRPC } from "@/trpc/client";
+import { useRelationsQuery } from "@/queries/relations";
+import { useTablesQuery } from "@/queries/tables";
+import { useFieldsQuery } from "@/queries/fields";
 import { classNames } from "@/lib/utils";
 import { fieldTypeBadgeClass } from "@/lib/badge-utils";
 
@@ -35,41 +36,6 @@ import { TableSelectorModal } from "@/features/table-selector";
 
 type RelationsResponse = Partial<PrismaModelRelations> & {
   error?: string;
-};
-
-const emptyRelationDraft: RelationDraft = {
-  name: "",
-  targetModel: "",
-  backReferenceName: "",
-  cardinality: "one-to-many",
-  fields: "",
-  references: "",
-  onDelete: "NoAction",
-  onUpdate: "NoAction",
-  nullable: true,
-};
-
-
-function toList(value: string) {
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function toCsv(value: string[]) {
-  return value.join(", ");
-}
-
-function deriveBackReferenceName(sourceName: string, relationName: string) {
-  if (!sourceName && !relationName) return "";
-  const source = sourceName ? `${sourceName.charAt(0).toLowerCase()}${sourceName.slice(1)}` : "";
-  const rel = relationName ? `${relationName.charAt(0).toUpperCase()}${relationName.slice(1)}` : "";
-  return `${source}${rel}`;
-}
-
-function emptyRelationDraftForModel(_modelName: string): RelationDraft {
-  return { ...emptyRelationDraft };
 }
 
 
@@ -77,8 +43,6 @@ export function RelationsPageContent() {
   const { projectName, version, hasProject, projectId, versions } = useProjectInfo();
   const previousVersion = versions[versions.indexOf(version) - 1] ?? "";
   const { getWarning, approve, unapprove } = useSchemaWarnings(projectId, previousVersion, version);
-  const trpc = useTRPC();
-  const queryClient = useQueryClient();
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -97,44 +61,21 @@ export function RelationsPageContent() {
   const { fkCascadeMap, relationDiffs, diffByRelationId } = useVersionDiffLookup(projectName, version);
   const removedRelationDiffs = relationDiffs.filter((d) => d.changeKind === "removed");
 
-  const tablesQuery = useQuery(
-    trpc.tables.list.queryOptions(
-      { projectName, version },
-      { enabled: !!projectName && !!version },
-    ),
-  );
+  const tablesQuery    = useTablesQuery(projectName, version);
   const models: PrismaModel[] = (tablesQuery.data ?? []) as PrismaModel[];
 
-  const selectedModel = useMemo(
-    () => models.find((model) => model.name === selectedModelName) ?? null,
-    [models, selectedModelName],
-  );
+  const selectedModel   = useMemo(() => models.find((m) => m.name === selectedModelName) ?? null, [models, selectedModelName]);
   const selectedModelKey = selectedModel?.key ?? "";
 
-  const relationsQuery = useQuery(
-    trpc.relations.list.queryOptions(
-      { projectName, version, modelName: selectedModelName, modelKey: selectedModelKey },
-      { enabled: !!selectedModelName },
-    ),
-  );
+  const relationsQuery  = useRelationsQuery(projectName, version, selectedModelName, selectedModelKey);
   const relations: PrismaRelation[] = relationsQuery.data?.relations ?? [];
 
-  const sourceFieldsQuery = useQuery(
-    trpc.fields.list.queryOptions(
-      { projectName, version, modelName: selectedModelName, modelKey: selectedModelKey },
-      { enabled: !!selectedModelName },
-    ),
-  );
+  const sourceFieldsQuery = useFieldsQuery(projectName, version, selectedModelName, selectedModelKey);
   const sourceFields: PrismaField[] = sourceFieldsQuery.data?.fields ?? [];
   const sourceFieldNames = useMemo(
     () => new Set(sourceFields.filter((f) => !f.isRelation).map((f) => f.name)),
     [sourceFields],
   );
-
-  const invalidateRelations = () =>
-    queryClient.invalidateQueries({
-      queryKey: trpc.relations.list.queryOptions({ projectName, version, modelName: selectedModelName, modelKey: selectedModelKey }).queryKey,
-    });
 
   // ── Relation form hook (manages draft, edit state, mutations, handlers) ────
 
@@ -144,15 +85,10 @@ export function RelationsPageContent() {
     setFkFieldType, setFkFieldDbName, setModalTableSearch, setModalTablePage,
     setIsRelationFormOpen, setError,
     updateDraft, resetDraft, editRelation, saveRelation, deleteRelation,
-  } = useRelationForm({ selectedModelName, selectedModelKey, models, invalidateRelations });
+  } = useRelationForm({ selectedModelName, selectedModelKey, models });
 
-  const targetModel = models.find((m) => m.name === draft.targetModel);
-  const targetFieldsQuery = useQuery(
-    trpc.fields.list.queryOptions(
-      { projectName, version, modelName: draft.targetModel, modelKey: targetModel?.key ?? "" },
-      { enabled: !!draft.targetModel },
-    ),
-  );
+  const targetModel      = models.find((m) => m.name === draft.targetModel);
+  const targetFieldsQuery = useFieldsQuery(projectName, version, draft.targetModel, targetModel?.key ?? "");
   const targetFields: PrismaField[] = targetFieldsQuery.data?.fields ?? [];
   const selectableTargetFields = useMemo(
     () => targetFields.filter((field) => !field.isRelation && (field.isId || field.unique)),

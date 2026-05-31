@@ -6,31 +6,16 @@ import { useFieldMutations } from "@/queries/fields";
 import { useProjectInfo } from "@/app/views/shared/project-info-context";
 import type { PrismaModel, PrismaRelation } from "@/lib/schema-store";
 import type { RelationDraft } from "@/types/relation";
-
-function toCsv(value: string[]) { return value.join(", "); }
-function toList(value: string) { return value.split(",").map((i) => i.trim()).filter(Boolean); }
-
-function deriveBackReferenceName(sourceName: string, relationName: string) {
-  if (!sourceName && !relationName) return "";
-  const source = sourceName ? `${sourceName.charAt(0).toLowerCase()}${sourceName.slice(1)}` : "";
-  const rel = relationName ? `${relationName.charAt(0).toUpperCase()}${relationName.slice(1)}` : "";
-  return `${source}${rel}`;
-}
-
-const emptyRelationDraft: RelationDraft = {
-  name: "", targetModel: "", backReferenceName: "", cardinality: "one-to-many",
-  fields: "", references: "", onDelete: "NoAction", onUpdate: "NoAction", nullable: true,
-};
+import { emptyRelationDraft, csvToList, listToCsv, deriveBackReferenceName } from "@/constants/relations";
 
 type UseRelationFormParams = {
   selectedModelName: string;
   selectedModelKey: string;
   models: PrismaModel[];
-  invalidateRelations: () => void;
 };
 
 export function useRelationForm({
-  selectedModelName, selectedModelKey, models, invalidateRelations,
+  selectedModelName, selectedModelKey, models,
 }: UseRelationFormParams) {
   const { projectName, version } = useProjectInfo();
   const lastEditedKeyRef = useRef("");
@@ -48,7 +33,7 @@ export function useRelationForm({
   // ── Mutations ─────────────────────────────────────────────────────────────
 
   const { create: createFkFieldMutation } = useFieldMutations(projectName, version, selectedModelName, selectedModelKey);
-  const { create: createRelationMutation, update: updateRelationMutation, delete: deleteRelationMutation } =
+  const { invalidate: invalidateRelations, create: createRelationMutation, update: updateRelationMutation, delete: deleteRelationMutation } =
     useRelationMutations(projectName, version, selectedModelName, selectedModelKey);
 
   const savingRelation = createFkFieldMutation.isPending || createRelationMutation.isPending || updateRelationMutation.isPending;
@@ -106,7 +91,7 @@ export function useRelationForm({
       name: relation.name, targetModel: relation.targetModel,
       backReferenceName: relation.backReferenceName || deriveBackReferenceName(selectedModelName, relation.name),
       cardinality: relation.kind === "one-to-one" ? "one-to-one" : "one-to-many",
-      fields: toCsv(relation.fields), references: toCsv(relation.references),
+      fields: listToCsv(relation.fields), references: listToCsv(relation.references),
       onDelete: !nullable && relation.onDelete === "SetNull" ? "NoAction" : (relation.onDelete || "NoAction"),
       onUpdate: !nullable && relation.onUpdate === "SetNull" ? "NoAction" : (relation.onUpdate || "NoAction"),
       nullable,
@@ -126,7 +111,7 @@ export function useRelationForm({
     const payload = {
       projectName, version, modelKey: selectedModelKey, modelName: selectedModelName,
       name: draft.name, targetModel: draft.targetModel, backReferenceName: draft.backReferenceName,
-      fields: toList(draft.fields), references: toList(draft.references),
+      fields: csvToList(draft.fields), references: csvToList(draft.references),
       onDelete: draft.onDelete, onUpdate: draft.onUpdate,
       nullable: draft.nullable, isArray: false,
       backReferenceIsArray: draft.cardinality === "one-to-many",

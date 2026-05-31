@@ -1,7 +1,7 @@
 "use client";
 
 import { classNames } from "@/lib/utils";
-import type { ConnectionRecord, ModelComparisonResult, MigrationOrderItem } from "@/types/migrations";
+import type { ConnectionRecord, ModelComparisonResult, MigrationOrderItem, PreflightItem } from "@/types/migrations";
 import type { SchemaWarning } from "@/lib/schema-warnings-store";
 
 type CollectTable = { name: string; count: number };
@@ -23,15 +23,6 @@ type PreflightModalProps = {
   onPageChange: (page: number) => void;
   onCancel: () => void;
   onBeginMigration: () => void;
-};
-
-type PreflightItem = {
-  id: string;
-  field: string;
-  change: string;
-  resolution: string;
-  actionLabel: string;
-  hasValue: boolean;
 };
 
 const KNOWN_SCALARS = new Set(["string","text","integer","int","bigint","float","decimal","boolean","timestamp","datetime","json","bytes"]);

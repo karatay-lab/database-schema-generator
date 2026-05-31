@@ -191,6 +191,15 @@ export type CheckSyncResponse = {
 
 export type MigrationPlan = "new" | "version";
 
+export type PreflightItem = {
+  id: string;
+  field: string;
+  change: string;
+  resolution: string;
+  actionLabel: string;
+  hasValue: boolean;
+};
+
 export type MigrationOrderItem = { modelName: string; parentCount?: number };
 
 export type MigrateProgressEvent = {

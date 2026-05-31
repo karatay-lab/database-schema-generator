@@ -7,34 +7,15 @@ import { useExportHistoryQuery, useExportMutations } from "@/queries/exports";
 import { classNames } from "@/lib/utils";
 import { useProjectInfo } from "../shared/project-info-context";
 import { EXPORT_OPTIONS, type ExportType } from "@/constants/exports";
+import type { ExportResponse, ExportDialogState } from "@/types/exports";
 import { ExportedCodeDialog } from "@/components/exports/exported-code-dialog";
 import { PickleConfirmDialog } from "@/components/exports/pickle-confirm-dialog";
 
-// ─── types ────────────────────────────────────────────────────────────────────
-
-type ExportResponse = {
-  code?: string;
-  fileName?: string;
-  tableCount?: number;
-  enumCount?: number;
-  error?: string;
-};
-
-type DialogState = {
-  exportId: string;
-  code: string;
-  fileName: string;
-  lang: "ts" | "prisma";
-  tableCount: number;
-  enumCount: number;
-};
-
-// ─── component ────────────────────────────────────────────────────────────────
 
 export function ExportsPageContent() {
   const { projectName, version, hasProject } = useProjectInfo();
   const [exportError, setExportError] = useState("");
-  const [dialog, setDialog] = useState<DialogState | null>(null);
+  const [dialog, setDialog] = useState<ExportDialogState | null>(null);
   const [copied, setCopied] = useState(false);
   const [activeExportType, setActiveExportType] = useState<ExportType | null>(null);
   const [pendingPickle, setPendingPickle] = useState<ExportType | null>(null);
