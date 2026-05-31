@@ -345,6 +345,7 @@ export function RelationsPageContent() {
                           onShowFkDetail={(mismatches, relationName, targetTableName) =>
                             setFkDetailModal({ relationName, targetTableName, mismatches })
                           }
+                          onNavigateToTable={selectModel}
                         />
                       );
                     })}
