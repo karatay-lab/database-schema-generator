@@ -197,8 +197,8 @@ export function ConnectionManagementCard({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {/* Status pill */}
-            <StatusPill state={connectState} />
+            {/* Status pill — only shown when not yet connected (idle/loading/error) */}
+            {connectState !== "success" && <StatusPill state={connectState} />}
 
             {/* Connection String — secondary ghost */}
             {activeConnectionId && !showNewForm && (
