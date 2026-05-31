@@ -169,7 +169,7 @@ export function FieldCard({
           </div>
 
           {/* Tooltip — only visible when hovering the badge */}
-          <div className="pointer-events-none absolute left-0 top-full z-30 mt-2 w-72 opacity-0 transition-opacity duration-150 group-hover/badge:opacity-100">
+          <div className="pointer-events-none absolute left-0 top-full z-30 mt-2 w-96 opacity-0 transition-opacity duration-150 group-hover/badge:opacity-100">
             <div className={classNames(
               "rounded-xl border px-4 py-3.5 shadow-xl",
               fieldDiff.severity === "breaking"
