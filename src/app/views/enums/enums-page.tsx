@@ -8,7 +8,8 @@ import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useVersionDiff, useVersionDiffLookup } from "@/hooks/use-version-diff";
 import { useSchemaWarnings } from "@/hooks/use-schema-warnings";
-import { VersionDiffBadge, ApproveWarningButton, EnumValueReplacementPicker } from "@/components/shared/version-diff-badge";
+import { VersionDiffBadge, ApproveWarningButton } from "@/components/shared/version-diff-badge";
+import { EnumValueReplacementPicker } from "@/components/shared/enum-value-replacement-picker";
 import { EnumEditPanel, type CanonicalEnum } from "@/components/enums/enum-edit-panel";
 import { validateEnumName } from "@/constants/enums";
 

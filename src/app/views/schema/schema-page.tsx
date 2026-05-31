@@ -7,10 +7,10 @@ import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useVersionDiffLookup } from "@/hooks/use-version-diff";
 import { useSchemaWarnings } from "@/hooks/use-schema-warnings";
-import { VersionDiffBadge, FieldDiffTooltip, ApproveWarningButton } from "@/components/shared/version-diff-badge";
-import type { FieldDiff } from "@/lib/version-diff/detect-changes";
+import { VersionDiffBadge } from "@/components/shared/version-diff-badge";
 import { classNames } from "@/lib/utils";
-import { IconChevronDown, IconChevronLeft, IconChevronRight, IconPlus } from "@tabler/icons-react";
+import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
+import type { FieldDiff } from "@/lib/version-diff/detect-changes";
 import type {
   PrismaField,
   PrismaFieldInput,
@@ -23,6 +23,8 @@ import { TableSelectorModal } from "@/features/table-selector";
 import { TemplatesModal } from "@/components/schema/templates-modal";
 import { FieldCard } from "@/components/schema/field-card";
 import { NewFieldCard } from "@/components/schema/new-field-card";
+import { TemplateDropdown } from "@/components/schema/template-dropdown";
+import { RemovedFieldsSection } from "@/components/schema/removed-fields-section";
 
 const emptyFieldInput: PrismaFieldInput = {
   name: "",
@@ -76,9 +78,6 @@ export function SchemaPageContent() {
   const [fieldPage, setFieldPage] = useState(1);
   const [isTableSelectorOpen, setIsTableSelectorOpen] = useState(false);
   const [isTemplatesOpen, setIsTemplatesOpen] = useState(false);
-  const [isTemplateDropdownOpen, setIsTemplateDropdownOpen] = useState(false);
-  const [templateDropdownSearch, setTemplateDropdownSearch] = useState("");
-  const templateDropdownRef = useRef<HTMLDivElement>(null);
   const fieldsPerPage = 12;
 
   // ── Queries ──────────────────────────────────────────────────────────────────
@@ -193,15 +192,12 @@ export function SchemaPageContent() {
 
   const preservedFieldCount = fields.length - editableFields.length;
 
-  const relevantDropdownTemplates = useMemo(() => {
-    const search = templateDropdownSearch.toLowerCase();
-    return templateState.templates.filter(
-      (t) =>
-        (t.provider === "All" || t.provider === projectProvider) &&
-        !templateState.usedTemplateNames.has(t.name) &&
-        (!search || t.name.toLowerCase().includes(search)),
-    );
-  }, [templateState.templates, projectProvider, templateDropdownSearch, templateState.usedTemplateNames]);
+  const baseDropdownTemplates = useMemo(
+    () => templateState.templates.filter(
+      (t) => (t.provider === "All" || t.provider === projectProvider) && !templateState.usedTemplateNames.has(t.name),
+    ),
+    [templateState.templates, projectProvider, templateState.usedTemplateNames],
+  );
 
   const fieldFilterOptions = useMemo(
     () => Array.from(new Set(editableFields.map((field) => field.type))).sort(),
@@ -254,22 +250,6 @@ export function SchemaPageContent() {
   useEffect(() => {
     setFieldPage((page) => Math.min(page, fieldPageCount));
   }, [fieldPageCount]);
-
-  useEffect(() => {
-    if (!isTemplateDropdownOpen) return;
-    const onMouse = (e: MouseEvent) => {
-      if (templateDropdownRef.current && !templateDropdownRef.current.contains(e.target as Node)) {
-        setIsTemplateDropdownOpen(false);
-        setTemplateDropdownSearch("");
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { setIsTemplateDropdownOpen(false); setTemplateDropdownSearch(""); }
-    };
-    document.addEventListener("mousedown", onMouse);
-    document.addEventListener("keydown", onKey);
-    return () => { document.removeEventListener("mousedown", onMouse); document.removeEventListener("keydown", onKey); };
-  }, [isTemplateDropdownOpen]);
 
   const updateDraft = (
     fieldKey: string,
@@ -443,79 +423,13 @@ export function SchemaPageContent() {
                 Select Table
               </button>
               {selectedModelName ? (
-                <div className="relative flex" ref={templateDropdownRef}>
-                  <button
-                    type="button"
-                    onClick={addNewFieldCard}
-                    className="flex h-9 items-center gap-1.5 rounded-l-md border border-r-0 border-cyan-300 bg-white px-3 text-xs font-semibold text-cyan-600 transition hover:bg-cyan-50"
-                  >
-                    <IconPlus size={14} stroke={2} />
-                    New Field
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setIsTemplateDropdownOpen((o) => !o); setTemplateDropdownSearch(""); }}
-                    className="flex h-9 items-center rounded-r-md border border-cyan-300 bg-white px-2 text-cyan-600 transition hover:bg-cyan-50"
-                    title="Add from template"
-                  >
-                    <IconChevronDown size={14} stroke={2} />
-                  </button>
-
-                  {isTemplateDropdownOpen ? (
-                    <div className="absolute right-0 top-full z-30 mt-1 w-72 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
-                      <div className="border-b border-slate-100 p-2">
-                        <input
-                          type="text"
-                          value={templateDropdownSearch}
-                          onChange={(e) => setTemplateDropdownSearch(e.target.value)}
-                          placeholder="Search templates..."
-                          autoFocus
-                          className="h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-950 outline-none placeholder:text-slate-400 focus:border-cyan-600"
-                        />
-                      </div>
-                      <div className="max-h-64 overflow-y-auto">
-                        {relevantDropdownTemplates.length === 0 ? (
-                          <div className="px-3 py-5 text-center text-xs font-medium text-slate-500">
-                            {templateState.templates.length === 0 ? "No templates yet." : "No matches."}
-                          </div>
-                        ) : (
-                          relevantDropdownTemplates.map((template) => {
-                            const isBusy = templateState.addingTemplateToTable === template.id;
-                            return (
-                              <button
-                                key={template.id}
-                                type="button"
-                                onClick={() => {
-                                  setIsTemplateDropdownOpen(false);
-                                  setTemplateDropdownSearch("");
-                                  templateState.addTemplateToTable(template)();
-                                }}
-                                disabled={isBusy}
-                                className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left transition hover:bg-slate-50 disabled:opacity-40"
-                              >
-                                <span className="min-w-0 truncate text-xs font-semibold text-slate-950">
-                                  {template.name}
-                                </span>
-                                <span className={classNames("shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold", typeBadgeClass(template.type))}>
-                                  {template.type}
-                                </span>
-                              </button>
-                            );
-                          })
-                        )}
-                      </div>
-                      <div className="border-t border-slate-100 px-3 py-2">
-                        <button
-                          type="button"
-                          onClick={() => { setIsTemplateDropdownOpen(false); setIsTemplatesOpen(true); }}
-                          className="text-xs font-semibold text-emerald-600 transition hover:underline"
-                        >
-                          Open full Templates →
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
+                <TemplateDropdown
+                  baseTemplates={baseDropdownTemplates}
+                  addingTemplateId={templateState.addingTemplateToTable}
+                  onAddNewField={addNewFieldCard}
+                  onAddTemplate={(t) => templateState.addTemplateToTable(t)()}
+                  onOpenFullTemplates={() => setIsTemplatesOpen(true)}
+                />
               ) : null}
             </div>
           </div>
@@ -692,56 +606,14 @@ export function SchemaPageContent() {
                   )}
               </div>
 
-              {removedFieldDiffs.length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-red-600">
-                      Removed since previous version
-                    </p>
-                    <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
-                      {removedFieldDiffs.length}
-                    </span>
-                  </div>
-                  <div className="grid gap-3 xl:grid-cols-2 2xl:grid-cols-3">
-                    {removedFieldDiffs.map((fd) => (
-                      <div
-                        key={fd.fieldId}
-                        className="rounded-lg border border-dashed border-red-200 bg-red-50/40 p-3"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-red-500">
-                              Removed field
-                            </p>
-                            <p className="mt-0.5 font-semibold text-slate-800">{fd.fieldName}</p>
-                            <div className="mt-1 flex items-center gap-1.5">
-                              <span className={classNames("rounded px-1.5 py-0.5 text-[10px] font-semibold", typeBadgeClass(fd.from))}>
-                                {fd.from}
-                              </span>
-                            </div>
-                            <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">{fd.message}</p>
-                          </div>
-                          <div className="flex shrink-0 flex-col items-end gap-1.5">
-                            <ApproveWarningButton
-                              warning={getWarning("field", fd.fieldId, fd.changeKind)}
-                              onApprove={approve}
-                              onUnapprove={unapprove}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => restoreRemovedField(fd)}
-                              disabled={createFieldMutation.isPending}
-                              className="rounded-md border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              Restore
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <RemovedFieldsSection
+                removedFieldDiffs={removedFieldDiffs}
+                isPending={createFieldMutation.isPending}
+                getWarning={getWarning}
+                onApprove={approve}
+                onUnapprove={unapprove}
+                onRestore={restoreRemovedField}
+              />
 
               {error ? (
                 <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">

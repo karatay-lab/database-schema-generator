@@ -7,7 +7,7 @@ import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useVersionDiffLookup } from "@/hooks/use-version-diff";
 import { useSchemaWarnings } from "@/hooks/use-schema-warnings";
-import { TableDiffDetailModal } from "@/components/shared/version-diff-badge";
+import { TableDiffDetailModal } from "@/components/shared/table-diff-detail-modal";
 import type { TableDiff } from "@/lib/version-diff/detect-changes";
 import type { PrismaModel } from "@/lib/schema-store";
 import {

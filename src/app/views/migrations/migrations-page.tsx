@@ -14,6 +14,8 @@ import { DestroyDeployModal } from "@/components/migrations/destroy-deploy-modal
 import { PreflightModal } from "@/components/migrations/preflight-modal";
 import { FixRowsModal } from "@/components/migrations/fix-rows-modal";
 import { ConnectionStringModal } from "@/components/migrations/connection-string-modal";
+import { MigrationProgressBar } from "@/components/migrations/migration-progress-bar";
+import { MigrationPageHeader } from "@/components/migrations/migration-page-header";
 import { useMigrationConnections } from "@/hooks/use-migration-connections";
 import type {
   CheckSyncResponse,
@@ -502,21 +504,20 @@ export function MigrationsPageContent() {
       .catch(() => {/* best-effort */});
   }
 
-  // ─── shared SSE stream reader ─────────────────────────────────────────────
+  // ─── SSE stream reader ────────────────────────────────────────────────────
 
-  async function consumeMigrateStream(
-    body: RequestInit["body"],
-    onNeedsFix: (data: RunResponse) => void,
-    onError: (msg: string) => void,
-    onDone: (data: RunResponse) => void,
+  async function readSSE(
+    response: Response,
+    handlers: {
+      onPhase?: (phase: "schema_push" | "inserting", total?: number) => void;
+      onProgress?: (event: MigrateProgressEvent) => void;
+      onNeedsFix?: (data: RunResponse) => void;
+      onDone: (data: RunResponse) => void;
+      onError: (msg: string) => void;
+    },
   ) {
-    const res = await fetch("/api/migrations/run", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body,
-    });
-    if (!res.body) throw new Error("No response body from run endpoint.");
-    const reader = res.body.getReader();
+    if (!response.body) throw new Error("No response body.");
+    const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buf = "";
     while (true) {
@@ -529,25 +530,49 @@ export function MigrationsPageContent() {
         if (!line.startsWith("data: ")) continue;
         try {
           const event = JSON.parse(line.slice(6)) as { type: string; [k: string]: unknown };
-          if (event.type === "phase") {
-            const phase = event.phase as "schema_push" | "inserting";
-            setMigratePhase(phase);
-            if (phase === "inserting") setMigrateProgressTotal((event.total as number) ?? 0);
-          } else if (event.type === "progress") {
-            setMigrateProgressTables((prev) => [...prev, event as unknown as MigrateProgressEvent]);
-          } else if (event.type === "needsFix") {
-            onNeedsFix(event as unknown as RunResponse);
+          if (event.type === "phase" && handlers.onPhase) {
+            handlers.onPhase(
+              event.phase as "schema_push" | "inserting",
+              typeof event.total === "number" ? event.total : undefined,
+            );
+          } else if (event.type === "progress" && handlers.onProgress) {
+            handlers.onProgress(event as unknown as MigrateProgressEvent);
+          } else if (event.type === "needsFix" && handlers.onNeedsFix) {
+            handlers.onNeedsFix(event as unknown as RunResponse);
             return;
           } else if (event.type === "done") {
-            onDone(event as unknown as RunResponse);
+            handlers.onDone(event as unknown as RunResponse);
             return;
           } else if (event.type === "error") {
-            onError((event.error as string) ?? "Migration failed.");
+            handlers.onError((event.error as string) ?? "Migration failed.");
             return;
           }
         } catch { /* malformed line */ }
       }
     }
+  }
+
+  async function consumeMigrateStream(
+    body: RequestInit["body"],
+    onNeedsFix: (data: RunResponse) => void,
+    onError: (msg: string) => void,
+    onDone: (data: RunResponse) => void,
+  ) {
+    const res = await fetch("/api/migrations/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+    await readSSE(res, {
+      onPhase: (phase, total) => {
+        setMigratePhase(phase);
+        if (phase === "inserting" && total !== undefined) setMigrateProgressTotal(total);
+      },
+      onProgress: (event) => setMigrateProgressTables((prev) => [...prev, event]),
+      onNeedsFix,
+      onDone,
+      onError,
+    });
   }
 
   // ─── migrate ─────────────────────────────────────────────────────────────
@@ -615,37 +640,23 @@ export function MigrationsPageContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectName, connectionId: activeConnectionId, snapshotId: collectSnapshotId, syncVersion }),
       });
-      if (!res.body) throw new Error("No response body.");
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const lines = buf.split("\n");
-        buf = lines.pop() ?? "";
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const event = JSON.parse(line.slice(6)) as { type: string; [k: string]: unknown };
-            if (event.type === "phase") {
-              setMigratePhase(event.phase as "schema_push" | "inserting");
-              if (event.phase === "inserting") setMigrateProgressTotal((event.total as number) ?? 0);
-            } else if (event.type === "progress") {
-              setMigrateProgressTables((prev) => [...prev, event as unknown as MigrateProgressEvent]);
-            } else if (event.type === "done") {
-              setRestoreTables((event.tables as typeof restoreTables) ?? []);
-              setRestoreState("success");
-              setMigratePhase("idle");
-            } else if (event.type === "error") {
-              setRestoreError((event.error as string) ?? "Restore failed.");
-              setRestoreState("error");
-              setMigratePhase("idle");
-            }
-          } catch { /* malformed */ }
-        }
-      }
+      await readSSE(res, {
+        onPhase: (phase, total) => {
+          setMigratePhase(phase);
+          if (phase === "inserting" && total !== undefined) setMigrateProgressTotal(total);
+        },
+        onProgress: (event) => setMigrateProgressTables((prev) => [...prev, event]),
+        onDone: (data) => {
+          setRestoreTables((data.tables as typeof restoreTables) ?? []);
+          setRestoreState("success");
+          setMigratePhase("idle");
+        },
+        onError: (msg) => {
+          setRestoreError(msg);
+          setRestoreState("error");
+          setMigratePhase("idle");
+        },
+      });
     } catch (err) {
       setRestoreError(err instanceof Error ? err.message : "Restore failed.");
       setRestoreState("error");
@@ -673,51 +684,22 @@ export function MigrationsPageContent() {
 
   return (
     <div className="space-y-4">
+      <MigrationProgressBar
+        phase={migratePhase}
+        progressPct={progressPct}
+        progressTables={migrateProgressTables}
+        progressTotal={migrateProgressTotal}
+      />
 
-      {/* ── Migration progress bar (fixed top) ─────────────────────────────── */}
-      {migratePhase !== "idle" && (
-        <div className="fixed left-0 right-0 top-0 z-60">
-          <div className="h-1 bg-slate-200">
-            <div className="h-full bg-emerald-500 transition-all duration-500 ease-out" style={{ width: `${progressPct}%` }} />
-          </div>
-          <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-5 py-2 shadow-sm">
-            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
-            <p className="text-xs font-semibold text-slate-700">
-              {migratePhase === "schema_push" ? "Applying schema…" : `Inserting records — ${migrateProgressTables.length} / ${migrateProgressTotal} tables`}
-            </p>
-            {migratePhase === "inserting" && migrateProgressTables.length > 0 && (
-              <span className="ml-auto font-mono text-[11px] text-slate-500">
-                {migrateProgressTables[migrateProgressTables.length - 1]!.name}
-              </span>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Migrations</p>
-            <h3 className="mt-1 text-xl font-semibold text-slate-950">Schema Migration Workflow</h3>
-            <p className="mt-1 text-sm text-slate-500">Connect to a database, then deploy a fresh schema or migrate data between versions.</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">{provider}</span>
-            <span className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">{projectName}</span>
-            {migrationPlan && (isNewPlan ? newTargetVersion : targetVersion) && (
-              <span className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">
-                Target: {isNewPlan ? newTargetVersion : targetVersion}
-              </span>
-            )}
-            {activeConnection && (
-              <span className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
-                ● {activeConnection.name}
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
+      <MigrationPageHeader
+        provider={provider}
+        projectName={projectName}
+        migrationPlan={migrationPlan}
+        isNewPlan={isNewPlan}
+        newTargetVersion={newTargetVersion}
+        targetVersion={targetVersion}
+        activeConnection={activeConnection}
+      />
 
       {/* ── Session History ─────────────────────────────────────────────────── */}
       <SessionHistory
