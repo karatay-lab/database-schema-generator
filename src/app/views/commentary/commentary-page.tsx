@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useTRPC } from "@/trpc/client";
+import { useTablesQuery } from "@/queries/tables";
+import { useCommentaryFieldsQuery, useCommentaryMutations } from "@/queries/commentary";
 import { classNames } from "@/lib/utils";
 import { fieldTypeBadgeClass } from "@/lib/badge-utils";
 import { useProjectInfo } from "../shared/project-info-context";
@@ -14,8 +14,6 @@ import { EmptyState, InlineError, LoadingCard } from "@/components/built";
 
 export function CommentaryPageContent() {
   const { projectName, version, hasProject } = useProjectInfo();
-  const trpc = useTRPC();
-  const queryClient = useQueryClient();
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -36,12 +34,7 @@ export function CommentaryPageContent() {
   const [fieldPage, setFieldPage] = useState(1);
   const FIELD_PAGE_SIZE = 10;
 
-  const tablesQuery = useQuery(
-    trpc.tables.list.queryOptions(
-      { projectName, version },
-      { enabled: !!projectName && !!version },
-    ),
-  );
+  const tablesQuery = useTablesQuery(projectName, version);
   const models: PrismaModel[] = (tablesQuery.data ?? []) as PrismaModel[];
 
   const selectedModel = useMemo(
@@ -50,12 +43,7 @@ export function CommentaryPageContent() {
   );
   const selectedModelKey = selectedModel?.key ?? "";
 
-  const fieldsQuery = useQuery(
-    trpc.commentary.listFields.queryOptions(
-      { projectName, version, modelName: selectedModelName, modelKey: selectedModelKey },
-      { enabled: !!selectedModelName },
-    ),
-  );
+  const fieldsQuery = useCommentaryFieldsQuery(projectName, version, selectedModelName, selectedModelKey);
   const fields: PrismaField[] = fieldsQuery.data?.fields ?? [];
   const enumTypes: string[] = fieldsQuery.data?.enumTypes ?? [];
 
@@ -69,18 +57,8 @@ export function CommentaryPageContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fieldsQuery.data]);
 
-  const updateCommentsMutation = useMutation({
-    ...trpc.commentary.updateComments.mutationOptions(),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: trpc.commentary.listFields.queryOptions({ projectName, version, modelName: selectedModelName, modelKey: selectedModelKey }).queryKey,
-      });
-      setSavedKeys(new Set(dirtyKeys));
-      setDirtyKeys(new Set());
-      setSaveError("");
-    },
-    onError: (err) => setSaveError(err.message),
-  });
+  const { invalidate: invalidateCommentary, update: updateCommentsMutation } =
+    useCommentaryMutations(projectName, version, selectedModelName, selectedModelKey);
 
   useEffect(() => {
     setTablePage(1);
@@ -149,7 +127,13 @@ export function CommentaryPageContent() {
   const handleSave = () => {
     if (dirtyKeys.size === 0) return;
     const updates = Array.from(dirtyKeys).map((key) => ({ fieldKey: key, comment: comments[key] ?? "" }));
-    updateCommentsMutation.mutate({ projectName, version, modelName: selectedModelName, modelKey: selectedModelKey, updates });
+    updateCommentsMutation.mutate(
+      { projectName, version, modelName: selectedModelName, modelKey: selectedModelKey, updates },
+      {
+        onSuccess: () => { void invalidateCommentary(); setSavedKeys(new Set(dirtyKeys)); setDirtyKeys(new Set()); setSaveError(""); },
+        onError: (err) => setSaveError(err.message),
+      },
+    );
   };
 
   if (!hasProject) {

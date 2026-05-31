@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useMemo, useState, type ReactNode } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { useTRPC } from "@/trpc/client";
+import { useSchemaStatsQuery, useSchemaTestMutation } from "@/queries/schema";
 import { useDashboard, useActiveProject } from "./dashboard-context";
 import { ProjectInfoProvider } from "./project-info-context";
 import { Button } from "@/components/ui/button";
@@ -39,17 +38,10 @@ export function DashboardShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [isSchemaTestOpen, setIsSchemaTestOpen] = useState(false);
 
-  const trpc = useTRPC();
   const { selectedVersion } = useDashboard();
   const activeProject = useActiveProject();
 
-  const { data: statsData } = useQuery(
-    trpc.schema.stats.queryOptions(
-      { projectName: activeProject?.name ?? "", version: selectedVersion },
-      { enabled: !!activeProject && !!selectedVersion },
-    ),
-  );
-
+  const { data: statsData } = useSchemaStatsQuery(activeProject?.name ?? "", selectedVersion);
   const schemaStats = {
     tableCount: statsData?.tableCount ?? 0,
     fieldCount: statsData?.fieldCount ?? 0,
@@ -59,7 +51,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
     enumCount: statsData?.enumCount ?? 0,
   };
 
-  const schemaTestMutation = useMutation(trpc.schema.test.mutationOptions());
+  const schemaTestMutation = useSchemaTestMutation();
 
   const testSchema = () => {
     if (!activeProject || !selectedVersion) return;

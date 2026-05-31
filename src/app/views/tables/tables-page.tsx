@@ -2,8 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useTRPC } from "@/trpc/client";
+import { useTablesQuery, useTableMutations } from "@/queries/tables";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useVersionDiffLookup } from "@/hooks/use-version-diff";
 import { useSchemaWarnings } from "@/hooks/use-schema-warnings";
@@ -30,24 +29,15 @@ import { EmptyState, LoadingCard } from "@/components/built";
 
 export function TablesPageContent() {
   const { projectName, version, versions, provider, hasProject, projectId } = useProjectInfo();
-  const trpc = useTRPC();
-  const queryClient = useQueryClient();
   const { diffByTableKey } = useVersionDiffLookup(projectName, version);
   const [diffDetail, setDiffDetail] = useState<TableDiff | null>(null);
   const versionIdx = versions.indexOf(version);
   const previousVersion = versionIdx > 0 ? versions[versionIdx - 1]! : "";
   const { getWarning, approveMany } = useSchemaWarnings(projectId, previousVersion, version);
 
-  const listQuery = useQuery(
-    trpc.tables.list.queryOptions(
-      { projectName, version },
-      { enabled: !!projectName && !!version },
-    ),
-  );
+  const listQuery = useTablesQuery(projectName, version);
   const models: PrismaModel[] = (listQuery.data ?? []) as PrismaModel[];
-
-  const invalidateTables = () =>
-    queryClient.invalidateQueries({ queryKey: trpc.tables.list.queryOptions({ projectName, version }).queryKey });
+  const { invalidate: invalidateTables, create: createMutation, update: updateMutation, delete: deleteMutation } = useTableMutations(projectName, version);
 
   const [modelName, setModelName] = useState("");
   const [pkName, setPkName] = useState("id");
@@ -71,28 +61,6 @@ export function TablesPageContent() {
   const selectedPkSummary = pkTypeDetails[effectivePkType as PkTypeValue]?.summary ?? "Primary key field.";
   const selectedEditPkSummary = pkTypeDetails[editPkType as PkTypeValue]?.summary ?? "Primary key field.";
 
-  const createMutation = useMutation({
-    ...trpc.tables.create.mutationOptions(),
-    onSuccess: () => {
-      void invalidateTables();
-      setModelName(""); setPkName("id"); setPkType(defaultPkType);
-      setCurrentPage(1); setCreateError("");
-    },
-    onError: (err) => setCreateError(err.message),
-  });
-
-  const updateMutation = useMutation({
-    ...trpc.tables.update.mutationOptions(),
-    onSuccess: () => { void invalidateTables(); cancelEdit(); },
-    onError: (err) => setUpdateError(err.message),
-  });
-
-  const deleteMutation = useMutation({
-    ...trpc.tables.delete.mutationOptions(),
-    onSuccess: () => { void invalidateTables(); setCurrentPage(1); cancelEdit(); },
-    onError: (err) => setUpdateError(err.message),
-  });
-
   const submitModel = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const name = modelName.trim();
@@ -109,7 +77,13 @@ export function TablesPageContent() {
     }
     if (models.some((m) => m.name === name)) { setCreateError("A model with this name already exists."); return; }
     setCreateError("");
-    createMutation.mutate({ projectName, version, modelName: name, pkName: pkName.trim(), pkType: effectivePkType as "String" | "Int" | "BigInt" | "DateTime" | "Uuid" });
+    createMutation.mutate(
+      { projectName, version, modelName: name, pkName: pkName.trim(), pkType: effectivePkType as "String" | "Int" | "BigInt" | "DateTime" | "Uuid" },
+      {
+        onSuccess: () => { void invalidateTables(); setModelName(""); setPkName("id"); setPkType(defaultPkType); setCurrentPage(1); setCreateError(""); },
+        onError: (err) => setCreateError(err.message),
+      },
+    );
   };
 
   const startEdit = (model: PrismaModel) => {
@@ -134,18 +108,26 @@ export function TablesPageContent() {
     }
     if (!editPkType) { setUpdateError("Primary key type is required."); return; }
     setUpdateError("");
-    updateMutation.mutate({
-      projectName, version, modelKey: selectedModel.key,
-      oldModelName: selectedModel.name, newModelName: name,
-      pkName: editPkName.trim(), pkType: editPkType as "String" | "Int" | "BigInt" | "DateTime" | "Uuid",
-    });
+    updateMutation.mutate(
+      { projectName, version, modelKey: selectedModel.key, oldModelName: selectedModel.name, newModelName: name, pkName: editPkName.trim(), pkType: editPkType as "String" | "Int" | "BigInt" | "DateTime" | "Uuid" },
+      {
+        onSuccess: () => { void invalidateTables(); cancelEdit(); },
+        onError: (err) => setUpdateError(err.message),
+      },
+    );
   };
 
   const deleteSelectedModel = () => {
     if (!selectedModel) return;
     if (!window.confirm(`Delete ${selectedModel.name}? This will also remove its fields and relations.`)) return;
     setUpdateError("");
-    deleteMutation.mutate({ projectName, version, modelName: selectedModel.name, modelKey: selectedModel.key });
+    deleteMutation.mutate(
+      { projectName, version, modelName: selectedModel.name, modelKey: selectedModel.key },
+      {
+        onSuccess: () => { void invalidateTables(); setCurrentPage(1); cancelEdit(); },
+        onError: (err) => setUpdateError(err.message),
+      },
+    );
   };
 
   if (!hasProject) {

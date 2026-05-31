@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { useTRPC } from "@/trpc/client";
+import { useRelationMutations } from "@/queries/relations";
+import { useFieldMutations } from "@/queries/fields";
 import { useProjectInfo } from "@/app/views/shared/project-info-context";
 import type { PrismaModel, PrismaRelation } from "@/lib/schema-store";
 import type { RelationDraft } from "@/types/relation";
@@ -33,7 +33,6 @@ export function useRelationForm({
   selectedModelName, selectedModelKey, models, invalidateRelations,
 }: UseRelationFormParams) {
   const { projectName, version } = useProjectInfo();
-  const trpc = useTRPC();
   const lastEditedKeyRef = useRef("");
 
   const [draft, setDraft] = useState<RelationDraft>(emptyRelationDraft);
@@ -48,28 +47,9 @@ export function useRelationForm({
 
   // ── Mutations ─────────────────────────────────────────────────────────────
 
-  const createFkFieldMutation = useMutation({
-    ...trpc.fields.create.mutationOptions(),
-    onError: (err) => setError(err.message),
-  });
-
-  const createRelationMutation = useMutation({
-    ...trpc.relations.create.mutationOptions(),
-    onSuccess: () => { void invalidateRelations(); resetDraft(); },
-    onError: (err) => setError(err.message),
-  });
-
-  const updateRelationMutation = useMutation({
-    ...trpc.relations.update.mutationOptions(),
-    onSuccess: () => { void invalidateRelations(); resetDraft(); },
-    onError: (err) => setError(err.message),
-  });
-
-  const deleteRelationMutation = useMutation({
-    ...trpc.relations.delete.mutationOptions(),
-    onSuccess: () => { void invalidateRelations(); setDeletingRelationKey(""); },
-    onError: (err) => { setError(err.message); setDeletingRelationKey(""); },
-  });
+  const { create: createFkFieldMutation } = useFieldMutations(projectName, version, selectedModelName, selectedModelKey);
+  const { create: createRelationMutation, update: updateRelationMutation, delete: deleteRelationMutation } =
+    useRelationMutations(projectName, version, selectedModelName, selectedModelKey);
 
   const savingRelation = createFkFieldMutation.isPending || createRelationMutation.isPending || updateRelationMutation.isPending;
 
@@ -151,26 +131,24 @@ export function useRelationForm({
       nullable: draft.nullable, isArray: false,
       backReferenceIsArray: draft.cardinality === "one-to-many",
     };
+    const callbacks = { onSuccess: () => { void invalidateRelations(); resetDraft(); }, onError: (err: { message: string }) => setError(err.message) };
     if (editingRelationKey) {
-      updateRelationMutation.mutate({ ...payload, relationKey: editingRelationKey });
+      updateRelationMutation.mutate({ ...payload, relationKey: editingRelationKey }, callbacks);
     } else {
-      createFkFieldMutation.mutate({
-        projectName, version, modelKey: selectedModelKey, modelName: selectedModelName,
-        name: draft.fields.trim(), type: fkFieldType, nullable: draft.nullable,
-        unique: false, defaultValue: "", comment: "",
-      }, {
-        onSuccess: () => createRelationMutation.mutate(payload),
-      });
+      createFkFieldMutation.mutate(
+        { projectName, version, modelKey: selectedModelKey, modelName: selectedModelName, name: draft.fields.trim(), type: fkFieldType, nullable: draft.nullable, unique: false, defaultValue: "", comment: "" },
+        { onSuccess: () => createRelationMutation.mutate(payload, callbacks), onError: (err) => setError(err.message) },
+      );
     }
   };
 
   const deleteRelation = (relation: PrismaRelation) => {
     setDeletingRelationKey(relation.key);
     setError("");
-    deleteRelationMutation.mutate({
-      projectName, version, modelKey: selectedModelKey, modelName: selectedModelName,
-      relationKey: relation.key,
-    });
+    deleteRelationMutation.mutate(
+      { projectName, version, modelKey: selectedModelKey, modelName: selectedModelName, relationKey: relation.key },
+      { onSuccess: () => { void invalidateRelations(); setDeletingRelationKey(""); }, onError: (err) => { setError(err.message); setDeletingRelationKey(""); } },
+    );
     if (editingRelationKey === relation.key) resetDraft();
   };
 

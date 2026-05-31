@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useTRPC } from "@/trpc/client";
+import { useFieldTemplatesQuery, useFieldTemplateMutations } from "@/queries/field-templates";
+import { useFieldMutations } from "@/queries/fields";
 import { useProjectInfo } from "@/app/views/shared/project-info-context";
 import type { PrismaField } from "@/lib/schema-store";
 import type { FieldTemplate, FieldTemplateInput } from "@/lib/field-template-store";
@@ -43,8 +43,6 @@ export function useFieldTemplates({
   selectedModelName, selectedModelKey, fields, invalidateFields,
 }: UseFieldTemplatesParams) {
   const { projectName, version, provider: projectProvider } = useProjectInfo();
-  const trpc = useTRPC();
-  const queryClient = useQueryClient();
   const templatesPerPage = 15;
 
   // ── State ─────────────────────────────────────────────────────────────────
@@ -63,11 +61,11 @@ export function useFieldTemplates({
 
   // ── Query ─────────────────────────────────────────────────────────────────
 
-  const templatesQuery = useQuery(trpc.fieldTemplates.list.queryOptions());
+  const templatesQuery = useFieldTemplatesQuery();
   const templates: FieldTemplate[] = (templatesQuery.data ?? []) as FieldTemplate[];
-
-  const invalidateTemplates = () =>
-    queryClient.invalidateQueries({ queryKey: trpc.fieldTemplates.list.queryOptions().queryKey });
+  const { invalidate: invalidateTemplates, create: createTemplateMutation_, update: updateTemplateMutation_, delete: deleteTemplateMutation_ } =
+    useFieldTemplateMutations();
+  const { create: addTemplateToTableMutation_ } = useFieldMutations(projectName, version, selectedModelName, selectedModelKey);
 
   // Sync override names when templates change
   useEffect(() => {
@@ -80,31 +78,10 @@ export function useFieldTemplates({
   useEffect(() => { setTemplatePage(1); }, [templateTypeFilter]);
   useEffect(() => { setTemplatePage((p) => Math.min(p, templatePageCount)); }, []);
 
-  // ── Mutations ─────────────────────────────────────────────────────────────
-
-  const createTemplateMutation = useMutation({
-    ...trpc.fieldTemplates.create.mutationOptions(),
-    onSuccess: () => { void invalidateTemplates(); setTemplateField(makeEmptyTemplateInput(projectProvider || "All")); setEditingTemplateId(""); setSavingTemplateFieldId(""); },
-    onError: (err) => { setTemplateError(err.message); setSavingTemplateFieldId(""); },
-  });
-
-  const updateTemplateMutation = useMutation({
-    ...trpc.fieldTemplates.update.mutationOptions(),
-    onSuccess: () => { void invalidateTemplates(); setEditingTemplateId(""); setEditDraft(null); setSavingTemplateFieldId(""); },
-    onError: (err) => { setTemplateError(err.message); setSavingTemplateFieldId(""); },
-  });
-
-  const deleteTemplateMutation = useMutation({
-    ...trpc.fieldTemplates.delete.mutationOptions(),
-    onSuccess: () => { void invalidateTemplates(); setDeletingTemplateFieldId(""); },
-    onError: (err) => { setTemplateError(err.message); setDeletingTemplateFieldId(""); },
-  });
-
-  const addTemplateToTableMutation = useMutation({
-    ...trpc.fields.create.mutationOptions(),
-    onSuccess: () => { void invalidateFields(); setAddingTemplateToTable(""); },
-    onError: () => setAddingTemplateToTable(""),
-  });
+  const createTemplateMutation = createTemplateMutation_;
+  const updateTemplateMutation = updateTemplateMutation_;
+  const deleteTemplateMutation = deleteTemplateMutation_;
+  const addTemplateToTableMutation = addTemplateToTableMutation_;
 
   // ── Derived ───────────────────────────────────────────────────────────────
 
@@ -157,7 +134,10 @@ export function useFieldTemplates({
   const createTemplateField = () => {
     if (templateDuplicateSuggestion) { setTemplateError("A template field with this name already exists."); return; }
     setTemplateError("");
-    createTemplateMutation.mutate(templateField);
+    createTemplateMutation.mutate(templateField, {
+      onSuccess: () => { void invalidateTemplates(); setTemplateField(makeEmptyTemplateInput(projectProvider || "All")); setEditingTemplateId(""); setSavingTemplateFieldId(""); },
+      onError: (err) => { setTemplateError(err.message); setSavingTemplateFieldId(""); },
+    });
   };
 
   const updateEditDraft = (patch: Partial<FieldTemplateInput>) => {
@@ -182,13 +162,19 @@ export function useFieldTemplates({
     if (!editingTemplateId || !editDraft) return;
     setSavingTemplateFieldId(editingTemplateId);
     setTemplateError("");
-    updateTemplateMutation.mutate({ id: editingTemplateId, ...editDraft });
+    updateTemplateMutation.mutate({ id: editingTemplateId, ...editDraft }, {
+      onSuccess: () => { void invalidateTemplates(); setEditingTemplateId(""); setEditDraft(null); setSavingTemplateFieldId(""); },
+      onError: (err) => { setTemplateError(err.message); setSavingTemplateFieldId(""); },
+    });
   };
 
   const deleteTemplateField = (template: FieldTemplate) => {
     setDeletingTemplateFieldId(template.id);
     setTemplateError("");
-    deleteTemplateMutation.mutate({ id: template.id });
+    deleteTemplateMutation.mutate({ id: template.id }, {
+      onSuccess: () => { void invalidateTemplates(); setDeletingTemplateFieldId(""); },
+      onError: (err) => { setTemplateError(err.message); setDeletingTemplateFieldId(""); },
+    });
     if (editingTemplateId === template.id) { setEditingTemplateId(""); setEditDraft(null); }
   };
 
@@ -196,14 +182,10 @@ export function useFieldTemplates({
     const overrideName = (templateOverrideNames[template.id] || template.name).trim();
     if (!selectedModelName || usedTemplateNames.has(overrideName)) return;
     setAddingTemplateToTable(template.id);
-    addTemplateToTableMutation.mutate({
-      projectName, version, modelKey: selectedModelKey, modelName: selectedModelName,
-      name: overrideName, type: template.type,
-      nullable: template.nullable, unique: template.type === "Boolean" ? false : template.unique,
-      defaultValue: template.defaultValue, comment: template.comment,
-      nativeAttribute: template.nativeAttribute, updatedAtAttribute: template.updatedAtAttribute,
-      isId: template.isId,
-    });
+    addTemplateToTableMutation.mutate(
+      { projectName, version, modelKey: selectedModelKey, modelName: selectedModelName, name: overrideName, type: template.type, nullable: template.nullable, unique: template.type === "Boolean" ? false : template.unique, defaultValue: template.defaultValue, comment: template.comment, nativeAttribute: template.nativeAttribute, updatedAtAttribute: template.updatedAtAttribute, isId: template.isId },
+      { onSuccess: () => { void invalidateFields(); setAddingTemplateToTable(""); }, onError: () => setAddingTemplateToTable("") },
+    );
   };
 
   return {

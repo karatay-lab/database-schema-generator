@@ -8,8 +8,7 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
-import { useTRPC } from "@/trpc/client";
-import { useQuery } from "@tanstack/react-query";
+import { useProjectsQuery } from "@/queries/projects";
 import type { SchemaOptions } from "@/types/projects";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -54,8 +53,7 @@ export function DashboardProvider({
   initialProjectId?: string;
   initialVersionsMap?: Record<string, string>;
 }) {
-  const trpc = useTRPC();
-  const { data: projects = [] } = useQuery(trpc.projects.list.queryOptions());
+  const { data: projects = [] } = useProjectsQuery();
 
   const [activeProjectId, setActiveProjectIdState] = useState<string>(
     initialProjectId ?? projects[0]?.id ?? "",
@@ -121,8 +119,7 @@ export function useDashboard() {
 // ─── Derived hook — gives callers the active project from tRPC cache ──────────
 
 export function useActiveProject() {
-  const trpc = useTRPC();
-  const { data: projects = [] } = useQuery(trpc.projects.list.queryOptions());
+  const { data: projects = [] } = useProjectsQuery();
   const { activeProjectId } = useDashboard();
   return useMemo(
     () => projects.find((p) => p.id === activeProjectId) ?? projects[0] ?? null,

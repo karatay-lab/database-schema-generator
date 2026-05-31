@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useSchemaWarnings } from "@/hooks/use-schema-warnings";
 import { useMigrationConnections } from "@/hooks/use-migration-connections";
@@ -91,8 +91,8 @@ export function MigrationsPageContent() {
     onSessionsRefresh: setSessions,
   });
 
-  // Keep ref in sync on every render (safe — runs before effects)
-  resetFromModelDiffRef.current = workflow.resetFromModelDiff;
+  // Keep ref in sync after every render so useMigrationConnections always calls the latest version
+  useLayoutEffect(() => { resetFromModelDiffRef.current = workflow.resetFromModelDiff; });
 
   // ── restore workflow state from server on mount / project switch ──────────
   useEffect(() => {

@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { useWarningsByKindQuery } from "@/queries/tracking";
 import { useTRPC } from "@/trpc/client";
 import type { SchemaWarning } from "@/lib/schema-warnings-store";
 import { ResolveModal } from "@/components/tracking/resolve-modal";
@@ -455,19 +456,8 @@ export function WarningsPanel({
   const queryClient = useQueryClient();
   const [bulkBusy, setBulkBusy] = useState(false);
 
-  const enabled = Boolean(projectId && fromVersion && toVersion);
-
-  const queryOptions = trpc.tracking.warningsByKind.queryOptions(
-    {
-      projectId,
-      fromVersion,
-      toVersion,
-      entityKind: entityKind as "table" | "field" | "enum" | "relation",
-    },
-    { enabled },
-  );
-
-  const { data, isLoading } = useQuery(queryOptions);
+  const { data, isLoading } = useWarningsByKindQuery(projectId, fromVersion, toVersion, entityKind);
+  const warningsQueryKey = trpc.tracking.warningsByKind.queryOptions({ projectId, fromVersion, toVersion, entityKind: entityKind as "table" | "field" | "enum" | "relation" }).queryKey;
 
   const warnings: SchemaWarning[] = data?.warnings ?? [];
   const enumValuesMap = data?.enumValuesMap ?? {};
@@ -485,7 +475,7 @@ export function WarningsPanel({
 
   async function invalidate() {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryOptions.queryKey }),
+      queryClient.invalidateQueries({ queryKey: warningsQueryKey }),
       queryClient.invalidateQueries({
         queryKey: trpc.tracking.pendingCounts.queryOptions({
           projectId,

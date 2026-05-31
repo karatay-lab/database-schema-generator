@@ -1,10 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconCopy, IconCheck, IconX, IconDownload } from "@tabler/icons-react";
 import { InlineError, Pagination } from "@/components/built";
-import { useTRPC } from "@/trpc/client";
+import { useExportHistoryQuery, useExportMutations } from "@/queries/exports";
 import { classNames } from "@/lib/utils";
 import { useProjectInfo } from "../shared/project-info-context";
 import { EXPORT_OPTIONS, type ExportType } from "@/constants/exports";
@@ -34,9 +33,6 @@ type DialogState = {
 
 export function ExportsPageContent() {
   const { projectName, version, hasProject } = useProjectInfo();
-  const trpc = useTRPC();
-  const queryClient = useQueryClient();
-
   const [exportError, setExportError] = useState("");
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [copied, setCopied] = useState(false);
@@ -44,57 +40,9 @@ export function ExportsPageContent() {
   const [pendingPickle, setPendingPickle] = useState<ExportType | null>(null);
   const [resetConfirm, setResetConfirm] = useState(false);
 
-  const historyQuery = useQuery(
-    trpc.exports.list.queryOptions(
-      { projectName: projectName ?? "" },
-      { enabled: !!projectName },
-    ),
-  );
-
-  const exportMutation = useMutation({
-    ...trpc.exports.generate.mutationOptions(),
-    onSuccess: (data, vars) => {
-      const type = vars.type;
-
-      if (type === "pickle-version" || type === "pickle-project") {
-        const blob = new Blob([(data as { code?: string } | undefined)?.code ?? ""], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = (data as { fileName?: string } | undefined)?.fileName ?? "export.pickle.json";
-        a.click();
-        URL.revokeObjectURL(url);
-        setActiveExportType(null);
-        return;
-      }
-
-      setDialog({
-        exportId: (data as { id?: string } | undefined)?.id ?? "",
-        code: (data as { code?: string } | undefined)?.code ?? "",
-        fileName: (data as { fileName?: string } | undefined)?.fileName ?? (type === "prisma" ? `${version}.prisma` : "schema.ts"),
-        lang: type === "prisma" ? "prisma" : "ts",
-        tableCount: (data as { tableCount?: number } | undefined)?.tableCount ?? 0,
-        enumCount: (data as { enumCount?: number } | undefined)?.enumCount ?? 0,
-      });
-      setActiveExportType(null);
-    },
-    onError: (err) => { setExportError(err.message); setActiveExportType(null); },
-  });
-
-  const resetMutation = useMutation({
-    ...trpc.exports.reset.mutationOptions(),
-    onSuccess: () => {
-      setResetConfirm(false);
-      queryClient.invalidateQueries({ queryKey: trpc.exports.list.queryOptions({ projectName: projectName ?? "" }).queryKey });
-    },
-  });
-
-  const markDownloadedMutation = useMutation({
-    ...trpc.exports.markDownloaded.mutationOptions(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: trpc.exports.list.queryOptions({ projectName: projectName ?? "" }).queryKey });
-    },
-  });
+  const historyQuery = useExportHistoryQuery(projectName ?? "");
+  const { invalidate: invalidateExports, generate: exportMutation, reset: resetMutation, markDownloaded: markDownloadedMutation } =
+    useExportMutations(projectName ?? "");
 
   const handleExport = (type: ExportType) => {
     if (!projectName || !version) return;
@@ -104,7 +52,27 @@ export function ExportsPageContent() {
     }
     setActiveExportType(type);
     setExportError("");
-    exportMutation.mutate({ projectName, version, type });
+    exportMutation.mutate({ projectName, version, type }, {
+      onSuccess: (data, vars) => {
+        const t = vars.type;
+        if (t === "pickle-version" || t === "pickle-project") {
+          const blob = new Blob([(data as { code?: string } | undefined)?.code ?? ""], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a"); a.href = url;
+          a.download = (data as { fileName?: string } | undefined)?.fileName ?? "export.pickle.json";
+          a.click(); URL.revokeObjectURL(url);
+          setActiveExportType(null); return;
+        }
+        setDialog({ exportId: (data as { id?: string } | undefined)?.id ?? "", code: (data as { code?: string } | undefined)?.code ?? "",
+          fileName: (data as { fileName?: string } | undefined)?.fileName ?? (t === "prisma" ? `${version}.prisma` : "schema.ts"),
+          lang: t === "prisma" ? "prisma" : "ts",
+          tableCount: (data as { tableCount?: number } | undefined)?.tableCount ?? 0,
+          enumCount: (data as { enumCount?: number } | undefined)?.enumCount ?? 0,
+        });
+        setActiveExportType(null);
+      },
+      onError: (err) => { setExportError(err.message); setActiveExportType(null); },
+    });
   };
 
   const confirmPickle = () => {
@@ -113,7 +81,27 @@ export function ExportsPageContent() {
     setPendingPickle(null);
     setActiveExportType(type);
     setExportError("");
-    exportMutation.mutate({ projectName, version, type });
+    exportMutation.mutate({ projectName, version, type }, {
+      onSuccess: (data, vars) => {
+        const t = vars.type;
+        if (t === "pickle-version" || t === "pickle-project") {
+          const blob = new Blob([(data as { code?: string } | undefined)?.code ?? ""], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a"); a.href = url;
+          a.download = (data as { fileName?: string } | undefined)?.fileName ?? "export.pickle.json";
+          a.click(); URL.revokeObjectURL(url);
+          setActiveExportType(null); return;
+        }
+        setDialog({ exportId: (data as { id?: string } | undefined)?.id ?? "", code: (data as { code?: string } | undefined)?.code ?? "",
+          fileName: (data as { fileName?: string } | undefined)?.fileName ?? (t === "prisma" ? `${version}.prisma` : "schema.ts"),
+          lang: t === "prisma" ? "prisma" : "ts",
+          tableCount: (data as { tableCount?: number } | undefined)?.tableCount ?? 0,
+          enumCount: (data as { enumCount?: number } | undefined)?.enumCount ?? 0,
+        });
+        setActiveExportType(null);
+      },
+      onError: (err) => { setExportError(err.message); setActiveExportType(null); },
+    });
   };
 
   const handleCopy = async () => {
@@ -148,7 +136,7 @@ export function ExportsPageContent() {
     a.click();
     URL.revokeObjectURL(url);
     if (dialog.exportId) {
-      markDownloadedMutation.mutate({ id: dialog.exportId });
+      markDownloadedMutation.mutate({ id: dialog.exportId }, { onSuccess: () => void invalidateExports() });
     }
   };
 
@@ -202,7 +190,7 @@ export function ExportsPageContent() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => resetMutation.mutate({ projectName: projectName ?? "" })}
+                      onClick={() => resetMutation.mutate({ projectName: projectName ?? "" }, { onSuccess: () => { setResetConfirm(false); void invalidateExports(); } })}
                       disabled={resetMutation.isPending}
                       className="h-8 rounded-md bg-rose-600 px-3 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:opacity-60"
                     >

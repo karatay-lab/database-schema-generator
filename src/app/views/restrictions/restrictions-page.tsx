@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useTRPC } from "@/trpc/client";
+import { useTablesQuery } from "@/queries/tables";
+import { useRestrictionsQuery, useRestrictionMutations } from "@/queries/restrictions";
 import { classNames } from "@/lib/utils";
 import { fieldTypeBadgeClass } from "@/lib/badge-utils";
 import { useProjectInfo } from "../shared/project-info-context";
@@ -32,8 +32,6 @@ function getDbNameSuggestion(fieldNames: string[]) {
 
 export function RestrictionsPageContent() {
   const { projectName, version, hasProject } = useProjectInfo();
-  const trpc = useTRPC();
-  const queryClient = useQueryClient();
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -47,19 +45,12 @@ export function RestrictionsPageContent() {
   const [deletingRestrictionKey, setDeletingRestrictionKey] = useState("");
   const [error, setError] = useState("");
 
-  const tablesQuery = useQuery(
-    trpc.tables.list.queryOptions({ projectName, version }, { enabled: !!projectName && !!version }),
-  );
+  const tablesQuery = useTablesQuery(projectName, version);
   const models: PrismaModel[] = (tablesQuery.data ?? []) as PrismaModel[];
   const selectedModel = useMemo(() => models.find((m) => m.name === selectedModelName) ?? null, [models, selectedModelName]);
   const selectedModelKey = selectedModel?.key ?? "";
 
-  const restrictionsQuery = useQuery(
-    trpc.restrictions.list.queryOptions(
-      { projectName, version, modelName: selectedModelName, modelKey: selectedModelKey },
-      { enabled: !!selectedModelName },
-    ),
-  );
+  const restrictionsQuery = useRestrictionsQuery(projectName, version, selectedModelName, selectedModelKey);
   const fields: PrismaField[] = restrictionsQuery.data?.fields ?? [];
   const restrictions: PrismaRestriction[] = restrictionsQuery.data?.restrictions ?? [];
 
@@ -68,26 +59,8 @@ export function RestrictionsPageContent() {
     [draft.type, fields],
   );
 
-  const invalidateRestrictions = () =>
-    queryClient.invalidateQueries({
-      queryKey: trpc.restrictions.list.queryOptions({ projectName, version, modelName: selectedModelName, modelKey: selectedModelKey }).queryKey,
-    });
-
-  const createRestrictionMutation = useMutation({
-    ...trpc.restrictions.create.mutationOptions(),
-    onSuccess: () => { void invalidateRestrictions(); resetDraft(); },
-    onError: (err) => setError(err.message),
-  });
-  const updateRestrictionMutation = useMutation({
-    ...trpc.restrictions.update.mutationOptions(),
-    onSuccess: () => { void invalidateRestrictions(); resetDraft(); },
-    onError: (err) => setError(err.message),
-  });
-  const deleteRestrictionMutation = useMutation({
-    ...trpc.restrictions.delete.mutationOptions(),
-    onSuccess: () => { void invalidateRestrictions(); setDeletingRestrictionKey(""); },
-    onError: (err) => { setError(err.message); setDeletingRestrictionKey(""); },
-  });
+  const { invalidate: invalidateRestrictions, create: createRestrictionMutation, update: updateRestrictionMutation, delete: deleteRestrictionMutation } =
+    useRestrictionMutations(projectName, version, selectedModelName, selectedModelKey);
 
   const savingRestriction = createRestrictionMutation.isPending || updateRestrictionMutation.isPending;
 
@@ -133,13 +106,17 @@ export function RestrictionsPageContent() {
     if (!selectedModelName || draft.fields.length === 0) { setError("Select at least one field for this restriction."); return; }
     setError("");
     const payload = { projectName, version, modelKey: selectedModelKey, modelName: selectedModelName, type: draft.type, fields: draft.fields, dbName: draft.dbName };
-    if (editingRestrictionKey) updateRestrictionMutation.mutate({ ...payload, restrictionKey: editingRestrictionKey });
-    else createRestrictionMutation.mutate(payload);
+    const callbacks = { onSuccess: () => { void invalidateRestrictions(); resetDraft(); }, onError: (err: { message: string }) => setError(err.message) };
+    if (editingRestrictionKey) updateRestrictionMutation.mutate({ ...payload, restrictionKey: editingRestrictionKey }, callbacks);
+    else createRestrictionMutation.mutate(payload, callbacks);
   };
 
   const deleteRestriction = (r: PrismaRestriction) => {
     setDeletingRestrictionKey(r.key); setError("");
-    deleteRestrictionMutation.mutate({ projectName, version, modelKey: selectedModelKey, modelName: selectedModelName, restrictionKey: r.key });
+    deleteRestrictionMutation.mutate(
+      { projectName, version, modelKey: selectedModelKey, modelName: selectedModelName, restrictionKey: r.key },
+      { onSuccess: () => { void invalidateRestrictions(); setDeletingRestrictionKey(""); }, onError: (err) => { setError(err.message); setDeletingRestrictionKey(""); } },
+    );
     if (editingRestrictionKey === r.key) resetDraft();
   };
 

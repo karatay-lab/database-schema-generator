@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useTRPC } from "@/trpc/client";
+import { useFieldMutations } from "@/queries/fields";
 import { defaultFieldTypes } from "@/constants/schema";
 import type { FieldDiff } from "@/lib/version-diff/detect-changes";
 import type { PrismaField, PrismaFieldInput } from "@/lib/schema-store";
@@ -45,9 +44,6 @@ export function useFieldEditor({
   enumTypes: string[];
   scalarTypes: string[];
 }) {
-  const trpc = useTRPC();
-  const queryClient = useQueryClient();
-
   const [fieldDrafts, setFieldDrafts] = useState<Record<string, PrismaFieldInput>>({});
   const [newFieldDrafts, setNewFieldDrafts] = useState<Array<{ id: string; input: PrismaFieldInput }>>([]);
   const [savingNewCardId, setSavingNewCardId] = useState("");
@@ -58,12 +54,8 @@ export function useFieldEditor({
   const [fieldTypeFilter, setFieldTypeFilter] = useState("All");
   const [fieldPage, setFieldPage] = useState(1);
 
-  const invalidateFields = () =>
-    queryClient.invalidateQueries({
-      queryKey: trpc.fields.list.queryOptions({
-        projectName, version, modelName: selectedModelName, modelKey: selectedModelKey,
-      }).queryKey,
-    });
+  const { invalidate: invalidateFields, create: createFieldMutation, update: updateFieldMutation, delete: deleteFieldMutation } =
+    useFieldMutations(projectName, version, selectedModelName, selectedModelKey);
 
   // Sync drafts when server fields change
   useEffect(() => {
@@ -81,27 +73,6 @@ export function useFieldEditor({
   }, [selectedModelName]);
 
   useEffect(() => { setFieldPage(1); }, [fieldTypeFilter, selectedModelName]);
-
-  const createFieldMutation = useMutation({
-    ...trpc.fields.create.mutationOptions(),
-    onSuccess: () => {
-      void invalidateFields();
-      const id = savingNewCardIdRef.current;
-      if (id) { setNewFieldDrafts((prev) => prev.filter((d) => d.id !== id)); savingNewCardIdRef.current = ""; }
-      setSavingNewCardId("");
-    },
-    onError: (err) => { setError(err.message); setSavingNewCardId(""); savingNewCardIdRef.current = ""; },
-  });
-  const updateFieldMutation = useMutation({
-    ...trpc.fields.update.mutationOptions(),
-    onSuccess: () => { void invalidateFields(); setSavingFieldKey(""); },
-    onError: (err) => { setError(err.message); setSavingFieldKey(""); },
-  });
-  const deleteFieldMutation = useMutation({
-    ...trpc.fields.delete.mutationOptions(),
-    onSuccess: () => { void invalidateFields(); setDeletingFieldKey(""); },
-    onError: (err) => { setError(err.message); setDeletingFieldKey(""); },
-  });
 
   // ── derived ────────────────────────────────────────────────────────────────
 
@@ -145,30 +116,30 @@ export function useFieldEditor({
     if (!selectedModelName || !draft) return;
     setSavingFieldKey(field.key);
     setError("");
-    updateFieldMutation.mutate({
-      projectName, version, modelKey: selectedModelKey, modelName: selectedModelName,
-      fieldKey: field.key, oldFieldName: field.name, ...draft,
-    });
+    updateFieldMutation.mutate(
+      { projectName, version, modelKey: selectedModelKey, modelName: selectedModelName, fieldKey: field.key, oldFieldName: field.name, ...draft },
+      { onSuccess: () => { void invalidateFields(); setSavingFieldKey(""); }, onError: (err) => { setError(err.message); setSavingFieldKey(""); } },
+    );
   };
 
   const deleteField = (field: PrismaField) => {
     if (!selectedModelName) return;
     setDeletingFieldKey(field.key);
     setError("");
-    deleteFieldMutation.mutate({
-      projectName, version, modelKey: selectedModelKey, modelName: selectedModelName,
-      fieldKey: field.key, fieldName: field.name,
-    });
+    deleteFieldMutation.mutate(
+      { projectName, version, modelKey: selectedModelKey, modelName: selectedModelName, fieldKey: field.key, fieldName: field.name },
+      { onSuccess: () => { void invalidateFields(); setDeletingFieldKey(""); }, onError: (err) => { setError(err.message); setDeletingFieldKey(""); } },
+    );
   };
 
   const restoreRemovedField = (fd: FieldDiff) => {
     if (!selectedModelName) return;
     const type = displayTypeToInputType[fd.from] ?? "String";
     setError("");
-    createFieldMutation.mutate({
-      projectName, version, modelKey: selectedModelKey, modelName: selectedModelName,
-      name: fd.fieldName, type, nullable: true, unique: false, defaultValue: "", comment: "",
-    });
+    createFieldMutation.mutate(
+      { projectName, version, modelKey: selectedModelKey, modelName: selectedModelName, name: fd.fieldName, type, nullable: true, unique: false, defaultValue: "", comment: "" },
+      { onSuccess: () => void invalidateFields(), onError: (err) => setError(err.message) },
+    );
   };
 
   const addNewFieldCard = () =>
@@ -194,9 +165,18 @@ export function useFieldEditor({
     setSavingNewCardId(draftId);
     savingNewCardIdRef.current = draftId;
     setError("");
-    createFieldMutation.mutate({
-      projectName, version, modelKey: selectedModelKey, modelName: selectedModelName, ...draft.input,
-    });
+    createFieldMutation.mutate(
+      { projectName, version, modelKey: selectedModelKey, modelName: selectedModelName, ...draft.input },
+      {
+        onSuccess: () => {
+          void invalidateFields();
+          const id = savingNewCardIdRef.current;
+          if (id) { setNewFieldDrafts((prev) => prev.filter((d) => d.id !== id)); savingNewCardIdRef.current = ""; }
+          setSavingNewCardId("");
+        },
+        onError: (err) => { setError(err.message); setSavingNewCardId(""); savingNewCardIdRef.current = ""; },
+      },
+    );
   };
 
   return {

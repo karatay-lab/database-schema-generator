@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useTRPC } from "@/trpc/client";
+import { useTablesQuery } from "@/queries/tables";
+import { useFieldsQuery } from "@/queries/fields";
+import { useZodSchemasQuery, useZodFileQuery, useZodMutations } from "@/queries/schema";
 import { classNames } from "@/lib/utils";
 import { fieldTypeBadgeClass } from "@/lib/badge-utils";
 import { useProjectInfo } from "../shared/project-info-context";
@@ -18,8 +19,6 @@ import { EmptyState, InlineError, LoadingCard } from "@/components/built";
 export function ValidationPageContent() {
   const { projectName, version: selectedVersion, hasProject } = useProjectInfo();
   const version = selectedVersion;
-  const trpc = useTRPC();
-  const queryClient = useQueryClient();
   const router = useRouter();
   const searchParams = useSearchParams();
   const generatorRef = useRef<HTMLElement>(null);
@@ -33,12 +32,7 @@ export function ValidationPageContent() {
   const [tablePage, setTablePage] = useState(1);
   const TABLE_PAGE_SIZE = 9;
 
-  const tablesQuery = useQuery(
-    trpc.tables.list.queryOptions(
-      { projectName, version },
-      { enabled: !!projectName && !!version },
-    ),
-  );
+  const tablesQuery = useTablesQuery(projectName, version);
   const models: PrismaModel[] = (tablesQuery.data ?? []) as PrismaModel[];
 
   const [selectedFieldKeys, setSelectedFieldKeys] = useState<Set<string>>(new Set());
@@ -53,12 +47,7 @@ export function ValidationPageContent() {
   );
   const selectedModelKey = selectedModel?.key ?? "";
 
-  const fieldsQuery = useQuery(
-    trpc.fields.list.queryOptions(
-      { projectName, version, modelName: selectedModelName, modelKey: selectedModelKey },
-      { enabled: !!selectedModelName },
-    ),
-  );
+  const fieldsQuery = useFieldsQuery(projectName, version, selectedModelName, selectedModelKey);
   const fields: PrismaField[] = fieldsQuery.data?.fields ?? [];
   const enumTypes: string[] = fieldsQuery.data?.enumTypes ?? [];
 
@@ -88,12 +77,7 @@ export function ValidationPageContent() {
     typeof window !== "undefined" ? (localStorage.getItem("zod-default-path") ?? "") : ""
   );
 
-  const listZodQuery = useQuery(
-    trpc.schema.listZodFiles.queryOptions(
-      { projectName, version },
-      { enabled: !!projectName && !!version },
-    ),
-  );
+  const listZodQuery = useZodSchemasQuery(projectName, version);
   const zodSchemas = listZodQuery.data ?? [];
 
   // Respects dismiss — used for banner + row blink
@@ -118,12 +102,7 @@ export function ValidationPageContent() {
     [selectionHash, zodSchemas, selectedModelName, editingSchemaId],
   );
 
-  const readFileQuery = useQuery(
-    trpc.schema.readZodFile.queryOptions(
-      { id: viewingSchemaId ?? 0 },
-      { enabled: viewingSchemaId !== null },
-    ),
-  );
+  const readFileQuery = useZodFileQuery(viewingSchemaId);
 
   useEffect(() => {
     setTablePage(1);
@@ -286,70 +265,35 @@ export function ValidationPageContent() {
     setGenerateError("");
   };
 
-  const setPathMutation = useMutation({
-    ...trpc.schema.setZodFilePath.mutationOptions(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: trpc.schema.listZodFiles.queryKey({ projectName, version }) });
-    },
-  });
+  const {
+    invalidate: invalidateZodSchemas,
+    setPath: setPathMutation,
+    rename: renameMutation,
+    delete: deleteMutation,
+    clear: clearMutation,
+    generate: generateMutation,
+  } = useZodMutations(projectName, version);
 
-  const renameMutation = useMutation({
-    ...trpc.schema.renameZodSchema.mutationOptions(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: trpc.schema.listZodFiles.queryKey({ projectName, version }) });
-    },
-  });
-
-  const deleteMutation = useMutation({
-    ...trpc.schema.deleteZodFile.mutationOptions(),
-    onSuccess: (_, vars) => {
-      queryClient.invalidateQueries({ queryKey: trpc.schema.listZodFiles.queryKey({ projectName, version }) });
-      if (editingSchemaId === vars.id) setEditingSchemaId(null);
-      if (viewingSchemaId === vars.id) setViewingSchemaId(null);
-    },
-  });
-
-  const clearMutation = useMutation({
-    ...trpc.schema.clearZodFiles.mutationOptions(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: trpc.schema.listZodFiles.queryKey({ projectName, version }) });
-      setClearConfirmOpen(false);
-      setClearConfirmInput("");
-    },
-  });
-
-  const generateMutation = useMutation({
-    ...trpc.schema.generateZod.mutationOptions(),
-    onSuccess: (data) => {
-      const d = data as GenerateResponse | undefined;
-      const existingSchema = editingSchemaId ? zodSchemas.find((s) => s.id === editingSchemaId) : null;
-      setDialogCode(d?.code ?? "");
-      setDialogFilePath("");
-      setDialogSchemaCount(d?.schemaCount ?? 0);
-      setDialogEnumCount(d?.enumCount ?? 0);
-      setDialogWarnings(d?.warnings ?? []);
-      setDialogSchemaName(existingSchema?.schemaName ?? selectedModelName);
-      setDialogModelName(selectedModelName);
-      setDialogDate(new Date().toISOString().slice(0, 10));
-      setViewingSchemaId(null);
-      setEditingSchemaId(null);
-      setDialogOpen(true);
-      queryClient.invalidateQueries({ queryKey: trpc.schema.listZodFiles.queryKey({ projectName, version }) });
-    },
-    onError: (err) => setGenerateError(err.message),
-  });
 
   const handleConvert = () => {
     if (selectedFieldKeys.size === 0) { setGenerateError("Select at least one field."); return; }
     setGenerateError("");
-    generateMutation.mutate({
-      projectName, version,
-      modelName: selectedModelName,
-      modelKey: selectedModelKey,
-      selectedFieldKeys: Array.from(selectedFieldKeys),
-      schemaId: editingSchemaId ?? undefined,
-      defaultPath: editingSchemaId ? undefined : (defaultPath.trim() || undefined),
-    });
+    generateMutation.mutate(
+      { projectName, version, modelName: selectedModelName, modelKey: selectedModelKey, selectedFieldKeys: Array.from(selectedFieldKeys), schemaId: editingSchemaId ?? undefined, defaultPath: editingSchemaId ? undefined : (defaultPath.trim() || undefined) },
+      {
+        onSuccess: (data) => {
+          const d = data as GenerateResponse | undefined;
+          const existingSchema = editingSchemaId ? zodSchemas.find((s) => s.id === editingSchemaId) : null;
+          setDialogCode(d?.code ?? ""); setDialogFilePath(""); setDialogSchemaCount(d?.schemaCount ?? 0);
+          setDialogEnumCount(d?.enumCount ?? 0); setDialogWarnings(d?.warnings ?? []);
+          setDialogSchemaName(existingSchema?.schemaName ?? selectedModelName);
+          setDialogModelName(selectedModelName); setDialogDate(new Date().toISOString().slice(0, 10));
+          setViewingSchemaId(null); setEditingSchemaId(null); setDialogOpen(true);
+          void invalidateZodSchemas();
+        },
+        onError: (err) => setGenerateError(err.message),
+      },
+    );
   };
 
   const handleCopy = async () => {
@@ -535,7 +479,7 @@ export function ValidationPageContent() {
                         <button
                           type="button"
                           title="Delete this schema"
-                          onClick={() => deleteMutation.mutate({ id: schema.id })}
+                          onClick={() => deleteMutation.mutate({ id: schema.id }, { onSuccess: (_, vars) => { void invalidateZodSchemas(); if (editingSchemaId === vars.id) setEditingSchemaId(null); if (viewingSchemaId === vars.id) setViewingSchemaId(null); } })}
                           disabled={deleteMutation.isPending}
                           className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 disabled:cursor-wait"
                         >
@@ -593,8 +537,8 @@ export function ValidationPageContent() {
                             onClick={() => {
                               const name = editingName.trim() || schema.modelName;
                               const targetPath = editingPath.trim() || null;
-                              if (name !== schema.schemaName) renameMutation.mutate({ id: schema.id, schemaName: name });
-                              if (targetPath !== schema.targetPath) setPathMutation.mutate({ id: schema.id, targetPath });
+                              if (name !== schema.schemaName) renameMutation.mutate({ id: schema.id, schemaName: name }, { onSuccess: () => void invalidateZodSchemas() });
+                              if (targetPath !== schema.targetPath) setPathMutation.mutate({ id: schema.id, targetPath }, { onSuccess: () => void invalidateZodSchemas() });
                               setEditingId(null);
                             }}
                             disabled={setPathMutation.isPending || renameMutation.isPending}
@@ -638,7 +582,7 @@ export function ValidationPageContent() {
                 onChange={(e) => setClearConfirmInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && clearConfirmInput === projectName) {
-                    clearMutation.mutate({ projectName, version });
+                    clearMutation.mutate({ projectName, version }, { onSuccess: () => { void invalidateZodSchemas(); setClearConfirmOpen(false); setClearConfirmInput(""); } });
                   }
                 }}
                 placeholder={projectName}

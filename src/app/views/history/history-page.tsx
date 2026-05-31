@@ -1,7 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { useTRPC } from "@/trpc/client";
+import { useHistoryQuery } from "@/queries/history";
 import { classNames } from "@/lib/utils";
 import { useDashboard } from "../shared/dashboard-context";
 import { useProjectInfo } from "../shared/project-info-context";
@@ -12,14 +11,7 @@ import { StatBadge } from "@/components/history/stat-badge";
 export function HistoryPageContent() {
   const { setSelectedVersion } = useDashboard();
   const { projectId: activeProjectId, projectName, version: selectedVersion, hasProject } = useProjectInfo();
-  const trpc = useTRPC();
-
-  const historyQuery = useQuery(
-    trpc.history.list.queryOptions(
-      { projectId: activeProjectId },
-      { enabled: !!activeProjectId },
-    ),
-  );
+  const historyQuery = useHistoryQuery(activeProjectId);
   const versions: VersionHistory[] = (historyQuery.data?.versions ?? []) as VersionHistory[];
 
   if (!hasProject) {

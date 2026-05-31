@@ -4,8 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useTRPC } from "@/trpc/client";
+import { useProjectsQuery, useProjectMutations } from "@/queries/projects";
 import { useDashboard, useActiveProject } from "../shared/dashboard-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -74,9 +73,7 @@ function incrementVersion(version: string): string {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function ProjectsPageContent() {
-  const trpc = useTRPC();
-  const queryClient = useQueryClient();
-  const { data: projects = [] } = useQuery(trpc.projects.list.queryOptions());
+  const { data: projects = [] } = useProjectsQuery();
   const activeProject = useActiveProject();
   const { activeProjectId, selectedVersion, setActiveProjectId, setSelectedVersion } = useDashboard();
   const activeVersions = activeProject?.versions.map((v) => v.name) ?? [];
@@ -103,34 +100,8 @@ export function ProjectsPageContent() {
 
   // ── Mutations ──────────────────────────────────────────────────────────────
 
-  const invalidateProjects = () =>
-    queryClient.invalidateQueries({ queryKey: trpc.projects.list.queryOptions().queryKey });
-
-  const createMutation = useMutation({
-    ...trpc.projects.create.mutationOptions(),
-    onSuccess: (project) => {
-      void invalidateProjects();
-      if (project) setActiveProjectId(project.id);
-    },
-  });
-
-  const updateMutation = useMutation({
-    ...trpc.projects.update.mutationOptions(),
-    onSuccess: () => { void invalidateProjects(); },
-  });
-
-  const deleteMutation = useMutation({
-    ...trpc.projects.delete.mutationOptions(),
-    onSuccess: () => { void invalidateProjects(); },
-  });
-
-  const forkMutation = useMutation({
-    ...trpc.projects.forkVersion.mutationOptions(),
-    onSuccess: (result) => {
-      void invalidateProjects();
-      if (result) setSelectedVersion(result.newVersion);
-    },
-  });
+  const { invalidate: invalidateProjects, create: createMutation, update: updateMutation, delete: deleteMutation, fork: forkMutation } =
+    useProjectMutations();
 
   // ── State ──────────────────────────────────────────────────────────────────
 
@@ -163,7 +134,7 @@ export function ProjectsPageContent() {
         schemaOptions: { client: data.client, graphql: data.graphql },
       },
       {
-        onSuccess: () => createForm.reset(),
+        onSuccess: (project) => { void invalidateProjects(); if (project) setActiveProjectId(project.id); createForm.reset(); },
         onError: (err) => createForm.setError("root", { message: err.message }),
       },
     );
@@ -197,7 +168,7 @@ export function ProjectsPageContent() {
         schemaOptions: { client: data.client, graphql: data.graphql },
       },
       {
-        onSuccess: () => { setSavingProjectId(null); cancelProjectEdit(); },
+        onSuccess: () => { void invalidateProjects(); setSavingProjectId(null); cancelProjectEdit(); },
         onError: (err) => { setSavingProjectId(null); editForm.setError("root", { message: err.message }); },
       },
     );
@@ -214,6 +185,7 @@ export function ProjectsPageContent() {
       { id: deleteTarget.id },
       {
         onSuccess: (remaining) => {
+          void invalidateProjects();
           closeDeleteDialog();
           if (wasActive) router.push(remaining && remaining.length > 0 ? "/projects" : "/");
         },
@@ -536,7 +508,7 @@ export function ProjectsPageContent() {
             <Button variant="outline" onClick={() => setShowForkConfirm(false)}>Cancel</Button>
             <Button disabled={forkingVersion} onClick={() => {
               setForkError(""); setShowForkConfirm(false);
-              forkMutation.mutate({ projectId: activeProjectId }, { onError: (err) => setForkError(err.message ?? "Could not create version.") });
+              forkMutation.mutate({ projectId: activeProjectId }, { onSuccess: (result) => { void invalidateProjects(); if (result) setSelectedVersion(result.newVersion); }, onError: (err) => setForkError(err.message ?? "Could not create version.") });
             }}>
               {forkingVersion ? "Creating…" : "Confirm"}
             </Button>

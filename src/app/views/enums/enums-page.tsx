@@ -2,9 +2,8 @@
 
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { IconPencil, IconTrash } from "@tabler/icons-react";
-import { useTRPC } from "@/trpc/client";
+import { useEnumsQuery, useEnumMutations } from "@/queries/enums";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useVersionDiff, useVersionDiffLookup } from "@/hooks/use-version-diff";
 import { useSchemaWarnings } from "@/hooks/use-schema-warnings";
@@ -17,8 +16,6 @@ import { EmptyState, LoadingCard } from "@/components/built";
 export function EnumsPageContent() {
   const { projectName, version, versions, provider, hasProject, projectId } = useProjectInfo();
   const isSQLite = provider === "SQLite";
-  const trpc = useTRPC();
-  const queryClient = useQueryClient();
   const versionIdx = versions.indexOf(version);
   const previousVersion = versionIdx > 0 ? versions[versionIdx - 1]! : "";
   const { getWarning, approve, unapprove } = useSchemaWarnings(projectId, previousVersion, version);
@@ -32,37 +29,21 @@ export function EnumsPageContent() {
   const { data: versionDiff } = useVersionDiff(projectName, version);
   const { diffByEnumId } = useVersionDiffLookup(projectName, version);
 
-  const listQuery = useQuery(
-    trpc.enums.list.queryOptions(
-      { projectName, version },
-      { enabled: !!projectName && !!version },
-    ),
-  );
+  const listQuery = useEnumsQuery(projectName, version);
   const enums: CanonicalEnum[] = listQuery.data ?? [];
-
-  const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: trpc.enums.list.queryOptions({ projectName, version }).queryKey });
-
-  const createMutation = useMutation({
-    ...trpc.enums.create.mutationOptions(),
-    onSuccess: () => {
-      void invalidate();
-      setEnumName("");
-      setCreateError("");
-    },
-    onError: (err) => setCreateError(err.message),
-  });
-
-  const deleteMutation = useMutation({
-    ...trpc.enums.delete.mutationOptions(),
-    onSuccess: () => { void invalidate(); setConfirmDeleteName(""); },
-  });
+  const { invalidate, create: createMutation, delete: deleteMutation } = useEnumMutations(projectName, version);
 
   const submitCreate = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const err = validateEnumName(enumName);
     if (err) { setCreateError(err); return; }
-    createMutation.mutate({ projectName, version, name: enumName.trim() });
+    createMutation.mutate(
+      { projectName, version, name: enumName.trim() },
+      {
+        onSuccess: () => { void invalidate(); setEnumName(""); setCreateError(""); },
+        onError: (err) => setCreateError(err.message),
+      },
+    );
   };
 
   const editingEnumLive = editingEnum
@@ -390,7 +371,7 @@ export function EnumsPageContent() {
               </button>
               <button
                 type="button"
-                onClick={() => deleteMutation.mutate({ projectName, version, name: confirmDeleteName })}
+                onClick={() => deleteMutation.mutate({ projectName, version, name: confirmDeleteName }, { onSuccess: () => { void invalidate(); setConfirmDeleteName(""); } })}
                 disabled={deleteMutation.isPending}
                 className="h-9 rounded-md bg-rose-600 px-4 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
