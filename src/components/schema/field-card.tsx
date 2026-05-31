@@ -1,6 +1,6 @@
 "use client";
 
-import { IconCheck, IconTrash } from "@tabler/icons-react";
+import { IconAlertCircle, IconCheck, IconTrash } from "@tabler/icons-react";
 import { classNames } from "@/lib/utils";
 import { typeSelectClass } from "@/constants/schema";
 import type { PrismaField, PrismaFieldInput } from "@/lib/schema-store";
@@ -154,42 +154,38 @@ export function FieldCard({
         </div>
       </div>
 
-      {/* Compact warning strip — always visible, full message on hover */}
+      {/* Alert badge anchored to top-left corner of the card */}
       {fieldDiff && (
-        <div className="relative mt-2 pt-2 border-t border-current/10">
+        <div className="pointer-events-none absolute -left-2.5 -top-2.5 z-20">
+          {/* Badge */}
           <div className={classNames(
-            "flex items-center gap-1.5 text-[10px] font-semibold",
-            fieldDiff.severity === "breaking" ? "text-rose-600"
-            : fieldDiff.severity === "warning" ? "text-amber-600"
-            : "text-sky-600",
+            "pointer-events-auto flex h-6 w-6 items-center justify-center rounded-full shadow-md ring-2 ring-white",
+            fieldDiff.severity === "breaking" ? "bg-rose-500" : fieldDiff.severity === "warning" ? "bg-amber-400" : "bg-sky-400",
           )}>
-            <span>{fieldDiff.severity === "breaking" ? "●" : "○"}</span>
-            <span className="truncate">{fieldDiff.message}</span>
-            {fieldDiff.from && fieldDiff.to && (
-              <span className="ml-auto shrink-0 font-mono text-[10px] opacity-60">
-                {fieldDiff.from} → {fieldDiff.to}
-              </span>
-            )}
+            <IconAlertCircle size={14} stroke={2.5} className="text-white" />
           </div>
 
-          {/* Full tooltip shown above card on hover */}
-          <div className="pointer-events-none absolute inset-x-0 bottom-full z-30 mb-2 opacity-0 transition-opacity duration-150 group-hover/fc:opacity-100">
+          {/* Tooltip — appears below-right of the badge on group-hover */}
+          <div className="pointer-events-none absolute left-0 top-full z-30 mt-2 w-64 opacity-0 transition-opacity duration-150 group-hover/fc:opacity-100">
             <div className={classNames(
-              "rounded-lg border px-3 py-2.5 text-xs shadow-lg",
+              "rounded-xl border px-3.5 py-3 text-xs shadow-xl",
               fieldDiff.severity === "breaking"
                 ? "border-rose-200 bg-white text-rose-700"
                 : fieldDiff.severity === "warning"
                   ? "border-amber-200 bg-white text-amber-700"
                   : "border-sky-200 bg-white text-sky-700",
             )}>
-              <p className="font-semibold">{fieldDiff.message}</p>
+              <p className="text-[11px] font-bold uppercase tracking-wide opacity-50">
+                {fieldDiff.severity === "breaking" ? "Breaking Change" : fieldDiff.severity === "warning" ? "Warning" : "Info"}
+              </p>
+              <p className="mt-1 font-semibold leading-snug">{fieldDiff.message}</p>
               {fieldDiff.from && fieldDiff.to && (
-                <p className="mt-0.5 font-mono text-[10px] opacity-75">
+                <p className="mt-1.5 font-mono text-[11px] opacity-60">
                   {fieldDiff.from} → {fieldDiff.to}
                 </p>
               )}
               {fieldDiff.cascade.length > 0 && (
-                <p className="mt-1 text-[10px] opacity-70">
+                <p className="mt-1 text-[11px] opacity-50">
                   {fieldDiff.cascade.length} FK field{fieldDiff.cascade.length > 1 ? "s" : ""} affected
                 </p>
               )}
