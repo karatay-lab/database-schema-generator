@@ -1,13 +1,14 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { TS_KEYWORDS, TS_TYPES, PRISMA_KEYWORDS, PRISMA_TYPES } from "@/constants/exports";
 
-export function highlightCode(code: string, lang: "ts" | "prisma"): React.ReactNode {
+export function highlightCode(code: string, lang: "ts" | "prisma"): ReactNode {
   const keywords = lang === "prisma" ? PRISMA_KEYWORDS : TS_KEYWORDS;
   const types = lang === "prisma" ? PRISMA_TYPES : TS_TYPES;
 
   return code.split("\n").map((line, lineIndex) => {
-    const parts: React.ReactNode[] = [];
+    const parts: ReactNode[] = [];
     const tokens: { start: number; end: number; kind: string; text: string }[] = [];
 
     let match: RegExpExecArray | null;
