@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { IconLink, IconPlus, IconX } from "@tabler/icons-react";
 import { classNames } from "@/lib/utils";
 import { Card, CardHeader, CardBody } from "@/components/built";
-import { StateChip, StepBadge } from "@/components/migrations/phase-state";
+import { StepBadge } from "@/components/migrations/phase-state";
 import { ErrorBox } from "@/components/migrations/error-box";
 import { MigrationLabel as Label, MigrationInput as Input } from "@/components/migrations/migration-form";
 import { shortUuid } from "@/constants/migrations";
@@ -52,6 +53,24 @@ function normaliseProvider(p: string) {
   const lc = p.toLowerCase();
   if (lc === "postgres" || lc === "postgresql") return "postgresql";
   return lc;
+}
+
+// ─── Status pill (replaces StateChip in the card header) ─────────────────────
+
+function StatusPill({ state }: { state: PhaseState }) {
+  const map: Record<PhaseState, { dot: string; text: string; cls: string }> = {
+    idle:    { dot: "bg-slate-300",    text: "Pending", cls: "bg-slate-50 text-slate-500 ring-slate-200"   },
+    loading: { dot: "bg-amber-400 animate-pulse", text: "Connecting…", cls: "bg-amber-50 text-amber-700 ring-amber-200" },
+    success: { dot: "bg-emerald-500",  text: "Connected", cls: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
+    error:   { dot: "bg-rose-500",     text: "Failed",  cls: "bg-rose-50 text-rose-600 ring-rose-200"      },
+  };
+  const { dot, text, cls } = map[state];
+  return (
+    <span className={classNames("flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1", cls)}>
+      <span className={classNames("h-1.5 w-1.5 shrink-0 rounded-full", dot)} />
+      {text}
+    </span>
+  );
 }
 
 // ─── New connection form with blur validation ─────────────────────────────────
@@ -178,17 +197,41 @@ export function ConnectionManagementCard({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <StateChip state={connectState} />
-            {activeConnectionId && (
-              <button type="button" onClick={onOpenConnString}
-                className="h-8 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50">
+            {/* Status pill */}
+            <StatusPill state={connectState} />
+
+            {/* Connection String — secondary ghost */}
+            {activeConnectionId && !showNewForm && (
+              <button
+                type="button"
+                onClick={onOpenConnString}
+                className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 active:scale-[0.97]"
+              >
+                <IconLink size={13} stroke={1.8} />
                 Connection String
               </button>
             )}
-            <button type="button" onClick={onToggleNewForm}
-              className="h-8 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50">
-              {showNewForm ? "Cancel" : "+ New Connection"}
-            </button>
+
+            {/* New Connection / Cancel — primary vs ghost-danger */}
+            {showNewForm ? (
+              <button
+                type="button"
+                onClick={onToggleNewForm}
+                className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-500 shadow-sm transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 active:scale-[0.97]"
+              >
+                <IconX size={13} stroke={2} />
+                Cancel
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onToggleNewForm}
+                className="flex h-8 items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-700 active:scale-[0.97]"
+              >
+                <IconPlus size={13} stroke={2.5} />
+                New Connection
+              </button>
+            )}
           </div>
         </div>
       </CardHeader>
