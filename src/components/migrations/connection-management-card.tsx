@@ -282,37 +282,6 @@ export function ConnectionManagementCard({
           </div>
         )}
 
-        {activeConnection && !showNewForm && normaliseProvider(activeConnection.provider) === normaliseProvider(projectProvider) && (
-          <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
-            <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500 ring-2 ring-emerald-100" />
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-sm font-semibold text-emerald-900">{activeConnection.name}</p>
-                <span className={classNames("shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold", (() => {
-                  const lc = activeConnection.provider.toLowerCase();
-                  if (lc === "postgres" || lc === "postgresql") return "border-indigo-200 bg-indigo-50 text-indigo-700";
-                  if (lc === "mysql") return "border-orange-200 bg-orange-50 text-orange-700";
-                  return "border-slate-200 bg-slate-100 text-slate-600";
-                })())}>
-                  {(() => {
-                    const lc = activeConnection.provider.toLowerCase();
-                    if (lc === "postgres" || lc === "postgresql") return "Postgres";
-                    if (lc === "mysql") return "MySQL";
-                    if (lc === "sqlite") return "SQLite";
-                    return activeConnection.provider;
-                  })()}
-                </span>
-              </div>
-              <p className="mt-0.5 font-mono text-[11px] text-emerald-700">
-                {activeConnection.host ? `${activeConnection.host}:${activeConnection.port} / ${activeConnection.database}` : activeConnection.database}
-              </p>
-            </div>
-            <span className="shrink-0 rounded border border-emerald-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-              Connected
-            </span>
-          </div>
-        )}
-
         {remoteTables.length > 0 && (
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Tables in DB ({remoteTables.length})</p>
