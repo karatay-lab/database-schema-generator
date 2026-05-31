@@ -18,6 +18,7 @@ import { RestrictionTypeGuide } from "@/components/restrictions/restriction-type
 import { RestrictionForm } from "@/components/restrictions/restriction-form";
 import { RestrictionCard } from "@/components/restrictions/restriction-card";
 import { TableSelectorModal } from "@/features/table-selector";
+import { EmptyState, InlineError, LoadingCard } from "@/components/built";
 
 const emptyRestrictionDraft: RestrictionDraft = { type: "UNIQUE", fields: [], dbName: "" };
 
@@ -174,17 +175,12 @@ export function RestrictionsPageContent() {
 
         <div className="p-5">
           {!selectedModelName ? (
-            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
-              <p className="text-sm font-medium text-slate-500">Select a table to edit its unique and index restrictions.</p>
-              <button type="button" onClick={() => setIsTableSelectorOpen(true)}
-                className="mt-4 h-10 min-w-44 rounded-md bg-violet-600 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700">
-                Select Table
-              </button>
-            </div>
+            <EmptyState
+              message="Select a table to edit its unique and index restrictions."
+              action={{ label: "Select Table", onClick: () => setIsTableSelectorOpen(true), tone: "violet" }}
+            />
           ) : restrictionsQuery.isLoading ? (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-8 text-center text-sm font-medium text-slate-500">
-              Loading restrictions...
-            </div>
+            <LoadingCard message="Loading restrictions…" />
           ) : (
             <div>
               <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -207,9 +203,7 @@ export function RestrictionsPageContent() {
 
               <RestrictionTypeGuide isOpen={isGuideOpen} onToggle={() => setIsGuideOpen((o) => !o)} />
 
-              {error && (
-                <p className="mb-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{error}</p>
-              )}
+              <InlineError message={error} className="mb-4" />
 
               {isAddingRestriction && (
                 <div className="mb-4 rounded-lg border-2 border-dashed border-violet-300 bg-violet-50/30 p-4">
@@ -228,13 +222,10 @@ export function RestrictionsPageContent() {
               )}
 
               {restrictions.length === 0 && !isAddingRestriction ? (
-                <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
-                  <p className="text-sm font-medium text-slate-500">No unique or index restrictions found for this table.</p>
-                  <button type="button" onClick={() => { resetDraft(); setIsAddingRestriction(true); }}
-                    className="mt-4 h-10 min-w-44 rounded-md bg-violet-600 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700">
-                    Add Restriction
-                  </button>
-                </div>
+                <EmptyState
+                  message="No unique or index restrictions found for this table."
+                  action={{ label: "Add Restriction", onClick: () => { resetDraft(); setIsAddingRestriction(true); }, tone: "violet" }}
+                />
               ) : (
                 <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
                   {restrictions.map((restriction) =>

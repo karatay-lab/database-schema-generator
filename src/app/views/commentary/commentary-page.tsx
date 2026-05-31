@@ -10,6 +10,7 @@ import { useProjectInfo } from "../shared/project-info-context";
 import type { PrismaField, PrismaModel } from "@/lib/schema-store";
 import { displayType } from "@/lib/display-utils";
 import { TableSelectorModal } from "@/features/table-selector";
+import { EmptyState, InlineError, LoadingCard } from "@/components/built";
 
 export function CommentaryPageContent() {
   const { projectName, version, hasProject } = useProjectInfo();
@@ -195,22 +196,12 @@ export function CommentaryPageContent() {
 
         <div className="p-5">
           {!selectedModelName ? (
-            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
-              <p className="text-sm font-medium text-slate-500">
-                Select a table to add GraphQL-style comments to its fields.
-              </p>
-              <button
-                type="button"
-                onClick={() => setIsTableSelectorOpen(true)}
-                className="mt-4 h-10 min-w-44 rounded-md bg-fuchsia-600 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-fuchsia-700"
-              >
-                Select Table
-              </button>
-            </div>
+            <EmptyState
+              message="Select a table to add GraphQL-style comments to its fields."
+              action={{ label: "Select Table", onClick: () => setIsTableSelectorOpen(true), tone: "fuchsia" }}
+            />
           ) : fieldsQuery.isLoading ? (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-8 text-center text-sm font-medium text-slate-500">
-              Loading fields...
-            </div>
+            <LoadingCard message="Loading fields…" />
           ) : (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center gap-4">
@@ -318,11 +309,7 @@ export function CommentaryPageContent() {
                 )}
               </div>
 
-              {saveError && (
-                <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
-                  {saveError}
-                </p>
-              )}
+              <InlineError message={saveError} />
 
               <div className="flex items-center justify-between gap-4">
                 <p className="shrink-0 text-sm font-medium text-slate-500">

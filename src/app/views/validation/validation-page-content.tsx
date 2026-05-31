@@ -13,6 +13,7 @@ import type { GenerateResponse } from "@/types/validation";
 import { displayType } from "@/lib/display-utils";
 import { GeneratedCodeDialog } from "@/components/validation/generated-code-dialog";
 import { TableSelectorModal } from "@/features/table-selector";
+import { EmptyState, InlineError, LoadingCard } from "@/components/built";
 
 export function ValidationPageContent() {
   const { projectName, version: selectedVersion, hasProject } = useProjectInfo();
@@ -429,15 +430,9 @@ export function ValidationPageContent() {
 
         <div className="p-5 space-y-3">
           {listZodQuery.isLoading ? (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-6 text-center text-sm font-medium text-slate-500">
-              Loading...
-            </div>
+            <LoadingCard className="p-6" />
           ) : zodSchemas.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
-              <p className="text-sm font-medium text-slate-500">
-                No schemas generated yet for this version.
-              </p>
-            </div>
+            <EmptyState message="No schemas generated yet for this version." />
           ) : (
             <div className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
               {zodSchemas.filter((s) => !selectedModelName || s.modelName === selectedModelName).map((schema) => {
@@ -702,22 +697,12 @@ export function ValidationPageContent() {
 
         <div className="p-5">
           {!selectedModelName ? (
-            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
-              <p className="text-sm font-medium text-slate-500">
-                Select a table to generate a Zod schema.
-              </p>
-              <button
-                type="button"
-                onClick={() => setIsTableSelectorOpen(true)}
-                className="mt-4 h-10 min-w-44 rounded-md bg-amber-600 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700"
-              >
-                Select Table
-              </button>
-            </div>
+            <EmptyState
+              message="Select a table to generate a Zod schema."
+              action={{ label: "Select Table", onClick: () => setIsTableSelectorOpen(true), tone: "slate" }}
+            />
           ) : fieldsQuery.isLoading ? (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-8 text-center text-sm font-medium text-slate-500">
-              Loading fields...
-            </div>
+            <LoadingCard message="Loading fields…" />
           ) : (
             <div className="space-y-4">
               <div className="flex items-center gap-3">
@@ -849,11 +834,7 @@ export function ValidationPageContent() {
                 </div>
               )}
 
-              {generateError ? (
-                <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
-                  {generateError}
-                </p>
-              ) : null}
+              <InlineError message={generateError} />
 
               {duplicateSchema && (
                 <div className="flex items-start justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">

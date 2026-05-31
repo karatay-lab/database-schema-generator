@@ -10,13 +10,14 @@ export function EmptyState({
 }: {
   message: string;
   description?: string;
-  action?: { label: string; onClick: () => void; tone?: "cyan" | "violet" | "emerald" | "slate" };
+  action?: { label: string; onClick: () => void; tone?: "cyan" | "violet" | "emerald" | "fuchsia" | "slate" };
   className?: string;
 }) {
   const toneClass: Record<string, string> = {
     cyan:    "bg-cyan-600 hover:bg-cyan-700",
     violet:  "bg-violet-600 hover:bg-violet-700",
     emerald: "bg-emerald-600 hover:bg-emerald-700",
+    fuchsia: "bg-fuchsia-600 hover:bg-fuchsia-700",
     slate:   "bg-slate-700 hover:bg-slate-800",
   };
 

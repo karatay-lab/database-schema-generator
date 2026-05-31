@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { IconChevronDown, IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
+import { IconChevronDown } from "@tabler/icons-react";
+import { EmptyState, LoadingCard, Pagination } from "@/components/built";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
 import { classNames } from "@/lib/utils";
@@ -319,22 +320,12 @@ export function RelationsPageContent() {
 
         <div className="p-5">
           {!selectedModelName ? (
-            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
-              <p className="text-sm font-medium text-slate-500">
-                Select a table to inspect its Prisma relations.
-              </p>
-              <button
-                type="button"
-                onClick={() => setIsTableSelectorOpen(true)}
-                className="mt-4 h-10 min-w-44 rounded-md bg-violet-600 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700"
-              >
-                Select Table
-              </button>
-            </div>
+            <EmptyState
+              message="Select a table to inspect its Prisma relations."
+              action={{ label: "Select Table", onClick: () => setIsTableSelectorOpen(true), tone: "violet" }}
+            />
           ) : relationsQuery.isLoading ? (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-8 text-center text-sm font-medium text-slate-500">
-              Loading relations...
-            </div>
+            <LoadingCard message="Loading relations…" />
           ) : (
             <div>
               <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -462,13 +453,15 @@ export function RelationsPageContent() {
                 </div>
 
                 {filteredVisibleRelations.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm font-medium text-slate-500">
-                    {relationTargetFilter || relationKindFilter
-                      ? "No relations found for the selected filters."
-                      : activeRelationTab === "relations"
-                        ? "No owning relations found for this table."
-                        : "No back references yet. Create a relation from another table that targets this one."}
-                  </div>
+                  <EmptyState
+                    message={
+                      relationTargetFilter || relationKindFilter
+                        ? "No relations found for the selected filters."
+                        : activeRelationTab === "relations"
+                          ? "No owning relations found for this table."
+                          : "No back references yet. Create a relation from another table that targets this one."
+                    }
+                  />
                 ) : (
                   <div className="grid gap-3 lg:grid-cols-2">
                     {paginatedRelations.map((relation) => {
@@ -507,31 +500,12 @@ export function RelationsPageContent() {
                   </div>
                 )}
 
-                {visibleRelations.length > relationsPerPage ? (
-                  <div className="mt-4 flex items-center justify-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setRelationPage((page) => Math.max(1, page - 1))}
-                      disabled={safeRelationPage === 1}
-                      className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-violet-200 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <IconChevronLeft size={16} />
-                    </button>
-                    <span className="text-sm font-semibold text-slate-600">
-                      {safeRelationPage} / {relationPageCount}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setRelationPage((page) => Math.min(relationPageCount, page + 1))
-                      }
-                      disabled={safeRelationPage === relationPageCount}
-                      className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-violet-200 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <IconChevronRight size={16} />
-                    </button>
-                  </div>
-                ) : null}
+                <Pagination
+                  page={safeRelationPage}
+                  pageCount={relationPageCount}
+                  onPageChange={setRelationPage}
+                  className="mt-4"
+                />
             </div>
           )}
         </div>

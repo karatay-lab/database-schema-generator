@@ -9,7 +9,7 @@ import { useVersionDiffLookup } from "@/hooks/use-version-diff";
 import { useSchemaWarnings } from "@/hooks/use-schema-warnings";
 import { VersionDiffBadge } from "@/components/shared/version-diff-badge";
 import { classNames } from "@/lib/utils";
-import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
+import { EmptyState, InlineError, LoadingCard, Pagination } from "@/components/built";
 import type { FieldDiff } from "@/lib/version-diff/detect-changes";
 import type {
   PrismaField,
@@ -437,22 +437,12 @@ export function SchemaPageContent() {
 
         <div className="p-5">
           {!selectedModelName ? (
-            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
-              <p className="text-sm font-medium text-slate-500">
-                Select a table to edit its fields.
-              </p>
-              <button
-                type="button"
-                onClick={() => setIsTableSelectorOpen(true)}
-                className="mt-4 h-10 min-w-44 rounded-md bg-cyan-600 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-cyan-700"
-              >
-                Select Table
-              </button>
-            </div>
+            <EmptyState
+              message="Select a table to edit its fields."
+              action={{ label: "Select Table", onClick: () => setIsTableSelectorOpen(true), tone: "cyan" }}
+            />
           ) : fieldsQuery.isLoading ? (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-8 text-center text-sm font-medium text-slate-500">
-              Loading fields...
-            </div>
+            <LoadingCard message="Loading fields…" />
           ) : (
             <div className="space-y-5">
               <div>
@@ -514,13 +504,9 @@ export function SchemaPageContent() {
                   {isFieldLegendOpen ? <FieldLegend /> : null}
 
                   {editableFields.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm font-medium text-slate-500">
-                      No editable scalar fields found.
-                    </div>
+                    <EmptyState message="No editable scalar fields found." />
                   ) : filteredFields.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm font-medium text-slate-500">
-                      No fields match the selected type filter.
-                    </div>
+                    <EmptyState message="No fields match the selected type filter." />
                   ) : (
                     <div className="space-y-4">
                       {newFieldDrafts.length > 0 ? (
@@ -579,29 +565,11 @@ export function SchemaPageContent() {
                           );
                         })}
                       </div>
-                      {fieldPageCount > 1 ? (
-                        <div className="flex items-center justify-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setFieldPage((page) => Math.max(1, page - 1))}
-                            disabled={fieldPage === 1}
-                            className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-cyan-200 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            <IconChevronLeft size={15} stroke={2} />
-                          </button>
-                          <span className="text-sm font-semibold text-slate-600">
-                            {fieldPage} / {fieldPageCount}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setFieldPage((page) => Math.min(fieldPageCount, page + 1))}
-                            disabled={fieldPage === fieldPageCount}
-                            className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-cyan-200 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            <IconChevronRight size={15} stroke={2} />
-                          </button>
-                        </div>
-                      ) : null}
+                      <Pagination
+                        page={fieldPage}
+                        pageCount={fieldPageCount}
+                        onPageChange={setFieldPage}
+                      />
                     </div>
                   )}
               </div>
@@ -615,11 +583,7 @@ export function SchemaPageContent() {
                 onRestore={restoreRemovedField}
               />
 
-              {error ? (
-                <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
-                  {error}
-                </p>
-              ) : null}
+              <InlineError message={error} />
             </div>
           )}
         </div>

@@ -24,6 +24,7 @@ import {
   generateDelete,
 } from "@/lib/sql-query/generators";
 import { TableSelectorModal } from "@/features/table-selector";
+import { EmptyState, InlineError } from "@/components/built";
 
 export function SqlQueryPageContent() {
   const { projectName, version, hasProject } = useProjectInfo();
@@ -395,9 +396,7 @@ export function SqlQueryPageContent() {
 
           <div className="p-5">
             {queryResult.kind === "error" && (
-              <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3">
-                <p className="font-mono text-sm text-rose-700">{queryResult.error}</p>
-              </div>
+              <InlineError message={queryResult.error} mono />
             )}
 
             {queryResult.kind === "mutation" && (
@@ -431,9 +430,7 @@ export function SqlQueryPageContent() {
                 </div>
 
                 {queryResult.rowCount === 0 ? (
-                  <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-sm font-medium text-slate-500">
-                    Query returned no rows.
-                  </div>
+                  <EmptyState message="Query returned no rows." className="px-4 py-6" />
                 ) : (
                   <div className="overflow-x-auto rounded-md border border-slate-200">
                     <table className="min-w-full">

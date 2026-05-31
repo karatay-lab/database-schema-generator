@@ -12,6 +12,7 @@ import { VersionDiffBadge, ApproveWarningButton } from "@/components/shared/vers
 import { EnumValueReplacementPicker } from "@/components/shared/enum-value-replacement-picker";
 import { EnumEditPanel, type CanonicalEnum } from "@/components/enums/enum-edit-panel";
 import { validateEnumName } from "@/constants/enums";
+import { EmptyState, LoadingCard } from "@/components/built";
 
 export function EnumsPageContent() {
   const { projectName, version, versions, provider, hasProject, projectId } = useProjectInfo();
@@ -188,7 +189,7 @@ export function EnumsPageContent() {
 
           <div className="p-5">
             {listQuery.isLoading ? (
-              <div className="py-8 text-center text-sm text-slate-500">Loading…</div>
+              <LoadingCard bordered={false} />
             ) : editingEnumLive ? (
               <EnumEditPanel
                 enumEntry={editingEnumLive}
@@ -197,9 +198,7 @@ export function EnumsPageContent() {
                 onDone={() => setEditingEnum(null)}
               />
             ) : enums.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
-                No enums yet. Add your first enum using the form.
-              </div>
+              <EmptyState message="No enums yet. Add your first enum using the form." />
             ) : (
               <>
                 <div className="mb-4">
@@ -240,9 +239,7 @@ export function EnumsPageContent() {
                 )}
 
                 {filteredEnums.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">
-                    No enums match your search.
-                  </div>
+                  <EmptyState message="No enums match your search." />
                 ) : (
                   <div className="grid gap-3 sm:grid-cols-2">
                     {filteredEnums.map((enumEntry) => {

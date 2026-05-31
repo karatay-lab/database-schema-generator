@@ -47,6 +47,7 @@ import { DatabaseIcon } from "@/components/projects/project-icons";
 import { ProjectCard } from "@/components/projects/project-card";
 import { classNames } from "@/lib/utils";
 import type { Project } from "@/types/projects";
+import { InlineError } from "@/components/built";
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -506,9 +507,7 @@ export function ProjectsPageContent() {
                   )}
                 </div>
                 <Separator className="my-4" />
-                {forkError && (
-                  <p className="mb-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{forkError}</p>
-                )}
+                <InlineError message={forkError} className="mb-3 text-xs" />
                 <Button
                   disabled={forkingVersion || activeVersions.length === 0}
                   onClick={() => { setForkError(""); setShowForkConfirm(true); }}

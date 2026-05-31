@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { IconCopy, IconCheck, IconX, IconDownload, IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
+import { IconCopy, IconCheck, IconX, IconDownload } from "@tabler/icons-react";
+import { InlineError, Pagination } from "@/components/built";
 import { useTRPC } from "@/trpc/client";
 import { classNames } from "@/lib/utils";
 import { useProjectInfo } from "../shared/project-info-context";
@@ -279,27 +280,11 @@ export function ExportsPageContent() {
                 <p className="text-xs text-slate-500">
                   {exportHistory.length} {exportHistory.length === 1 ? "export" : "exports"} total
                 </p>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setHistoryPage((p) => Math.max(0, p - 1))}
-                    disabled={safePage === 0}
-                    className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 text-slate-500 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    <IconChevronLeft size={14} />
-                  </button>
-                  <span className="min-w-[3rem] text-center text-xs font-semibold text-slate-700">
-                    {safePage + 1} / {totalPages}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setHistoryPage((p) => Math.min(totalPages - 1, p + 1))}
-                    disabled={safePage === totalPages - 1}
-                    className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 text-slate-500 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    <IconChevronRight size={14} />
-                  </button>
-                </div>
+                <Pagination
+                  page={safePage + 1}
+                  pageCount={totalPages}
+                  onPageChange={(p) => setHistoryPage(p - 1)}
+                />
               </div>
             ) : null}
           </div>
@@ -386,11 +371,7 @@ export function ExportsPageContent() {
             })}
           </div>
 
-          {exportError ? (
-            <p className="mt-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
-              {exportError}
-            </p>
-          ) : null}
+          <InlineError message={exportError} className="mt-4" />
         </div>
       </section>
 

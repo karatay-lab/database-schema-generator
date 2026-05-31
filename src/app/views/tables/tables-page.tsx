@@ -26,6 +26,7 @@ import { AddTableForm } from "@/components/tables/add-table-form";
 import { EditTablePanel } from "@/components/tables/edit-table-panel";
 import { TablesGrid } from "@/components/tables/tables-grid";
 import { TableHelpDialog } from "@/components/tables/table-help-dialog";
+import { EmptyState, LoadingCard } from "@/components/built";
 
 export function TablesPageContent() {
   const { projectName, version, versions, provider, hasProject, projectId } = useProjectInfo();
@@ -194,11 +195,9 @@ export function TablesPageContent() {
 
           <div className="p-5">
             {listQuery.isLoading ? (
-              <div className="py-8 text-center text-slate-500">Loading...</div>
+              <LoadingCard bordered={false} />
             ) : models.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
-                No tables yet. Add your first table above.
-              </div>
+              <EmptyState message="No tables yet. Add your first table above." />
             ) : isEditing && selectedModel ? (
               <EditTablePanel
                 editModelName={editModelName}
