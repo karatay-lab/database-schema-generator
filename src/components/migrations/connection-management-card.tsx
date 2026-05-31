@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { classNames } from "@/lib/utils";
 import { Card, CardHeader, CardBody } from "@/components/built";
 import { StateChip, StepBadge } from "@/components/migrations/phase-state";
@@ -51,6 +52,108 @@ function normaliseProvider(p: string) {
   const lc = p.toLowerCase();
   if (lc === "postgres" || lc === "postgresql") return "postgresql";
   return lc;
+}
+
+// ─── New connection form with blur validation ─────────────────────────────────
+
+function NewConnectionForm({
+  connectionName, connections, host, port, dbUser, password, database, isSQLite,
+  connectState, connectError,
+  onConnectionNameChange, onHostChange, onPortChange, onDbUserChange,
+  onPasswordChange, onDatabaseChange, onConnect,
+}: {
+  connectionName: string;
+  connections: ConnectionRecord[];
+  host: string; port: string; dbUser: string; password: string; database: string;
+  isSQLite: boolean;
+  connectState: PhaseState;
+  connectError: string;
+  onConnectionNameChange: (v: string) => void;
+  onHostChange: (v: string) => void;
+  onPortChange: (v: string) => void;
+  onDbUserChange: (v: string) => void;
+  onPasswordChange: (v: string) => void;
+  onDatabaseChange: (v: string) => void;
+  onConnect: () => void;
+}) {
+  const [nameHint, setNameHint] = useState<{ kind: "info" | "warning"; msg: string } | null>(null);
+
+  const handleNameBlur = () => {
+    const trimmed = connectionName.trim();
+    if (!trimmed) {
+      const autoName = isSQLite ? database || "SQLite DB" : `${host || "host"}:${port || "port"} / ${database || "db"}`;
+      setNameHint({ kind: "info", msg: `Will be saved as "${autoName}" if left blank.` });
+      return;
+    }
+    const duplicate = connections.some((c) => c.name.trim().toLowerCase() === trimmed.toLowerCase());
+    if (duplicate) {
+      setNameHint({ kind: "warning", msg: `A connection named "${trimmed}" already exists.` });
+    } else {
+      setNameHint(null);
+    }
+  };
+
+  return (
+    <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">New Connection</p>
+
+      <div className="flex flex-col gap-1">
+        <Label>Connection Name</Label>
+        <Input
+          value={connectionName}
+          onChange={(v) => { onConnectionNameChange(v); setNameHint(null); }}
+          onBlur={handleNameBlur}
+          placeholder="e.g. Production DB"
+        />
+        {nameHint && (
+          <p className={classNames("text-[11px] font-medium",
+            nameHint.kind === "warning" ? "text-amber-600" : "text-slate-400")}>
+            {nameHint.kind === "warning" ? "⚠ " : "ℹ "}{nameHint.msg}
+          </p>
+        )}
+      </div>
+
+      {isSQLite ? (
+        <div className="flex flex-col gap-1">
+          <Label>SQLite File Path</Label>
+          <Input value={database} onChange={onDatabaseChange} placeholder="./path/to/database.db" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="col-span-2 flex flex-col gap-1 lg:col-span-2">
+            <Label>Host / IP</Label>
+            <Input value={host} onChange={onHostChange} placeholder="localhost" />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label>Port</Label>
+            <Input value={port} onChange={onPortChange} placeholder="5432" />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label>Username</Label>
+            <Input value={dbUser} onChange={onDbUserChange} placeholder="postgres" />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label>Password</Label>
+            <Input value={password} onChange={onPasswordChange} type="password" placeholder="••••••••" />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label>Database</Label>
+            <Input value={database} onChange={onDatabaseChange} placeholder="mydb" />
+          </div>
+        </div>
+      )}
+
+      {connectError && <ErrorBox message={connectError} />}
+
+      <div className="flex justify-end">
+        <button type="button" onClick={onConnect}
+          disabled={connectState === "loading" || nameHint?.kind === "warning" || undefined}
+          className="h-9 min-w-40 rounded-md bg-slate-800 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300">
+          {connectState === "loading" ? "Connecting…" : "Test & Save Connection"}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export function ConnectionManagementCard({
@@ -223,50 +326,25 @@ export function ConnectionManagementCard({
         ) : null}
 
         {showNewForm && (
-          <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">New Connection</p>
-            <div className="flex flex-col gap-1">
-              <Label>Connection Name</Label>
-              <Input value={connectionName} onChange={onConnectionNameChange} placeholder="e.g. Production DB" />
-            </div>
-            {isSQLite ? (
-              <div className="flex flex-col gap-1">
-                <Label>SQLite File Path</Label>
-                <Input value={database} onChange={onDatabaseChange} placeholder="./path/to/database.db" />
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-                <div className="col-span-2 flex flex-col gap-1 lg:col-span-2">
-                  <Label>Host / IP</Label>
-                  <Input value={host} onChange={onHostChange} placeholder="localhost" />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label>Port</Label>
-                  <Input value={port} onChange={onPortChange} placeholder="5432" />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label>Username</Label>
-                  <Input value={dbUser} onChange={onDbUserChange} placeholder="postgres" />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label>Password</Label>
-                  <Input value={password} onChange={onPasswordChange} type="password" placeholder="••••••••" />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label>Database</Label>
-                  <Input value={database} onChange={onDatabaseChange} placeholder="mydb" />
-                </div>
-              </div>
-            )}
-            {connectError && <ErrorBox message={connectError} />}
-            <div className="flex justify-end">
-              <button type="button" onClick={onConnect}
-                disabled={connectState === "loading" || undefined}
-                className="h-9 min-w-40 rounded-md bg-slate-800 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300">
-                {connectState === "loading" ? "Connecting…" : "Test & Save Connection"}
-              </button>
-            </div>
-          </div>
+          <NewConnectionForm
+            connectionName={connectionName}
+            connections={connections}
+            host={host}
+            port={port}
+            dbUser={dbUser}
+            password={password}
+            database={database}
+            isSQLite={isSQLite}
+            connectState={connectState}
+            connectError={connectError}
+            onConnectionNameChange={onConnectionNameChange}
+            onHostChange={onHostChange}
+            onPortChange={onPortChange}
+            onDbUserChange={onDbUserChange}
+            onPasswordChange={onPasswordChange}
+            onDatabaseChange={onDatabaseChange}
+            onConnect={onConnect}
+          />
         )}
 
         {activeConnection && !showNewForm && normaliseProvider(activeConnection.provider) !== normaliseProvider(projectProvider) && (
