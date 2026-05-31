@@ -6,9 +6,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useVersionDiffLookup } from "@/hooks/use-version-diff";
-import { useSchemaWarnings } from "@/hooks/use-schema-warnings";
 import { useFieldEditor } from "@/hooks/use-field-editor";
 import { useFieldTemplates } from "@/hooks/use-field-templates";
+import Link from "next/link";
 import { VersionDiffBadge } from "@/components/shared/version-diff-badge";
 import { classNames } from "@/lib/utils";
 import { EmptyState, InlineError, LoadingCard, Pagination } from "@/components/built";
@@ -27,7 +27,6 @@ export function SchemaPageContent() {
   const { diffByFieldKey, diffByTableKey } = useVersionDiffLookup(projectName, version);
   const versionIdx = versions.indexOf(version);
   const previousVersion = versionIdx > 0 ? versions[versionIdx - 1]! : "";
-  const { getWarning, approve, unapprove } = useSchemaWarnings(projectId, previousVersion, version);
   const activeProject = hasProject;
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -169,7 +168,17 @@ export function SchemaPageContent() {
                         <h4 className="text-lg font-semibold text-slate-950">{selectedModelName}</h4>
                         {(() => {
                           const td = selectedModelKey ? diffByTableKey.get(selectedModelKey) : null;
-                          return td ? <VersionDiffBadge severity={td.severity} title={td.message} /> : null;
+                          return td ? (
+                            <>
+                              <VersionDiffBadge severity={td.severity} title={td.message} />
+                              <Link
+                                href="/tracking?resolve=schema"
+                                className="flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700 transition hover:bg-amber-100"
+                              >
+                                ⚠ Resolve in Tracking →
+                              </Link>
+                            </>
+                          ) : null;
                         })()}
                       </div>
                     </div>
@@ -235,7 +244,6 @@ export function SchemaPageContent() {
                               savingFieldKey={editor.savingFieldKey} deletingFieldKey={editor.deletingFieldKey}
                               getEnumValues={getEnumValues}
                               onUpdateDraft={editor.updateDraft} onSave={editor.saveField} onDelete={editor.deleteField}
-                              getWarning={getWarning} onApprove={approve} onUnapprove={unapprove}
                             />
                           );
                         })}
@@ -248,7 +256,6 @@ export function SchemaPageContent() {
                 <RemovedFieldsSection
                   removedFieldDiffs={removedFieldDiffs}
                   isPending={editor.isCreatingField}
-                  getWarning={getWarning} onApprove={approve} onUnapprove={unapprove}
                   onRestore={editor.restoreRemovedField}
                 />
 

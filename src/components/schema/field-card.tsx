@@ -2,11 +2,10 @@
 
 import { IconCheck, IconTrash } from "@tabler/icons-react";
 import { classNames } from "@/lib/utils";
-import { FieldDiffTooltip, ApproveWarningButton } from "@/components/shared/version-diff-badge";
+import { FieldDiffTooltip } from "@/components/shared/version-diff-badge";
 import { typeSelectClass } from "@/constants/schema";
 import type { PrismaField, PrismaFieldInput } from "@/lib/schema-store";
 import type { FieldDiff } from "@/lib/version-diff/detect-changes";
-import type { SchemaWarning } from "@/lib/schema-warnings-store";
 
 type EnumValue = { valueId: string; name: string };
 
@@ -24,16 +23,12 @@ type FieldCardProps = {
   onUpdateDraft: (fieldKey: string, patch: Partial<PrismaFieldInput>) => void;
   onSave: (field: PrismaField) => void;
   onDelete: (field: PrismaField) => void;
-  getWarning: (kind: "field" | "enum" | "relation" | "table" | "restriction", id: string, changeKind: string) => SchemaWarning | undefined;
-  onApprove: (id: string, rv?: string) => Promise<void>;
-  onUnapprove: (id: string) => Promise<void>;
 };
 
 export function FieldCard({
   field, draft, hasChanges, fieldDiff, cardBorder,
   enumTypes, scalarTypeOptions, savingFieldKey, deletingFieldKey,
   getEnumValues, onUpdateDraft, onSave, onDelete,
-  getWarning, onApprove, onUnapprove,
 }: FieldCardProps) {
   const isEnum = enumTypes.includes(draft.type);
 
@@ -121,16 +116,7 @@ export function FieldCard({
             />
           </label>
 
-          {fieldDiff && (
-            <div className="flex items-start gap-2">
-              <div className="flex-1"><FieldDiffTooltip diff={fieldDiff} /></div>
-              <ApproveWarningButton
-                warning={getWarning("field", fieldDiff.fieldId, fieldDiff.changeKind)}
-                onApprove={onApprove}
-                onUnapprove={onUnapprove}
-              />
-            </div>
-          )}
+          {fieldDiff && <FieldDiffTooltip diff={fieldDiff} />}
         </div>
 
         <div className="flex w-1/5 min-w-0 flex-col gap-1.5">
