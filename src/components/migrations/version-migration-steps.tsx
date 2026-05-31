@@ -102,7 +102,7 @@ export function VersionMigrationSteps({
         <CardHeader>
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <StepBadge n={2} state={modelDiffState} />
+              <StepBadge n={3} state={modelDiffState} />
               <div>
                 <p className="text-sm font-semibold text-slate-950">Schema Change Review</p>
                 <p className="text-xs text-slate-500">Compare schema versions, flag breaking changes, and generate validators to proceed.</p>
@@ -175,7 +175,7 @@ export function VersionMigrationSteps({
         <CardHeader>
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <StepBadge n={3} state={schemaCheckState} />
+              <StepBadge n={4} state={schemaCheckState} />
               <div>
                 <p className="text-sm font-semibold text-slate-950">Validate Schemas</p>
                 <p className="text-xs text-slate-500">Run <code className="font-mono text-[11px]">prisma validate</code> on both schema versions before touching the database.</p>
@@ -232,7 +232,7 @@ export function VersionMigrationSteps({
         <CardHeader>
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <StepBadge n={4} state={collectState} />
+              <StepBadge n={5} state={collectState} />
               <div>
                 <p className="text-sm font-semibold text-slate-950">Collect Data</p>
                 <p className="text-xs text-slate-500">Query all tables from the source database and store a local snapshot.</p>
@@ -310,7 +310,7 @@ export function VersionMigrationSteps({
         <CardHeader>
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <StepBadge n={5} state={migrateState} />
+              <StepBadge n={6} state={migrateState} />
               <div>
                 <p className="text-sm font-semibold text-slate-950">Validate & Migrate</p>
                 <p className="text-xs text-slate-500">Check collected data against both schema versions, then run the migration.</p>

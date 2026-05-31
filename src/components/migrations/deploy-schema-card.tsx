@@ -29,7 +29,7 @@ export function DeploySchemaCard({
       <CardHeader>
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <StepBadge n={2} state={pushState} />
+            <StepBadge n={3} state={pushState} />
             <div>
               <p className="text-sm font-semibold text-slate-950">Deploy Schema</p>
               <p className="text-xs text-slate-500">

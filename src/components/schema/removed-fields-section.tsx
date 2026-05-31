@@ -2,23 +2,15 @@
 
 import { classNames } from "@/lib/utils";
 import { typeBadgeClass } from "@/constants/schema";
-import { ApproveWarningButton } from "@/components/shared/version-diff-badge";
 import type { FieldDiff } from "@/lib/version-diff/detect-changes";
-import type { SchemaWarning } from "@/lib/schema-warnings-store";
 
 export function RemovedFieldsSection({
   removedFieldDiffs,
   isPending,
-  getWarning,
-  onApprove,
-  onUnapprove,
   onRestore,
 }: {
   removedFieldDiffs: FieldDiff[];
   isPending: boolean;
-  getWarning: (entityKind: "field" | "enum" | "relation" | "table" | "restriction", entityId: string, changeKind: string) => SchemaWarning | undefined;
-  onApprove: (id: string) => Promise<void>;
-  onUnapprove: (id: string) => Promise<void>;
   onRestore: (fd: FieldDiff) => void;
 }) {
   if (removedFieldDiffs.length === 0) return null;
@@ -52,21 +44,14 @@ export function RemovedFieldsSection({
                 </div>
                 <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">{fd.message}</p>
               </div>
-              <div className="flex shrink-0 flex-col items-end gap-1.5">
-                <ApproveWarningButton
-                  warning={getWarning("field", fd.fieldId, fd.changeKind)}
-                  onApprove={onApprove}
-                  onUnapprove={onUnapprove}
-                />
-                <button
-                  type="button"
-                  onClick={() => onRestore(fd)}
-                  disabled={isPending}
-                  className="rounded-md border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Restore
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => onRestore(fd)}
+                disabled={isPending}
+                className="shrink-0 rounded-md border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Restore
+              </button>
             </div>
           </div>
         ))}

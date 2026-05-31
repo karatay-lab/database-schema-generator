@@ -217,31 +217,6 @@ export function MigrationsPageContent() {
         }}
       />
 
-      <MigrationTypeSelector
-        canDoAnyMigration={canDoAnyMigration}
-        isNewPlan={isNewPlan}
-        isVersionPlan={isVersionPlan}
-        canVersionMigrate={canVersionMigrate}
-        dbIsEmpty={dbIsEmpty}
-        syncVersion={syncVersion}
-        targetVersion={targetVersion}
-        versions={versions}
-        syncCheckState={sync.syncCheckState}
-        syncCheckResult={sync.syncCheckResult}
-        onChangePlan={changePlan}
-        onSyncVersionChange={(v) => {
-          setSyncVersion(v);
-          setTargetVersion("");
-          workflow.resetFromModelDiff();
-          void persistMigrationState({ syncVersion: v, targetVersion: null, zodGenerated: false, schemaCheckPassed: false, dataTimestamp: null, snapshotId: null, validationPassed: false, runLogPath: null });
-        }}
-        onTargetVersionChange={(v) => {
-          setTargetVersion(v);
-          workflow.resetFromModelDiff();
-          void persistMigrationState({ targetVersion: v, zodGenerated: false, schemaCheckPassed: false, dataTimestamp: null, snapshotId: null, validationPassed: false, runLogPath: null });
-        }}
-      />
-
       <ConnectionManagementCard
         canDoAnyMigration={canDoAnyMigration}
         migrationPlan={migrationPlan}
@@ -263,6 +238,7 @@ export function MigrationsPageContent() {
         connectState={conn.connectState}
         connectError={conn.connectError}
         isSQLite={isSQLite}
+        projectProvider={provider}
         onSelectConnection={conn.selectConnection}
         onDeleteConnection={(uuid) => void conn.handleDelete(uuid)}
         onTestConnection={(uuid) => void conn.handleTestConnection(uuid)}
@@ -275,6 +251,32 @@ export function MigrationsPageContent() {
         onPasswordChange={conn.setPassword}
         onDatabaseChange={conn.setDatabase}
         onConnect={() => void conn.handleConnect(persistMigrationState)}
+      />
+
+      <MigrationTypeSelector
+        canDoAnyMigration={canDoAnyMigration}
+        connectionRequired={conn.connectState !== "success"}
+        isNewPlan={isNewPlan}
+        isVersionPlan={isVersionPlan}
+        canVersionMigrate={canVersionMigrate}
+        dbIsEmpty={dbIsEmpty}
+        syncVersion={syncVersion}
+        targetVersion={targetVersion}
+        versions={versions}
+        syncCheckState={sync.syncCheckState}
+        syncCheckResult={sync.syncCheckResult}
+        onChangePlan={changePlan}
+        onSyncVersionChange={(v) => {
+          setSyncVersion(v);
+          setTargetVersion("");
+          workflow.resetFromModelDiff();
+          void persistMigrationState({ syncVersion: v, targetVersion: null, zodGenerated: false, schemaCheckPassed: false, dataTimestamp: null, snapshotId: null, validationPassed: false, runLogPath: null });
+        }}
+        onTargetVersionChange={(v) => {
+          setTargetVersion(v);
+          workflow.resetFromModelDiff();
+          void persistMigrationState({ targetVersion: v, zodGenerated: false, schemaCheckPassed: false, dataTimestamp: null, snapshotId: null, validationPassed: false, runLogPath: null });
+        }}
       />
 
       {isNewPlan && (

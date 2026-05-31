@@ -345,6 +345,12 @@ export function RelationsPageContent() {
                           onShowFkDetail={(mismatches, relationName, targetTableName) =>
                             setFkDetailModal({ relationName, targetTableName, mismatches })
                           }
+                          onNavigateToTable={(tableName) => {
+                            selectModel(tableName);
+                            // Flip the tab — from Relations (owning) click lands on References,
+                            // from References (back-ref) click lands on Relations.
+                            filters.changeTab(filters.activeRelationTab === "relations" ? "references" : "relations");
+                          }}
                         />
                       );
                     })}

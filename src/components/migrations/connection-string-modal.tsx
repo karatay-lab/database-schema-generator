@@ -6,11 +6,11 @@ import { classNames } from "@/lib/utils";
 type ConnectionStringModalProps = {
   isOpen: boolean;
   connStringValue: string;
-  connStringORM: "prisma" | "drizzle" | "custom";
+  connStringORM: "prisma" | "drizzle" | "custom" | "plain";
   connStringEnvName: string;
   connStringCopied: boolean;
   onClose: () => void;
-  onOrmChange: (orm: "prisma" | "drizzle" | "custom") => void;
+  onOrmChange: (orm: "prisma" | "drizzle" | "custom" | "plain") => void;
   onEnvNameChange: (v: string) => void;
   onValueChange: (v: string) => void;
   onCopy: () => void;
@@ -27,7 +27,11 @@ export function ConnectionStringModal({
         <div className="relative border-b border-slate-200 px-6 py-4">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Reference</p>
           <h3 className="mt-0.5 text-lg font-semibold text-slate-950">Connection String</h3>
-          <p className="mt-0.5 text-xs text-slate-500">Copy this into your project&apos;s <span className="font-mono">.env</span> file.</p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            {connStringORM === "plain"
+              ? "Raw connection URL for use with database drivers, CLIs, or tools."
+              : <>Copy this into your project&apos;s <span className="font-mono">.env</span> file.</>}
+          </p>
           <button type="button" onClick={onClose}
             className="absolute right-4 top-4 rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">
             <IconX size={18} stroke={1.5} />
@@ -38,15 +42,26 @@ export function ConnectionStringModal({
           <div>
             <p className="mb-1.5 text-xs font-semibold text-slate-700">ORM / Format</p>
             <div className="flex gap-2">
-              {(["prisma", "drizzle", "custom"] as const).map((orm) => (
-                <button key={orm} type="button" onClick={() => onOrmChange(orm)}
-                  className={classNames("h-8 rounded-md border px-3 text-xs font-semibold capitalize transition",
-                    connStringORM === orm ? "border-slate-800 bg-slate-800 text-white" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50")}>
-                  {orm}
+              {([
+                { id: "plain",   label: "Plain URL" },
+                { id: "prisma",  label: "Prisma"    },
+                { id: "drizzle", label: "Drizzle"   },
+                { id: "custom",  label: "Custom"    },
+              ] as const).map(({ id, label }) => (
+                <button key={id} type="button" onClick={() => onOrmChange(id)}
+                  className={classNames("h-8 rounded-md border px-3 text-xs font-semibold transition",
+                    connStringORM === id ? "border-slate-800 bg-slate-800 text-white" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50")}>
+                  {label}
                 </button>
               ))}
             </div>
           </div>
+
+          {connStringORM === "plain" && (
+            <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-[11px] text-slate-500">
+              Raw connection URL — no environment variable wrapper. Use directly with your database driver or CLI.
+            </p>
+          )}
 
           {connStringORM === "custom" && (
             <div>

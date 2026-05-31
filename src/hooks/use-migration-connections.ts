@@ -41,7 +41,7 @@ export function useMigrationConnections({ onConnected, onResetFromModelDiff }: U
   // ── Connection string modal ───────────────────────────────────────────────
   const [showConnStringModal, setShowConnStringModal] = useState(false);
   const [connStringValue, setConnStringValue] = useState("");
-  const [connStringORM, setConnStringORM] = useState<"prisma" | "drizzle" | "custom">("prisma");
+  const [connStringORM, setConnStringORM] = useState<"prisma" | "drizzle" | "custom" | "plain">("plain");
   const [connStringEnvName, setConnStringEnvName] = useState("DATABASE_URL");
   const [connStringCopied, setConnStringCopied] = useState(false);
 
@@ -149,23 +149,26 @@ export function useMigrationConnections({ onConnected, onResetFromModelDiff }: U
 
   // ── Connection string modal ───────────────────────────────────────────────
   const openConnStringModal = async () => {
+    const isPlain = connStringORM === "plain";
     const ormEnv = connStringORM === "custom" ? connStringEnvName : "DATABASE_URL";
     setConnStringCopied(false);
     setShowConnStringModal(true);
-    if (!activeConnectionId) { setConnStringValue(`${ormEnv}=`); return; }
+    if (!activeConnectionId) { setConnStringValue(isPlain ? "" : `${ormEnv}=`); return; }
     try {
       const res = await fetch(`/api/migrations/connections/url?connectionId=${activeConnectionId}`);
       const data = await res.json() as { success: boolean; url?: string };
-      setConnStringValue(data.success && data.url ? `${ormEnv}=${data.url}` : `${ormEnv}=`);
+      const url = data.success && data.url ? data.url : "";
+      setConnStringValue(isPlain ? url : `${ormEnv}=${url}`);
     } catch {
-      setConnStringValue(`${ormEnv}=`);
+      setConnStringValue(isPlain ? "" : `${ormEnv}=`);
     }
   };
 
   const rebuildConnStringValue = (orm: typeof connStringORM, envName: string) => {
-    const ormEnv = orm === "custom" ? envName : "DATABASE_URL";
     setConnStringValue((prev) => {
       const url = prev.includes("=") ? prev.split("=").slice(1).join("=") : prev;
+      if (orm === "plain") return url;
+      const ormEnv = orm === "custom" ? envName : "DATABASE_URL";
       return `${ormEnv}=${url}`;
     });
   };

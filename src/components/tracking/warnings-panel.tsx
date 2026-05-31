@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
 import type { SchemaWarning } from "@/lib/schema-warnings-store";
@@ -8,7 +8,7 @@ import { useWarningsByKindQuery } from "@/queries/tracking";
 import { ResolveModal } from "@/components/tracking/resolve-modal";
 import { StrategyLegend } from "@/components/tracking/strategy-legend";
 import { WarningRow } from "@/components/tracking/warning-row";
-import { LoadingCard } from "@/components/built";
+import { LoadingCard, Pagination } from "@/components/built";
 
 export type WarningEntityKind = "table" | "field" | "enum" | "relation" | "restriction";
 
@@ -29,6 +29,11 @@ export function WarningsPanel({
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
+
+  // Reset to page 1 when the user switches tabs, versions, or entity kind
+  useEffect(() => { setPage(1); }, [projectId, fromVersion, toVersion, entityKind]);
 
   const { data, isLoading } = useWarningsByKindQuery(projectId, fromVersion, toVersion, entityKind);
   const warningsQueryKey = trpc.tracking.warningsByKind.queryOptions({
@@ -119,6 +124,9 @@ export function WarningsPanel({
     );
   }
 
+  const pageCount = Math.max(1, Math.ceil(warnings.length / PAGE_SIZE));
+  const pagedWarnings = warnings.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
   const TABLE_HEADERS = ["Severity", "Entity", "Change", "Message", "From → To", "Warning", "Resolve", "Approve", "View"] as const;
 
   return (
@@ -151,6 +159,15 @@ export function WarningsPanel({
         </div>
       </div>
 
+      {/* Pagination above the table */}
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs text-slate-400">
+          {warnings.length} warning{warnings.length !== 1 ? "s" : ""} ·{" "}
+          page {page} of {pageCount}
+        </p>
+        <Pagination page={page} pageCount={pageCount} onPageChange={(p) => setPage(p)} />
+      </div>
+
       <div className="overflow-x-auto rounded-lg border border-slate-200">
         <table className="w-full text-sm">
           <thead>
@@ -163,7 +180,7 @@ export function WarningsPanel({
             </tr>
           </thead>
           <tbody>
-            {warnings.map((w) => (
+            {pagedWarnings.map((w) => (
               <WarningRow key={w.id} w={w} enumValuesMap={enumValuesMap} approve={approve} unapprove={unapprove} remap={remap} />
             ))}
           </tbody>

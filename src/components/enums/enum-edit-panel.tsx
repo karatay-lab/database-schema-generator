@@ -246,14 +246,24 @@ export function EnumEditPanel({
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-indigo-700">
           Edit Enum
         </p>
-        <button
-          type="button"
-          onClick={onDone}
-          className="flex h-8 w-8 items-center justify-center rounded-md border border-emerald-300 bg-white text-emerald-600 transition hover:bg-emerald-50"
-          aria-label="Done"
-        >
-          <IconCheck size={16} stroke={2.5} />
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={onDone}
+            className="flex h-8 w-8 items-center justify-center rounded-md border border-rose-200 bg-white text-rose-400 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
+            aria-label="Close"
+          >
+            <IconX size={15} stroke={2} />
+          </button>
+          <button
+            type="button"
+            onClick={onDone}
+            className="flex h-8 w-8 items-center justify-center rounded-md border border-emerald-300 bg-white text-emerald-600 transition hover:bg-emerald-50"
+            aria-label="Done"
+          >
+            <IconCheck size={15} stroke={2.5} />
+          </button>
+        </div>
       </div>
 
       <div>

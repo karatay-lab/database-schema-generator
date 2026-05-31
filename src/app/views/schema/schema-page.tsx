@@ -6,9 +6,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useVersionDiffLookup } from "@/hooks/use-version-diff";
-import { useSchemaWarnings } from "@/hooks/use-schema-warnings";
 import { useFieldEditor } from "@/hooks/use-field-editor";
 import { useFieldTemplates } from "@/hooks/use-field-templates";
+import Link from "next/link";
 import { VersionDiffBadge } from "@/components/shared/version-diff-badge";
 import { classNames } from "@/lib/utils";
 import { EmptyState, InlineError, LoadingCard, Pagination } from "@/components/built";
@@ -27,7 +27,6 @@ export function SchemaPageContent() {
   const { diffByFieldKey, diffByTableKey } = useVersionDiffLookup(projectName, version);
   const versionIdx = versions.indexOf(version);
   const previousVersion = versionIdx > 0 ? versions[versionIdx - 1]! : "";
-  const { getWarning, approve, unapprove } = useSchemaWarnings(projectId, previousVersion, version);
   const activeProject = hasProject;
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -162,18 +161,22 @@ export function SchemaPageContent() {
             ) : (
               <div className="space-y-5">
                 <div>
-                  <div className="mb-3 flex flex-col gap-3 2xl:flex-row 2xl:items-center 2xl:justify-between">
+                  {/* ── Header row: table name + controls ──────────────────── */}
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                    {/* Left: label + name + diff badge */}
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Selected Table</p>
                       <div className="mt-1 flex flex-wrap items-center gap-2">
-                        <h4 className="text-lg font-semibold text-slate-950">{selectedModelName}</h4>
+                        <h4 className="text-xl font-bold text-slate-950">{selectedModelName}</h4>
                         {(() => {
                           const td = selectedModelKey ? diffByTableKey.get(selectedModelKey) : null;
                           return td ? <VersionDiffBadge severity={td.severity} title={td.message} /> : null;
                         })()}
                       </div>
                     </div>
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+
+                    {/* Right: type filter + count + legend */}
+                    <div className="flex flex-wrap items-center gap-3">
                       <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
                         Type
                         <select value={editor.fieldTypeFilter} onChange={(e) => editor.setFieldTypeFilter(e.target.value)}
@@ -182,8 +185,8 @@ export function SchemaPageContent() {
                           {editor.fieldFilterOptions.map((type) => <option key={type} value={type}>{type}</option>)}
                         </select>
                       </label>
-                      <span className="text-xs font-semibold text-slate-500">
-                        {editor.filteredFields.length} shown / {editor.editableFields.length} editable / {editor.preservedFieldCount} preserved
+                      <span className="text-xs font-semibold text-slate-400">
+                        {editor.filteredFields.length} shown · {editor.editableFields.length} editable · {editor.preservedFieldCount} preserved
                       </span>
                       <button type="button" onClick={() => setIsFieldLegendOpen((o) => !o)}
                         className={classNames(
@@ -195,6 +198,31 @@ export function SchemaPageContent() {
                         title="Field legend">?</button>
                     </div>
                   </div>
+
+                  {/* Resolve banner — full width, only when table has diffs */}
+                  {(() => {
+                    const td = selectedModelKey ? diffByTableKey.get(selectedModelKey) : null;
+                    if (!td) return null;
+                    return (
+                      <Link
+                        href="/tracking?resolve=schema"
+                        className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-5 py-3.5 transition hover:bg-amber-100 hover:border-amber-400 active:scale-[0.99]"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-xl">⚠</span>
+                          <div>
+                            <p className="text-sm font-bold text-amber-800">Schema changes need review</p>
+                            <p className="mt-0.5 text-xs text-amber-600">
+                              Some fields have type, nullability, or naming changes. Approve them in the Tracking workflow before running a migration.
+                            </p>
+                          </div>
+                        </div>
+                        <span className="shrink-0 rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-700 shadow-sm">
+                          Resolve in Tracking →
+                        </span>
+                      </Link>
+                    );
+                  })()}
 
                   {isFieldLegendOpen ? <FieldLegend /> : null}
 
@@ -235,7 +263,8 @@ export function SchemaPageContent() {
                               savingFieldKey={editor.savingFieldKey} deletingFieldKey={editor.deletingFieldKey}
                               getEnumValues={getEnumValues}
                               onUpdateDraft={editor.updateDraft} onSave={editor.saveField} onDelete={editor.deleteField}
-                              getWarning={getWarning} onApprove={approve} onUnapprove={unapprove}
+                              previousVersion={previousVersion}
+                              currentVersion={version}
                             />
                           );
                         })}
@@ -248,7 +277,6 @@ export function SchemaPageContent() {
                 <RemovedFieldsSection
                   removedFieldDiffs={removedFieldDiffs}
                   isPending={editor.isCreatingField}
-                  getWarning={getWarning} onApprove={approve} onUnapprove={unapprove}
                   onRestore={editor.restoreRemovedField}
                 />
 

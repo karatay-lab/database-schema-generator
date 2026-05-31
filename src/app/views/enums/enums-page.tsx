@@ -6,9 +6,8 @@ import { IconPencil, IconTrash } from "@tabler/icons-react";
 import { useEnumsQuery, useEnumMutations } from "@/queries/enums";
 import { useProjectInfo } from "../shared/project-info-context";
 import { useVersionDiff, useVersionDiffLookup } from "@/hooks/use-version-diff";
-import { useSchemaWarnings } from "@/hooks/use-schema-warnings";
-import { VersionDiffBadge, ApproveWarningButton } from "@/components/shared/version-diff-badge";
-import { EnumValueReplacementPicker } from "@/components/enums/enum-value-replacement-picker";
+import Link from "next/link";
+import { VersionDiffBadge } from "@/components/shared/version-diff-badge";
 import { EnumEditPanel, type CanonicalEnum } from "@/components/enums/enum-edit-panel";
 import { validateEnumName } from "@/constants/enums";
 import { EmptyState, LoadingCard } from "@/components/built";
@@ -18,7 +17,6 @@ export function EnumsPageContent() {
   const isSQLite = provider === "SQLite";
   const versionIdx = versions.indexOf(version);
   const previousVersion = versionIdx > 0 ? versions[versionIdx - 1]! : "";
-  const { getWarning, approve, unapprove } = useSchemaWarnings(projectId, previousVersion, version);
 
   const [enumName, setEnumName] = useState("");
   const [createError, setCreateError] = useState("");
@@ -194,27 +192,28 @@ export function EnumsPageContent() {
 
                 {removedEnumDiffs.length > 0 && (
                   <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-semibold text-red-800">
-                        {removedEnumDiffs.length} enum{removedEnumDiffs.length > 1 ? "s" : ""} removed since {versionDiff?.fromVersion}
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {removedEnumDiffs.map((d) => (
-                          <ApproveWarningButton
-                            key={d.enumId}
-                            warning={getWarning("enum", d.enumId, d.changeKind)}
-                            onApprove={approve}
-                            onUnapprove={unapprove}
-                          />
-                        ))}
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-semibold text-red-800">
+                          {removedEnumDiffs.length} enum{removedEnumDiffs.length > 1 ? "s" : ""} removed since {versionDiff?.fromVersion}
+                        </p>
+                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                          {removedEnumDiffs.map((d) => (
+                            <span key={d.enumId} className="rounded border border-red-300 bg-white px-2 py-0.5 font-mono text-[11px] font-semibold text-red-700 line-through">
+                              {d.enumName}
+                            </span>
+                          ))}
+                        </div>
+                        <p className="mt-2 text-xs text-red-600">
+                          Review and approve these changes in the Tracking workflow before running a migration.
+                        </p>
                       </div>
-                    </div>
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      {removedEnumDiffs.map((d) => (
-                        <span key={d.enumId} className="rounded border border-red-300 bg-white px-2 py-0.5 font-mono text-[11px] font-semibold text-red-700 line-through">
-                          {d.enumName}
-                        </span>
-                      ))}
+                      <Link
+                        href="/tracking?resolve=enums"
+                        className="flex shrink-0 items-center gap-1.5 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-700 shadow-sm transition hover:bg-red-50 hover:border-red-400"
+                      >
+                        Go to Tracking →
+                      </Link>
                     </div>
                   </div>
                 )}
@@ -234,11 +233,52 @@ export function EnumsPageContent() {
                             ? "border-amber-300"
                             : "border-sky-300"
                         : "border-slate-200";
+
+                      const cardBg = enumDiff
+                        ? enumDiff.severity === "breaking" ? "bg-rose-50/40"
+                          : enumDiff.severity === "warning" ? "bg-amber-50/40"
+                          : "bg-sky-50/30"
+                        : "bg-white";
+
+                      // Badge severity — only for breaking/warning (not new enums)
+                      const showBadge = !!enumDiff && enumDiff.severity !== "info";
+
+                      // Build tooltip lines
+                      const badgeLines: string[] = [];
+                      if (removedValueNames.length > 0)
+                        badgeLines.push(`${removedValueNames.length} value${removedValueNames.length > 1 ? "s" : ""} removed: ${removedValueNames.join(", ")}`);
+                      if (addedValueNames.size > 0 && enumDiff?.changeKind !== "added")
+                        badgeLines.push(`${addedValueNames.size} value${addedValueNames.size > 1 ? "s" : ""} added: ${[...addedValueNames].join(", ")}`);
+                      if (enumDiff?.changeKind === "removed")
+                        badgeLines.push("Entire enum removed — all fields using it are affected.");
+
                       return (
                       <div
                         key={enumEntry.name}
-                        className={`rounded-lg border bg-white p-4 transition hover:border-indigo-200 ${cardBorder}`}
+                        className={`relative rounded-lg border transition hover:border-indigo-200 ${cardBorder} ${cardBg} ${showBadge ? "px-4 pb-4 pt-6" : "p-4"}`}
                       >
+                        {/* Warning badge — top-left corner, only on badge hover */}
+                        {showBadge && (
+                          <div className="group/badge pointer-events-auto absolute -left-2 -top-4 z-20">
+                            <div className={`flex h-8 w-8 cursor-help items-center justify-center rounded-full shadow-lg ring-2 ring-white transition-transform duration-100 group-hover/badge:scale-110 ${enumDiff!.severity === "breaking" ? "bg-rose-500" : "bg-amber-400"}`}>
+                              <span className="select-none text-[18px] font-black leading-none text-white">!</span>
+                            </div>
+                            <div className="pointer-events-none absolute left-0 top-full z-30 mt-2 w-[420px] opacity-0 transition-opacity duration-150 group-hover/badge:opacity-100">
+                              <div className={`rounded-xl border px-5 py-4 shadow-xl bg-white ${enumDiff!.severity === "breaking" ? "border-rose-200 text-rose-700" : "border-amber-200 text-amber-700"}`}>
+                                <p className="text-[10px] font-bold uppercase tracking-wider opacity-40">
+                                  {enumDiff!.severity === "breaking" ? "Breaking Change" : "Warning"}
+                                </p>
+                                <p className="mt-1.5 text-sm font-semibold">{enumEntry.name}</p>
+                                <ul className="mt-2 space-y-1">
+                                  {badgeLines.map((line, i) => (
+                                    <li key={i} className="text-xs leading-relaxed opacity-80">• {line}</li>
+                                  ))}
+                                </ul>
+                                <p className="mt-3 text-[11px] opacity-50">Review and approve in the Tracking workflow before running a migration.</p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             <span className="block truncate font-semibold text-slate-950">
@@ -261,13 +301,6 @@ export function EnumsPageContent() {
                             </div>
                           </div>
                           <div className="flex shrink-0 items-center gap-1">
-                            {enumDiff?.changeKind === "removed" && (
-                              <ApproveWarningButton
-                                warning={getWarning("enum", enumEntry.enumId, "removed")}
-                                onApprove={approve}
-                                onUnapprove={unapprove}
-                              />
-                            )}
                             <button
                               type="button"
                               onClick={() => setEditingEnum(enumEntry)}
@@ -311,14 +344,13 @@ export function EnumsPageContent() {
                             {removedValueNames.length > 0 && (
                               <div className="flex flex-wrap gap-1.5">
                                 {removedValueNames.map((v) => (
-                                  <EnumValueReplacementPicker
+                                  <span
                                     key={v}
-                                    warning={getWarning("enum", `${enumEntry.enumId}:${v}`, "value_removed")}
-                                    removedValue={v}
-                                    availableValues={enumEntry.values.map((ev) => ev.name)}
-                                    onApprove={approve}
-                                    onUnapprove={unapprove}
-                                  />
+                                    className="rounded border border-rose-200 bg-rose-50 px-2 py-0.5 font-mono text-[11px] font-semibold text-rose-500 line-through"
+                                    title={`"${v}" was removed — remap it in the Tracking workflow`}
+                                  >
+                                    {v}
+                                  </span>
                                 ))}
                               </div>
                             )}

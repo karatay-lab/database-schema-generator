@@ -2,11 +2,9 @@
 
 import { IconCheck, IconTrash } from "@tabler/icons-react";
 import { classNames } from "@/lib/utils";
-import { FieldDiffTooltip, ApproveWarningButton } from "@/components/shared/version-diff-badge";
 import { typeSelectClass } from "@/constants/schema";
 import type { PrismaField, PrismaFieldInput } from "@/lib/schema-store";
 import type { FieldDiff } from "@/lib/version-diff/detect-changes";
-import type { SchemaWarning } from "@/lib/schema-warnings-store";
 
 type EnumValue = { valueId: string; name: string };
 
@@ -24,21 +22,31 @@ type FieldCardProps = {
   onUpdateDraft: (fieldKey: string, patch: Partial<PrismaFieldInput>) => void;
   onSave: (field: PrismaField) => void;
   onDelete: (field: PrismaField) => void;
-  getWarning: (kind: "field" | "enum" | "relation" | "table" | "restriction", id: string, changeKind: string) => SchemaWarning | undefined;
-  onApprove: (id: string, rv?: string) => Promise<void>;
-  onUnapprove: (id: string) => Promise<void>;
+  /** Previous version label shown in the diff tooltip (e.g. "1.0111") */
+  previousVersion?: string;
+  /** Current / selected version label (e.g. "1.0112") */
+  currentVersion?: string;
 };
 
 export function FieldCard({
   field, draft, hasChanges, fieldDiff, cardBorder,
   enumTypes, scalarTypeOptions, savingFieldKey, deletingFieldKey,
   getEnumValues, onUpdateDraft, onSave, onDelete,
-  getWarning, onApprove, onUnapprove,
+  previousVersion, currentVersion,
 }: FieldCardProps) {
   const isEnum = enumTypes.includes(draft.type);
 
+  // Background tint based on severity
+  const diffBg = !fieldDiff ? "bg-white"
+    : fieldDiff.severity === "breaking" ? "bg-rose-50/50"
+    : fieldDiff.severity === "warning"  ? "bg-amber-50/50"
+    : "bg-sky-50/40";
+
   return (
-    <div className={classNames("rounded-lg border bg-white p-3 shadow-sm", cardBorder)}>
+    // When a badge is present, extra top padding clears the badge so it never overlaps content
+    <div className={classNames("relative rounded-lg border shadow-sm",
+      fieldDiff ? "px-3 pb-3 pt-5" : "p-3",
+      cardBorder, diffBg)}>
       <div className="flex gap-3">
         <div className="min-w-0 flex-1 grid gap-2">
           <div className={classNames("grid gap-2", isEnum ? "grid-cols-[1fr_minmax(0,120px)_minmax(0,140px)_1fr]" : "grid-cols-[1fr_minmax(0,140px)_1fr]")}>
@@ -121,16 +129,6 @@ export function FieldCard({
             />
           </label>
 
-          {fieldDiff && (
-            <div className="flex items-start gap-2">
-              <div className="flex-1"><FieldDiffTooltip diff={fieldDiff} /></div>
-              <ApproveWarningButton
-                warning={getWarning("field", fieldDiff.fieldId, fieldDiff.changeKind)}
-                onApprove={onApprove}
-                onUnapprove={onUnapprove}
-              />
-            </div>
-          )}
         </div>
 
         <div className="flex w-1/5 min-w-0 flex-col gap-1.5">
@@ -163,6 +161,65 @@ export function FieldCard({
           </div>
         </div>
       </div>
+
+      {/* Alert badge — straddles the top-left border, never overlaps content */}
+      {fieldDiff && (
+        <div className="group/badge pointer-events-auto absolute -left-2 -top-4 z-20">
+          {/* h-8 badge centred on the card's top border; pt-5 on the card keeps content clear */}
+          <div className={classNames(
+            "flex h-8 w-8 cursor-help items-center justify-center rounded-full shadow-lg ring-2 ring-white transition-transform duration-100 group-hover/badge:scale-110",
+            fieldDiff.severity === "breaking" ? "bg-rose-500" : fieldDiff.severity === "warning" ? "bg-amber-400" : "bg-sky-400",
+          )}>
+            <span className="select-none text-[18px] font-black leading-none text-white">!</span>
+          </div>
+
+          {/* Tooltip — only visible when hovering the badge */}
+          <div className="pointer-events-none absolute left-0 top-full z-30 mt-2 w-[640px] opacity-0 transition-opacity duration-150 group-hover/badge:opacity-100">
+            <div className={classNames(
+              "rounded-xl border px-5 py-4 shadow-xl",
+              fieldDiff.severity === "breaking"
+                ? "border-rose-200 bg-white text-rose-700"
+                : fieldDiff.severity === "warning"
+                  ? "border-amber-200 bg-white text-amber-700"
+                  : "border-sky-200 bg-white text-sky-700",
+            )}>
+              <p className="text-[10px] font-bold uppercase tracking-wider opacity-40">
+                {fieldDiff.severity === "breaking" ? "Breaking Change" : fieldDiff.severity === "warning" ? "Warning" : "Info"}
+              </p>
+              <p className="mt-1.5 text-sm font-semibold leading-snug">{fieldDiff.message}</p>
+
+              {/* version:type → version:type row */}
+              {fieldDiff.from && fieldDiff.to && (
+                <div className="mt-3 flex items-center gap-3 rounded-lg border border-current/10 bg-current/5 px-3 py-2">
+                  <div className="flex items-center gap-1.5">
+                    {previousVersion && (
+                      <span className="rounded bg-current/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold opacity-60">
+                        {previousVersion}
+                      </span>
+                    )}
+                    <span className="font-mono text-sm font-bold">{fieldDiff.from}</span>
+                  </div>
+                  <span className="text-base opacity-40">→</span>
+                  <div className="flex items-center gap-1.5">
+                    {currentVersion && (
+                      <span className="rounded bg-current/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold opacity-60">
+                        {currentVersion}
+                      </span>
+                    )}
+                    <span className="font-mono text-sm font-bold">{fieldDiff.to}</span>
+                  </div>
+                </div>
+              )}
+
+              {fieldDiff.cascade.length > 0 && (
+                <p className="mt-2 text-[11px] opacity-50">
+                  {fieldDiff.cascade.length} FK field{fieldDiff.cascade.length > 1 ? "s" : ""} also affected
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
