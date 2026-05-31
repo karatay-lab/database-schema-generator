@@ -18,7 +18,7 @@ export function registerFsPath(opts: {
   label?: string | null;
   fsPath: string;
 }) {
-  const rel = path.relative(process.cwd(), opts.fsPath);
+  const rel = path.relative(/*turbopackIgnore: true*/ process.cwd(), opts.fsPath);
   db.prepare(`
     INSERT OR REPLACE INTO fs_paths
       (project_id, connection_id, version, file_type, label, fs_path, created_at)
@@ -48,7 +48,7 @@ export function lookupFsPath(opts: {
   if (opts.label !== undefined)        { conditions.push("label = ?");         params.push(opts.label); }
 
   const row = db.prepare(`SELECT fs_path FROM fs_paths WHERE ${conditions.join(" AND ")}`).get(params) as { fs_path: string } | undefined;
-  return row ? path.join(process.cwd(), row.fs_path) : null;
+  return row ? path.join(/*turbopackIgnore: true*/ process.cwd(), row.fs_path) : null;
 }
 
 export function listFsPaths(opts: {
@@ -64,12 +64,12 @@ export function listFsPaths(opts: {
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   const rows = db.prepare(`SELECT fs_path, label, version FROM fs_paths ${where} ORDER BY created_at DESC`).all(params) as FsPathRow[];
-  return rows.map((r) => ({ fsPath: path.join(process.cwd(), r.fs_path), label: r.label, version: r.version }));
+  return rows.map((r) => ({ fsPath: path.join(/*turbopackIgnore: true*/ process.cwd(), r.fs_path), label: r.label, version: r.version }));
 }
 
 export function updateFsPathPrefix(projectId: string, oldAbsPrefix: string, newAbsPrefix: string) {
-  const oldRel = path.relative(process.cwd(), oldAbsPrefix);
-  const newRel = path.relative(process.cwd(), newAbsPrefix);
+  const oldRel = path.relative(/*turbopackIgnore: true*/ process.cwd(), oldAbsPrefix);
+  const newRel = path.relative(/*turbopackIgnore: true*/ process.cwd(), newAbsPrefix);
   db.prepare(`
     UPDATE fs_paths
     SET fs_path = ? || substr(fs_path, ? + 1)

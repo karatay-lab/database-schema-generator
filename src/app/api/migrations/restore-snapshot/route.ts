@@ -12,7 +12,7 @@ import { prepareMigrationPrismaSchema } from "@/lib/migration-schema-artifacts";
 import { MIGRATION_REFERENCE_FIELD } from "@/lib/schema-naming";
 
 const execFileAsync = promisify(execFile);
-const migrationsDir = path.join(process.cwd(), "src/database/migrations");
+const migrationsDir = path.join(/*turbopackIgnore: true*/ process.cwd(), "src/database/migrations");
 const tmpDir = path.join(tmpdir(), "database-schema-generator", "migration-runtime");
 
 function getString(value: unknown) {
@@ -193,7 +193,7 @@ export async function POST(request: Request) {
         await execFileAsync(
           "pnpm",
           ["prisma", "db", "push", "--force-reset", "--schema", schemaPath, `--url=${connectionUrl}`],
-          { cwd: process.cwd(), env: { ...process.env, PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK: "1" }, timeout: 120_000 },
+          { cwd: path.join(/*turbopackIgnore: true*/ process.cwd()), env: { ...process.env, PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK: "1" }, timeout: 120_000 },
         );
 
         send({ type: "phase", phase: "inserting", total: tables.length });
@@ -202,9 +202,9 @@ export async function POST(request: Request) {
         await writeFile(tmpPayloadPath, JSON.stringify({ tables, provider: stored!.provider, connectionUrl }), "utf8");
         await writeFile(tmpScriptPath, buildRestoreScript(), "utf8");
 
-        const child = spawn("node", [tmpScriptPath, tmpPayloadPath], {
-          cwd: process.cwd(),
-          env: { ...process.env, DATABASE_URL: connectionUrl, NODE_PATH: path.join(process.cwd(), "node_modules") },
+        const child = spawn(process.execPath, [tmpScriptPath, tmpPayloadPath], {
+          cwd: path.join(/*turbopackIgnore: true*/ process.cwd()),
+          env: { ...process.env, DATABASE_URL: connectionUrl },
         });
 
         let stderrBuf = "";

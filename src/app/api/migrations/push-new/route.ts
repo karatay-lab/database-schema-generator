@@ -10,7 +10,7 @@ import { db as appDb } from "@/lib/db/client";
 import { prepareMigrationPrismaSchema } from "@/lib/migration-schema-artifacts";
 
 const execFileAsync = promisify(execFile);
-const migrationsDir = path.join(process.cwd(), "src/database/migrations");
+const migrationsDir = () => path.join(process.cwd(), "src/database/migrations");
 
 function toSlug(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "untitled";
@@ -66,7 +66,7 @@ export async function POST(request: Request) {
 
   const startedAt = new Date().toISOString();
   const ts = startedAt.replace(/[:.]/g, "-").slice(0, 19);
-  const logsDir = path.join(migrationsDir, projectSlug, connectionId, "logs");
+  const logsDir = path.join(migrationsDir(), projectSlug, connectionId, "logs");
   await mkdir(logsDir, { recursive: true });
   const logFilename = `new-migration-${forceReset ? "destroy-" : ""}${toSlug(targetVersion)}-${ts}.json`;
   const logPath = path.join(logsDir, logFilename);

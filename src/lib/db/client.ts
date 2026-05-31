@@ -1,6 +1,6 @@
 import "server-only";
 import Database from "better-sqlite3";
-import { mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 declare const global: typeof globalThis & { _appDb?: InstanceType<typeof Database> };
@@ -25,7 +25,7 @@ function boolInt(value: number | boolean | undefined) {
 }
 
 function seedFieldTemplates(sqlite: InstanceType<typeof Database>) {
-  const seedPath = path.join(process.cwd(), "field-templates.json");
+  const seedPath = path.resolve("field-templates.json");
   let templates: SeedFieldTemplate[] = [];
 
   try {
@@ -68,7 +68,7 @@ function seedFieldTemplates(sqlite: InstanceType<typeof Database>) {
 }
 
 if (!global._appDb) {
-  const dbPath = process.env.TEST_DB_PATH ?? path.join(process.cwd(), "src/database/app.db");
+  const dbPath = process.env.TEST_DB_PATH ?? path.resolve("src", "database", "app.db");
   mkdirSync(path.dirname(dbPath), { recursive: true });
   const sqlite = new Database(dbPath);
   sqlite.pragma("journal_mode = WAL");
@@ -484,14 +484,10 @@ if (!global._appDb) {
     const staleRows = sqlite
       .prepare("SELECT id, fs_path FROM zod_schemas WHERE code = '' AND fs_path IS NOT NULL AND fs_path != ''")
       .all() as { id: number; fs_path: string }[];
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { existsSync: fsExists, readFileSync } = require("node:fs") as typeof import("node:fs");
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const nodePath = require("node:path") as typeof import("node:path");
     for (const row of staleRows) {
       try {
-        const abs = nodePath.join(process.cwd(), row.fs_path);
-        if (fsExists(abs)) {
+        const abs = path.join(/*turbopackIgnore: true*/ process.cwd(), row.fs_path);
+        if (existsSync(abs)) {
           const fileCode = readFileSync(abs, "utf8");
           sqlite.prepare("UPDATE zod_schemas SET code = ? WHERE id = ?").run(fileCode, row.id);
         }

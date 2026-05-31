@@ -20,8 +20,10 @@ import { db } from "@/lib/db/client";
 import { updateFsPathPrefix } from "@/lib/db/fs-paths";
 import { replaceNormalizedSchemaFromCanonicalStore } from "@/lib/schema-db/graph";
 
-const zodDirectory     = path.join(process.cwd(), "src/database/zod");
-const migrationsDirectory = path.join(process.cwd(), "src/database/migrations");
+// Lazy getters: defer process.cwd() to call time so Turbopack's static NFT
+// analysis never traverses the project root from this module.
+const zodDirectory     = () => path.join(process.cwd(), "src/database/zod");
+const migrationsDirectory = () => path.join(process.cwd(), "src/database/migrations");
 const defaultProjectVersion = "1.0111";
 
 // ─── db row types ─────────────────────────────────────────────────────────────
@@ -135,10 +137,10 @@ async function moveProjectDirectory(rootDirectory: string, oldName: string, newN
 
 async function moveProjectArtifacts(projectId: string, oldName: string, newName: string) {
   await Promise.all([
-    moveProjectDirectory(zodDirectory, oldName, newName),
+    moveProjectDirectory(zodDirectory(), oldName, newName),
   ]);
   // Update all fs_paths entries for this project
-  updateFsPathPrefix(projectId, path.join(zodDirectory, toSchemaFilePart(oldName)), path.join(zodDirectory, toSchemaFilePart(newName)));
+  updateFsPathPrefix(projectId, path.join(zodDirectory(), toSchemaFilePart(oldName)), path.join(zodDirectory(), toSchemaFilePart(newName)));
 }
 
 async function updateProjectModelStoreProviders(project: Project) {
@@ -333,8 +335,8 @@ export async function deleteProject(id: string): Promise<Project[]> {
 
   const slug = toSchemaFilePart(row.name);
   await Promise.allSettled([
-    rm(path.join(zodDirectory, slug), { recursive: true, force: true }),
-    rm(path.join(migrationsDirectory, slug), { recursive: true, force: true }),
+    rm(path.join(zodDirectory(), slug), { recursive: true, force: true }),
+    rm(path.join(migrationsDirectory(), slug), { recursive: true, force: true }),
   ]);
 
   db.prepare("DELETE FROM projects WHERE id = ?").run(id);

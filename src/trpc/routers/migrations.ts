@@ -7,7 +7,7 @@ import { db as appDb } from "@/lib/db/client";
 import { deleteConnection, listConnections } from "@/lib/db/migration-connections";
 import { baseProcedure, createTRPCRouter } from "../init";
 
-const migrationsDir = path.join(process.cwd(), "src/database/migrations");
+const migrationsDir = () => path.join(process.cwd(), "src/database/migrations");
 
 function toSlug(value: string) {
   return (
@@ -45,7 +45,7 @@ export const migrationsRouter = createTRPCRouter({
     .mutation(async ({ input }) => {
       deleteConnection(input.uuid);
 
-      await rm(path.join(migrationsDir, toSlug(input.projectName), input.uuid), {
+      await rm(path.join(migrationsDir(), toSlug(input.projectName), input.uuid), {
         recursive: true,
         force: true,
       });

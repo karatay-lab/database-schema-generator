@@ -4,7 +4,7 @@ import path from "node:path";
 import { db as appDb } from "@/lib/db/client";
 import { deleteConnection, listConnections } from "@/lib/db/migration-connections";
 
-const migrationsDir = path.join(process.cwd(), "src/database/migrations");
+const migrationsDir = () => path.join(process.cwd(), "src/database/migrations");
 
 function toSlug(value: string) {
   return (
@@ -50,7 +50,7 @@ export async function DELETE(request: Request) {
   deleteConnection(uuid);
 
   // Remove data/logs artifacts for this connection from the filesystem
-  await rm(path.join(migrationsDir, toSlug(projectName), uuid), {
+  await rm(path.join(migrationsDir(), toSlug(projectName), uuid), {
     recursive: true,
     force: true,
   });
