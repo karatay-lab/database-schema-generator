@@ -236,11 +236,52 @@ export function EnumsPageContent() {
                             ? "border-amber-300"
                             : "border-sky-300"
                         : "border-slate-200";
+
+                      const cardBg = enumDiff
+                        ? enumDiff.severity === "breaking" ? "bg-rose-50/40"
+                          : enumDiff.severity === "warning" ? "bg-amber-50/40"
+                          : "bg-sky-50/30"
+                        : "bg-white";
+
+                      // Badge severity — only for breaking/warning (not new enums)
+                      const showBadge = !!enumDiff && enumDiff.severity !== "info";
+
+                      // Build tooltip lines
+                      const badgeLines: string[] = [];
+                      if (removedValueNames.length > 0)
+                        badgeLines.push(`${removedValueNames.length} value${removedValueNames.length > 1 ? "s" : ""} removed: ${removedValueNames.join(", ")}`);
+                      if (addedValueNames.size > 0 && enumDiff?.changeKind !== "added")
+                        badgeLines.push(`${addedValueNames.size} value${addedValueNames.size > 1 ? "s" : ""} added: ${[...addedValueNames].join(", ")}`);
+                      if (enumDiff?.changeKind === "removed")
+                        badgeLines.push("Entire enum removed — all fields using it are affected.");
+
                       return (
                       <div
                         key={enumEntry.name}
-                        className={`rounded-lg border bg-white p-4 transition hover:border-indigo-200 ${cardBorder}`}
+                        className={`relative rounded-lg border transition hover:border-indigo-200 ${cardBorder} ${cardBg} ${showBadge ? "px-4 pb-4 pt-6" : "p-4"}`}
                       >
+                        {/* Warning badge — top-left corner, only on badge hover */}
+                        {showBadge && (
+                          <div className="group/badge pointer-events-auto absolute -left-2 -top-4 z-20">
+                            <div className={`flex h-8 w-8 cursor-help items-center justify-center rounded-full shadow-lg ring-2 ring-white transition-transform duration-100 group-hover/badge:scale-110 ${enumDiff!.severity === "breaking" ? "bg-rose-500" : "bg-amber-400"}`}>
+                              <span className="select-none text-[18px] font-black leading-none text-white">!</span>
+                            </div>
+                            <div className="pointer-events-none absolute left-0 top-full z-30 mt-2 w-[420px] opacity-0 transition-opacity duration-150 group-hover/badge:opacity-100">
+                              <div className={`rounded-xl border px-5 py-4 shadow-xl bg-white ${enumDiff!.severity === "breaking" ? "border-rose-200 text-rose-700" : "border-amber-200 text-amber-700"}`}>
+                                <p className="text-[10px] font-bold uppercase tracking-wider opacity-40">
+                                  {enumDiff!.severity === "breaking" ? "Breaking Change" : "Warning"}
+                                </p>
+                                <p className="mt-1.5 text-sm font-semibold">{enumEntry.name}</p>
+                                <ul className="mt-2 space-y-1">
+                                  {badgeLines.map((line, i) => (
+                                    <li key={i} className="text-xs leading-relaxed opacity-80">• {line}</li>
+                                  ))}
+                                </ul>
+                                <p className="mt-3 text-[11px] opacity-50">Review and approve in the Tracking workflow before running a migration.</p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             <span className="block truncate font-semibold text-slate-950">
