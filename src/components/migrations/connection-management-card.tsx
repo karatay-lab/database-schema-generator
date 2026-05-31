@@ -127,46 +127,49 @@ export function ConnectionManagementCard({
                 return (
                   <div key={conn.uuid} className={classNames("transition", rowBg)}>
                     {/*
-                      4-column grid:
+                      4-column grid — entire row is clickable for selection;
+                      only the actions div stops propagation.
                       [dot + name + badges]  [host:port / db — fills centre]  [date]  [| actions]
                     */}
-                    <div className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-x-6 px-4 py-3">
-
-                      {/* Col 1: status dot + name + provider/status badges — auto-width */}
-                      <button
-                        type="button"
-                        onClick={() => { if (!providerMismatch) onSelectConnection(conn.uuid); }}
-                        title={providerMismatch ? `Provider mismatch — connection is ${conn.provider}, project is ${projectProvider}` : undefined}
-                        className={classNames("flex items-center gap-3 text-left", providerMismatch && "cursor-not-allowed")}
-                      >
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => { if (!providerMismatch) onSelectConnection(conn.uuid); }}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (!providerMismatch) onSelectConnection(conn.uuid); } }}
+                      title={providerMismatch ? `Provider mismatch — connection is ${conn.provider}, project is ${projectProvider}` : undefined}
+                      className={classNames(
+                        "grid grid-cols-[auto_1fr_auto_auto] items-center gap-x-6 px-4 py-3",
+                        providerMismatch ? "cursor-not-allowed" : "cursor-pointer",
+                      )}
+                    >
+                      {/* Col 1: status dot + name + provider/status badges */}
+                      <div className="flex items-center gap-3">
                         <span className={classNames("h-2.5 w-2.5 shrink-0 rounded-full ring-2",
                           isActive
                             ? "bg-emerald-500 ring-emerald-100"
                             : providerMismatch
                               ? "bg-amber-400 ring-amber-100"
                               : "bg-slate-200 ring-transparent")} />
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className={classNames("text-sm font-semibold whitespace-nowrap",
-                              isActive ? "text-emerald-900" : "text-slate-900")}>
-                              {conn.name}
-                            </p>
-                            <span className={classNames("shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold", providerCls)}>
-                              {providerLabel}
+                        <div className="flex items-center gap-2">
+                          <p className={classNames("text-sm font-semibold whitespace-nowrap",
+                            isActive ? "text-emerald-900" : "text-slate-900")}>
+                            {conn.name}
+                          </p>
+                          <span className={classNames("shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold", providerCls)}>
+                            {providerLabel}
+                          </span>
+                          {isActive && (
+                            <span className="shrink-0 rounded border border-emerald-200 bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                              Active
                             </span>
-                            {isActive && (
-                              <span className="shrink-0 rounded border border-emerald-200 bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
-                                Active
-                              </span>
-                            )}
-                            {providerMismatch && (
-                              <span className="shrink-0 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
-                                ⚠ Wrong provider
-                              </span>
-                            )}
-                          </div>
+                          )}
+                          {providerMismatch && (
+                            <span className="shrink-0 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+                              ⚠ Wrong provider
+                            </span>
+                          )}
                         </div>
-                      </button>
+                      </div>
 
                       {/* Col 2: host:port / database — grows to fill empty centre */}
                       <p className="min-w-0 truncate font-mono text-[11px] text-slate-400">
@@ -186,8 +189,11 @@ export function ConnectionManagementCard({
                         )}
                       </div>
 
-                      {/* Col 4: actions */}
-                      <div className="flex shrink-0 items-center gap-1 border-l border-slate-100 pl-4">
+                      {/* Col 4: actions — stop propagation so row click doesn't fire */}
+                      <div
+                        className="flex shrink-0 items-center gap-1 border-l border-slate-100 pl-4"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <button type="button" onClick={() => onTestConnection(conn.uuid)}
                           disabled={testingId === conn.uuid || undefined}
                           className="rounded-md px-3 py-1.5 text-xs font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50">
