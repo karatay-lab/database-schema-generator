@@ -48,6 +48,7 @@ import { ProjectCard } from "@/components/projects/project-card";
 import { classNames } from "@/lib/utils";
 import type { Project } from "@/types/projects";
 import { InlineError } from "@/components/built";
+import { useProjectReset } from "@/hooks/use-project-reset";
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -142,10 +143,7 @@ export function ProjectsPageContent() {
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [savingProjectId, setSavingProjectId] = useState<string | null>(null);
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [resetConfirmation, setResetConfirmation] = useState("");
-  const [isResetting, setIsResetting] = useState(false);
-  const [resetError, setResetError] = useState("");
+  const reset = useProjectReset();
   const [versionScroll, setVersionScroll] = useState({ canScrollDown: false, canScrollUp: false });
   const versionListRef = useRef<HTMLDivElement>(null);
 
@@ -223,23 +221,6 @@ export function ProjectsPageContent() {
     );
   };
 
-  const confirmReset = async () => {
-    if (resetConfirmation !== "RESET") return;
-    setIsResetting(true);
-    setResetError("");
-    try {
-      const res = await fetch("/api/reset", { method: "POST" });
-      const data = await res.json() as { success: boolean; error?: string };
-      if (!data.success) throw new Error(data.error ?? "Reset failed.");
-      setShowResetConfirm(false);
-      setResetConfirmation("");
-      router.push("/");
-    } catch (err) {
-      setResetError(err instanceof Error ? err.message : "Reset failed.");
-    } finally {
-      setIsResetting(false);
-    }
-  };
 
   // ── Scroll helpers ─────────────────────────────────────────────────────────
 
@@ -527,7 +508,7 @@ export function ProjectsPageContent() {
           <p className="text-sm font-semibold text-rose-700">Danger Zone</p>
           <p className="mt-0.5 text-xs text-slate-500">Permanently deletes all projects, schemas, and generated artifacts.</p>
         </div>
-        <Button variant="destructive" onClick={() => { setShowResetConfirm(true); setResetConfirmation(""); setResetError(""); }} className="shrink-0">
+        <Button variant="destructive" onClick={reset.openReset} className="shrink-0">
           Reset All Data
         </Button>
       </div>
@@ -563,18 +544,18 @@ export function ProjectsPageContent() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showResetConfirm} onOpenChange={(open) => { if (!open) { setShowResetConfirm(false); setResetConfirmation(""); } }}>
+      <Dialog open={reset.showResetConfirm} onOpenChange={(open) => { if (!open) reset.closeReset(); }}>
         <DialogContent showCloseButton={false}>
           <DialogHeader>
             <DialogTitle>Reset all data</DialogTitle>
             <DialogDescription>Irreversible. Type <span className="font-mono font-semibold text-destructive">RESET</span> to confirm.</DialogDescription>
           </DialogHeader>
-          <Input value={resetConfirmation} onChange={(e) => setResetConfirmation(e.target.value)} placeholder="RESET" className="h-11" />
-          {resetError && <p className="text-sm text-destructive">{resetError}</p>}
+          <Input value={reset.resetConfirmation} onChange={(e) => reset.setResetConfirmation(e.target.value)} placeholder="RESET" className="h-11" />
+          {reset.resetError && <p className="text-sm text-destructive">{reset.resetError}</p>}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowResetConfirm(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={confirmReset} disabled={resetConfirmation !== "RESET" || isResetting}>
-              {isResetting ? "Resetting…" : "Reset Everything"}
+            <Button variant="outline" onClick={reset.closeReset}>Cancel</Button>
+            <Button variant="destructive" onClick={reset.confirmReset} disabled={reset.resetConfirmation !== "RESET" || reset.isResetting}>
+              {reset.isResetting ? "Resetting…" : "Reset Everything"}
             </Button>
           </DialogFooter>
         </DialogContent>

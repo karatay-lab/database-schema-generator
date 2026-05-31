@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRelationFilters } from "@/hooks/use-relation-filters";
 import { useRouter, useSearchParams } from "next/navigation";
 import { IconChevronDown } from "@tabler/icons-react";
 import { EmptyState, LoadingCard, Pagination } from "@/components/built";
@@ -86,19 +87,12 @@ export function RelationsPageContent() {
   );
   const [tableSearch, setTableSearch] = useState("");
   const [isTableSelectorOpen, setIsTableSelectorOpen] = useState(false);
-  const [activeRelationTab, setActiveRelationTab] =
-    useState<RelationTab>("relations");
-  const [relationTargetFilter, setRelationTargetFilter] = useState("");
-  const [relationKindFilter, setRelationKindFilter] =
-    useState<PrismaRelation["kind"] | "">("");
-  const [relationPage, setRelationPage] = useState(1);
   const [fkDetailModal, setFkDetailModal] = useState<{
     relationName: string;
     targetTableName: string;
     mismatches: FkTypeMismatch[];
   } | null>(null);
   const modalTablesPerPage = 12;
-  const relationsPerPage = 6;
 
   const { fkCascadeMap, relationDiffs, diffByRelationId } = useVersionDiffLookup(projectName, version);
   const removedRelationDiffs = relationDiffs.filter((d) => d.changeKind === "removed");
@@ -165,15 +159,11 @@ export function RelationsPageContent() {
     [targetFields],
   );
 
-  const ownedRelations = useMemo(
-    () => relations.filter((r) => !r.isBackReference),
-    [relations],
-  );
-  const backReferences = useMemo(
-    () => relations.filter((r) => r.isBackReference),
-    [relations],
-  );
-  const visibleRelations = activeRelationTab === "relations" ? ownedRelations : backReferences;
+  const ownedRelations = useMemo(() => relations.filter((r) => !r.isBackReference), [relations]);
+  const backReferences = useMemo(() => relations.filter((r) => r.isBackReference), [relations]);
+
+  const filters = useRelationFilters({ ownedRelations, backReferences, selectedModelName });
+
   const fkNameConflict = useMemo(() => {
     if (!draft.fields.trim() || editingRelationKey) return false;
     const name = draft.fields.trim();
@@ -195,62 +185,12 @@ export function RelationsPageContent() {
       .some((r) => r.backReferenceName === draft.backReferenceName.trim());
   }, [ownedRelations, editingRelationKey, draft.backReferenceName, draft.targetModel]);
 
-  const relationTargetOptions = useMemo(
-    () =>
-      Array.from(new Set(visibleRelations.map((r) => r.targetModel)))
-        .filter(Boolean)
-        .sort((a, b) => a.localeCompare(b)),
-    [visibleRelations],
-  );
-  const relationKindOptions = useMemo(
-    () =>
-      Array.from(new Set(visibleRelations.map((r) => r.kind))).sort((a, b) =>
-        relationKindLabel(a).localeCompare(relationKindLabel(b)),
-      ),
-    [visibleRelations],
-  );
-  const filteredVisibleRelations = useMemo(
-    () =>
-      visibleRelations.filter((r) => {
-        const matchesTarget = !relationTargetFilter || r.targetModel === relationTargetFilter;
-        const matchesKind = !relationKindFilter || r.kind === relationKindFilter;
-        return matchesTarget && matchesKind;
-      }),
-    [relationKindFilter, relationTargetFilter, visibleRelations],
-  );
-  const relationPageCount = Math.max(1, Math.ceil(filteredVisibleRelations.length / relationsPerPage));
-  const safeRelationPage = Math.min(relationPage, relationPageCount);
-  const paginatedRelations = filteredVisibleRelations.slice(
-    (safeRelationPage - 1) * relationsPerPage,
-    safeRelationPage * relationsPerPage,
-  );
-
   // Deselect model if it disappears from the list
   useEffect(() => {
     if (selectedModelName && models.length > 0 && !models.some((m) => m.name === selectedModelName)) {
       setSelectedModelName("");
     }
   }, [models, selectedModelName]);
-
-  useEffect(() => {
-    setRelationPage(1);
-  }, [activeRelationTab, filteredVisibleRelations.length, relationKindFilter, relationTargetFilter, selectedModelName]);
-
-  useEffect(() => {
-    if (relationTargetFilter && !relationTargetOptions.includes(relationTargetFilter)) {
-      setRelationTargetFilter("");
-    }
-  }, [relationTargetFilter, relationTargetOptions]);
-
-  useEffect(() => {
-    if (relationKindFilter && !relationKindOptions.includes(relationKindFilter)) {
-      setRelationKindFilter("");
-    }
-  }, [relationKindFilter, relationKindOptions]);
-
-  useEffect(() => {
-    setRelationPage((page) => Math.min(page, relationPageCount));
-  }, [relationPageCount]);
 
   // Auto-set FK field type from selected target reference field
   useEffect(() => {
@@ -274,8 +214,8 @@ export function RelationsPageContent() {
   const selectModel = (modelName: string) => {
     setSelectedModelName(modelName);
     setTableSearch("");
-    setRelationTargetFilter("");
-    setRelationKindFilter("");
+    filters.setRelationTargetFilter("");
+    filters.setRelationKindFilter("");
     setIsTableSelectorOpen(false);
   };
 
@@ -384,92 +324,67 @@ export function RelationsPageContent() {
                     {[
                       ["relations", `Relations (${ownedRelations.length})`],
                       ["references", `References (${backReferences.length})`],
-                    ].map(([tab, label]) => {
-                      const isActive = activeRelationTab === tab;
-
-                      return (
-                        <button
-                          key={tab}
-                          type="button"
-                          onClick={() => {
-                            setActiveRelationTab(tab as RelationTab);
-                            setRelationTargetFilter("");
-                            setRelationKindFilter("");
-                          }}
-                          className={classNames(
-                            "h-9 rounded-md px-4 text-sm font-semibold transition",
-                            isActive
-                              ? "bg-white text-violet-700 shadow-sm"
-                              : "text-slate-600 hover:bg-white/70",
-                          )}
-                        >
-                          {label}
-                        </button>
-                      );
-                    })}
+                    ].map(([tab, label]) => (
+                      <button key={tab} type="button"
+                        onClick={() => filters.changeTab(tab as RelationTab)}
+                        className={classNames(
+                          "h-9 rounded-md px-4 text-sm font-semibold transition",
+                          filters.activeRelationTab === tab ? "bg-white text-violet-700 shadow-sm" : "text-slate-600 hover:bg-white/70",
+                        )}>
+                        {label}
+                      </button>
+                    ))}
                   </div>
 
                   <div className="flex flex-wrap gap-2">
                     <label className="flex min-w-0 items-center gap-2 px-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
                       Related table
                       <select
-                        value={relationTargetFilter}
-                        onChange={(event) =>
-                          setRelationTargetFilter(event.target.value)
-                        }
-                        disabled={relationTargetOptions.length === 0}
+                        value={filters.relationTargetFilter}
+                        onChange={(e) => filters.setRelationTargetFilter(e.target.value)}
+                        disabled={filters.relationTargetOptions.length === 0}
                         className="h-9 min-w-44 rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold normal-case tracking-normal text-slate-700 outline-none transition focus:border-violet-600 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
                       >
                         <option value="">All tables</option>
-                        {relationTargetOptions.map((targetModel) => (
-                          <option key={targetModel} value={targetModel}>
-                            {targetModel}
-                          </option>
-                        ))}
+                        {filters.relationTargetOptions.map((t) => <option key={t} value={t}>{t}</option>)}
                       </select>
                     </label>
 
                     <label className="flex min-w-0 items-center gap-2 px-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
                       Type
                       <select
-                        value={relationKindFilter}
-                        onChange={(event) =>
-                          setRelationKindFilter(
-                            event.target.value as PrismaRelation["kind"] | "",
-                          )
-                        }
-                        disabled={relationKindOptions.length === 0}
+                        value={filters.relationKindFilter}
+                        onChange={(e) => filters.setRelationKindFilter(e.target.value as PrismaRelation["kind"] | "")}
+                        disabled={filters.relationKindOptions.length === 0}
                         className="h-9 min-w-40 rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold normal-case tracking-normal text-slate-700 outline-none transition focus:border-violet-600 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
                       >
                         <option value="">All types</option>
-                        {relationKindOptions.map((kind) => (
-                          <option key={kind} value={kind}>
-                            {relationKindLabel(kind)}
-                          </option>
+                        {filters.relationKindOptions.map((kind) => (
+                          <option key={kind} value={kind}>{relationKindLabel(kind)}</option>
                         ))}
                       </select>
                     </label>
                   </div>
                 </div>
 
-                {filteredVisibleRelations.length === 0 ? (
+                {filters.filteredVisibleRelations.length === 0 ? (
                   <EmptyState
                     message={
-                      relationTargetFilter || relationKindFilter
+                      filters.relationTargetFilter || filters.relationKindFilter
                         ? "No relations found for the selected filters."
-                        : activeRelationTab === "relations"
+                        : filters.activeRelationTab === "relations"
                           ? "No owning relations found for this table."
                           : "No back references yet. Create a relation from another table that targets this one."
                     }
                   />
                 ) : (
                   <div className="grid gap-3 lg:grid-cols-2">
-                    {paginatedRelations.map((relation) => {
+                    {filters.paginatedRelations.map((relation) => {
                       const modelCascadeHints = fkCascadeMap.get(selectedModelName);
-                      const fksMissing = activeRelationTab === "relations" &&
+                      const fksMissing = filters.activeRelationTab === "relations" &&
                         relation.fields.length > 0 && sourceFields.length > 0 &&
                         relation.fields.some((f) => !sourceFieldNames.has(f));
-                      const fkTypeMismatches = activeRelationTab === "relations"
+                      const fkTypeMismatches = filters.activeRelationTab === "relations"
                         ? relation.fields.flatMap((f) => {
                             const info = modelCascadeHints?.get(f);
                             return info ? [{ fieldName: f, ...info }] : [];
@@ -481,7 +396,7 @@ export function RelationsPageContent() {
                         <RelationCard
                           key={relation.key}
                           relation={relation}
-                          activeRelationTab={activeRelationTab}
+                          activeRelationTab={filters.activeRelationTab}
                           selectedModelName={selectedModelName}
                           modelCascadeHints={modelCascadeHints}
                           fksMissing={fksMissing}
@@ -501,9 +416,9 @@ export function RelationsPageContent() {
                 )}
 
                 <Pagination
-                  page={safeRelationPage}
-                  pageCount={relationPageCount}
-                  onPageChange={setRelationPage}
+                  page={filters.safeRelationPage}
+                  pageCount={filters.relationPageCount}
+                  onPageChange={filters.setRelationPage}
                   className="mt-4"
                 />
             </div>
