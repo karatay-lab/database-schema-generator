@@ -31,6 +31,8 @@ type ConnectionManagementCardProps = {
   connectState: PhaseState;
   connectError: string;
   isSQLite: boolean;
+  /** The project's configured database provider — used to flag mismatched connections. */
+  projectProvider: string;
   onSelectConnection: (uuid: string) => void;
   onDeleteConnection: (uuid: string) => void;
   onTestConnection: (uuid: string) => void;
@@ -45,12 +47,18 @@ type ConnectionManagementCardProps = {
   onConnect: () => void;
 };
 
+function normaliseProvider(p: string) {
+  const lc = p.toLowerCase();
+  if (lc === "postgres" || lc === "postgresql") return "postgresql";
+  return lc;
+}
+
 export function ConnectionManagementCard({
   canDoAnyMigration, migrationPlan,
   connections, activeConnectionId, activeConnection, loadingConnections,
   deletingId, testingId, testResults, remoteTables,
   showNewForm, connectionName, host, port, dbUser, password, database,
-  connectState, connectError, isSQLite,
+  connectState, connectError, isSQLite, projectProvider,
   onSelectConnection, onDeleteConnection, onTestConnection, onOpenConnString,
   onToggleNewForm, onConnectionNameChange, onHostChange, onPortChange,
   onDbUserChange, onPasswordChange, onDatabaseChange, onConnect,
@@ -91,18 +99,36 @@ export function ConnectionManagementCard({
             <div className="divide-y divide-slate-100 rounded-md border border-slate-200">
               {connections.map((conn) => {
                 const isActive = conn.uuid === activeConnectionId;
+                const providerMismatch = normaliseProvider(conn.provider) !== normaliseProvider(projectProvider);
                 return (
                   <div key={conn.uuid}
                     className={classNames("flex items-center justify-between gap-3 px-4 py-3 transition",
-                      isActive ? "bg-emerald-50" : "bg-white hover:bg-slate-50")}>
-                    <button type="button" onClick={() => onSelectConnection(conn.uuid)}
-                      className="flex min-w-0 flex-1 items-center gap-3 text-left">
-                      <span className={classNames("shrink-0 h-2 w-2 rounded-full", isActive ? "bg-emerald-500" : "bg-slate-300")} />
+                      isActive ? "bg-emerald-50" : providerMismatch ? "bg-amber-50/50" : "bg-white hover:bg-slate-50")}>
+                    <button type="button"
+                      onClick={() => {
+                        if (providerMismatch) return; // block selection of mismatched connections
+                        onSelectConnection(conn.uuid);
+                      }}
+                      title={providerMismatch
+                        ? `Cannot use: connection is ${conn.provider} but project is configured as ${projectProvider}`
+                        : undefined}
+                      className={classNames("flex min-w-0 flex-1 items-center gap-3 text-left",
+                        providerMismatch && "cursor-not-allowed opacity-60")}>
+                      <span className={classNames("shrink-0 h-2 w-2 rounded-full",
+                        isActive ? "bg-emerald-500" : providerMismatch ? "bg-amber-400" : "bg-slate-300")} />
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-slate-950">{conn.name}</p>
                         <p className="text-xs text-slate-500">{conn.host}:{conn.port} / {conn.database}</p>
                       </div>
-                      <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500">{shortUuid(conn.uuid)}</span>
+                      <span className={classNames("shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px]",
+                        providerMismatch ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500")}>
+                        {conn.provider}
+                      </span>
+                      {providerMismatch && (
+                        <span className="shrink-0 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+                          Wrong provider
+                        </span>
+                      )}
                       <span className="shrink-0 text-[11px] text-slate-400">{new Date(conn.lastUsedAt).toLocaleDateString()}</span>
                     </button>
                     <div className="flex shrink-0 flex-col items-end gap-1">
@@ -189,7 +215,20 @@ export function ConnectionManagementCard({
           </div>
         )}
 
-        {activeConnection && !showNewForm && (
+        {activeConnection && !showNewForm && normaliseProvider(activeConnection.provider) !== normaliseProvider(projectProvider) && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3">
+            <p className="text-sm font-semibold text-amber-800">
+              ⚠ Provider mismatch — active connection is <span className="font-mono">{activeConnection.provider}</span> but
+              this project is configured as <span className="font-mono">{projectProvider}</span>.
+            </p>
+            <p className="mt-1 text-xs text-amber-700">
+              Select a matching {projectProvider} connection or create a new one. Running migrations with a mismatched
+              provider will fail.
+            </p>
+          </div>
+        )}
+
+        {activeConnection && !showNewForm && normaliseProvider(activeConnection.provider) === normaliseProvider(projectProvider) && (
           <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
               <span className="text-sm font-semibold text-emerald-800">● Active: {activeConnection.name}</span>

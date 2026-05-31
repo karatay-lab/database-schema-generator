@@ -263,6 +263,7 @@ export function MigrationsPageContent() {
         connectState={conn.connectState}
         connectError={conn.connectError}
         isSQLite={isSQLite}
+        projectProvider={provider}
         onSelectConnection={conn.selectConnection}
         onDeleteConnection={(uuid) => void conn.handleDelete(uuid)}
         onTestConnection={(uuid) => void conn.handleTestConnection(uuid)}

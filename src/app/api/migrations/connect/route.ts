@@ -67,9 +67,24 @@ export async function POST(request: Request) {
   }
 
   const projectRow = appDb
-    .prepare("SELECT id FROM projects WHERE name = ?")
-    .get(projectName) as { id: string } | undefined;
+    .prepare("SELECT id, provider FROM projects WHERE name = ?")
+    .get(projectName) as { id: string; provider: string } | undefined;
   if (!projectRow) return jsonError("Project not found.", 404);
+
+  // Validate that the connection provider matches the project's configured database provider.
+  // Normalise "Postgres" / "postgresql" as equivalent.
+  function normaliseProvider(p: string) {
+    const lc = p.toLowerCase();
+    if (lc === "postgres" || lc === "postgresql") return "postgresql";
+    return lc;
+  }
+  if (normaliseProvider(provider) !== normaliseProvider(projectRow.provider)) {
+    return jsonError(
+      `Provider mismatch: this project is configured as ${projectRow.provider} but the connection uses ${provider}. ` +
+      `Create a ${projectRow.provider} connection or change the project's database provider in Settings.`,
+      400,
+    );
+  }
 
   const connectionUrl = buildConnectionUrl(provider, host, port, user, password, database);
   const prismaProvider = toPrismaProvider(provider);
