@@ -96,62 +96,104 @@ export function ConnectionManagementCard({
         ) : connections.length > 0 ? (
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Saved Connections</p>
-            <div className="divide-y divide-slate-100 rounded-md border border-slate-200">
+            <div className="divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200">
               {connections.map((conn) => {
                 const isActive = conn.uuid === activeConnectionId;
                 const providerMismatch = normaliseProvider(conn.provider) !== normaliseProvider(projectProvider);
+                const testResult = testResults[conn.uuid];
+
+                const providerLabel = (() => {
+                  const lc = conn.provider.toLowerCase();
+                  if (lc === "postgres" || lc === "postgresql") return "Postgres";
+                  if (lc === "mysql") return "MySQL";
+                  if (lc === "sqlite") return "SQLite";
+                  return conn.provider;
+                })();
+
+                const providerCls = (() => {
+                  const lc = conn.provider.toLowerCase();
+                  if (providerMismatch) return "border-amber-300 bg-amber-50 text-amber-700";
+                  if (lc === "postgres" || lc === "postgresql") return "border-indigo-200 bg-indigo-50 text-indigo-700";
+                  if (lc === "mysql") return "border-orange-200 bg-orange-50 text-orange-700";
+                  return "border-slate-200 bg-slate-100 text-slate-600";
+                })();
+
+                const rowBg = isActive
+                  ? "bg-emerald-50"
+                  : providerMismatch
+                    ? "bg-amber-50/40"
+                    : "bg-white hover:bg-slate-50/70";
+
                 return (
-                  <div key={conn.uuid}
-                    className={classNames("flex items-center justify-between gap-3 px-4 py-3 transition",
-                      isActive ? "bg-emerald-50" : providerMismatch ? "bg-amber-50/50" : "bg-white hover:bg-slate-50")}>
-                    <button type="button"
-                      onClick={() => {
-                        if (providerMismatch) return; // block selection of mismatched connections
-                        onSelectConnection(conn.uuid);
-                      }}
-                      title={providerMismatch
-                        ? `Cannot use: connection is ${conn.provider} but project is configured as ${projectProvider}`
-                        : undefined}
-                      className={classNames("flex min-w-0 flex-1 items-center gap-3 text-left",
-                        providerMismatch && "cursor-not-allowed opacity-60")}>
-                      <span className={classNames("shrink-0 h-2 w-2 rounded-full",
-                        isActive ? "bg-emerald-500" : providerMismatch ? "bg-amber-400" : "bg-slate-300")} />
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-slate-950">{conn.name}</p>
-                        <p className="text-xs text-slate-500">{conn.host}:{conn.port} / {conn.database}</p>
+                  <div key={conn.uuid} className={classNames("transition", rowBg)}>
+                    <div className="grid grid-cols-[1fr_auto_auto] items-center gap-4 px-4 py-3">
+
+                      {/* Col 1: select button with name + provider + host */}
+                      <button
+                        type="button"
+                        onClick={() => { if (!providerMismatch) onSelectConnection(conn.uuid); }}
+                        title={providerMismatch ? `Provider mismatch — connection is ${conn.provider}, project is ${projectProvider}` : undefined}
+                        className={classNames("flex min-w-0 items-center gap-3 text-left", providerMismatch && "cursor-not-allowed")}
+                      >
+                        <span className={classNames("mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full ring-2",
+                          isActive
+                            ? "bg-emerald-500 ring-emerald-100"
+                            : providerMismatch
+                              ? "bg-amber-400 ring-amber-100"
+                              : "bg-slate-200 ring-transparent")} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className={classNames("truncate text-sm font-semibold",
+                              isActive ? "text-emerald-900" : "text-slate-900")}>
+                              {conn.name}
+                            </p>
+                            <span className={classNames("shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold", providerCls)}>
+                              {providerLabel}
+                            </span>
+                            {isActive && (
+                              <span className="shrink-0 rounded border border-emerald-200 bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                Active
+                              </span>
+                            )}
+                            {providerMismatch && (
+                              <span className="shrink-0 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+                                ⚠ Wrong provider
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-0.5 font-mono text-[11px] text-slate-400">
+                            {conn.host ? `${conn.host}:${conn.port} / ${conn.database}` : conn.database}
+                          </p>
+                        </div>
+                      </button>
+
+                      {/* Col 2: date + test result */}
+                      <div className="shrink-0 text-right">
+                        <p className="text-[11px] text-slate-400">{new Date(conn.lastUsedAt).toLocaleDateString()}</p>
+                        {testResult && (
+                          <p className={classNames("mt-0.5 text-[10px] font-semibold",
+                            testResult.success ? "text-emerald-600" : "text-rose-600")}>
+                            {testResult.success
+                              ? `✓ ${testResult.tables?.length ?? 0} tables`
+                              : `✗ ${testResult.error?.slice(0, 32) ?? "Failed"}`}
+                          </p>
+                        )}
                       </div>
-                      <span className={classNames("shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px]",
-                        providerMismatch ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500")}>
-                        {conn.provider}
-                      </span>
-                      {providerMismatch && (
-                        <span className="shrink-0 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
-                          Wrong provider
-                        </span>
-                      )}
-                      <span className="shrink-0 text-[11px] text-slate-400">{new Date(conn.lastUsedAt).toLocaleDateString()}</span>
-                    </button>
-                    <div className="flex shrink-0 flex-col items-end gap-1">
-                      <div className="flex items-center gap-1">
+
+                      {/* Col 3: actions */}
+                      <div className="flex shrink-0 items-center gap-1 border-l border-slate-100 pl-4">
                         <button type="button" onClick={() => onTestConnection(conn.uuid)}
                           disabled={testingId === conn.uuid || undefined}
-                          className="rounded px-2 py-1 text-xs font-semibold text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed">
+                          className="rounded-md px-3 py-1.5 text-xs font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50">
                           {testingId === conn.uuid ? "Testing…" : "Test"}
                         </button>
                         <button type="button" onClick={() => onDeleteConnection(conn.uuid)}
                           disabled={deletingId === conn.uuid || undefined}
-                          className="rounded px-2 py-1 text-xs font-semibold text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed">
+                          className="rounded-md px-3 py-1.5 text-xs font-semibold text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50">
                           {deletingId === conn.uuid ? "…" : "Remove"}
                         </button>
                       </div>
-                      {testResults[conn.uuid] && (
-                        <span className={classNames("text-[10px] font-semibold",
-                          testResults[conn.uuid]!.success ? "text-emerald-600" : "text-rose-600")}>
-                          {testResults[conn.uuid]!.success
-                            ? `✓ ${testResults[conn.uuid]!.tables?.length ?? 0} tables`
-                            : `✗ ${testResults[conn.uuid]!.error ?? "Failed"}`}
-                        </span>
-                      )}
+
                     </div>
                   </div>
                 );
@@ -229,13 +271,33 @@ export function ConnectionManagementCard({
         )}
 
         {activeConnection && !showNewForm && normaliseProvider(activeConnection.provider) === normaliseProvider(projectProvider) && (
-          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-              <span className="text-sm font-semibold text-emerald-800">● Active: {activeConnection.name}</span>
-              <span className="font-mono text-xs text-emerald-700">uuid: {activeConnection.uuid}</span>
-              <span className="text-xs text-emerald-700">{activeConnection.host}:{activeConnection.port} / {activeConnection.database}</span>
-              <span className="text-xs text-emerald-600">{activeConnection.provider}</span>
+          <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
+            <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500 ring-2 ring-emerald-100" />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-semibold text-emerald-900">{activeConnection.name}</p>
+                <span className={classNames("shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold", (() => {
+                  const lc = activeConnection.provider.toLowerCase();
+                  if (lc === "postgres" || lc === "postgresql") return "border-indigo-200 bg-indigo-50 text-indigo-700";
+                  if (lc === "mysql") return "border-orange-200 bg-orange-50 text-orange-700";
+                  return "border-slate-200 bg-slate-100 text-slate-600";
+                })())}>
+                  {(() => {
+                    const lc = activeConnection.provider.toLowerCase();
+                    if (lc === "postgres" || lc === "postgresql") return "Postgres";
+                    if (lc === "mysql") return "MySQL";
+                    if (lc === "sqlite") return "SQLite";
+                    return activeConnection.provider;
+                  })()}
+                </span>
+              </div>
+              <p className="mt-0.5 font-mono text-[11px] text-emerald-700">
+                {activeConnection.host ? `${activeConnection.host}:${activeConnection.port} / ${activeConnection.database}` : activeConnection.database}
+              </p>
             </div>
+            <span className="shrink-0 rounded border border-emerald-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+              Connected
+            </span>
           </div>
         )}
 
