@@ -1,6 +1,6 @@
 "use client";
 
-import { IconAlertCircle, IconCheck, IconTrash } from "@tabler/icons-react";
+import { IconCheck, IconTrash } from "@tabler/icons-react";
 import { classNames } from "@/lib/utils";
 import { typeSelectClass } from "@/constants/schema";
 import type { PrismaField, PrismaFieldInput } from "@/lib/schema-store";
@@ -170,7 +170,7 @@ export function FieldCard({
             "flex h-8 w-8 cursor-help items-center justify-center rounded-full shadow-lg ring-2 ring-white transition-transform duration-100 group-hover/badge:scale-110",
             fieldDiff.severity === "breaking" ? "bg-rose-500" : fieldDiff.severity === "warning" ? "bg-amber-400" : "bg-sky-400",
           )}>
-            <IconAlertCircle size={17} stroke={2} className="text-white" />
+            <span className="select-none text-[18px] font-black leading-none text-white">!</span>
           </div>
 
           {/* Tooltip — only visible when hovering the badge */}
