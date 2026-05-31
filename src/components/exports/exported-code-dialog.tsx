@@ -2,7 +2,7 @@
 
 import { IconCopy, IconCheck, IconX, IconDownload } from "@tabler/icons-react";
 import { classNames } from "@/lib/utils";
-import { highlightCode } from "@/components/highlight-code";
+import { highlightCode } from "@/components/shared/highlight-code";
 
 type DialogState = {
   exportId: string;
