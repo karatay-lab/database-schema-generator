@@ -21,7 +21,7 @@ import { checkTypeConversion, computeMigrationOrder, generatedUniqueValue } from
 import { resolveFieldMigration, warningToDecision } from "@/solutions";
 
 const execFileAsync = promisify(execFile);
-const migrationsDir = path.join(process.cwd(), "src/database/migrations");
+const migrationsDir = path.join(/*turbopackIgnore: true*/ process.cwd(), "src/database/migrations");
 const tmpDir = path.join(tmpdir(), "database-schema-generator", "migration-runtime");
 
 // ─── canonical types ──────────────────────────────────────────────────────────
@@ -984,7 +984,7 @@ export async function POST(request: Request) {
         await execFileAsync(
           "pnpm",
           ["prisma", "db", "push", "--force-reset", "--schema", schemaPath, `--url=${connectionUrl}`],
-          { cwd: process.cwd(), env: { ...process.env, PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK: "1" }, timeout: 120_000 },
+          { cwd: path.join(/*turbopackIgnore: true*/ process.cwd()), env: { ...process.env, PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK: "1" }, timeout: 120_000 },
         );
 
         // Phase 2: bulk insert
@@ -1016,9 +1016,9 @@ export async function POST(request: Request) {
         await writeFile(tmpPayloadPath, JSON.stringify({ tables: payloadTables, provider: stored!.provider, connectionUrl }), "utf8");
         await writeFile(tmpScriptPath, buildUpsertScript(), "utf8");
 
-        const child = spawn("node", [tmpScriptPath, tmpPayloadPath], {
-          cwd: process.cwd(),
-          env: { ...process.env, DATABASE_URL: connectionUrl, NODE_PATH: path.join(process.cwd(), "node_modules") },
+        const child = spawn(process.execPath, [tmpScriptPath, tmpPayloadPath], {
+          cwd: path.join(/*turbopackIgnore: true*/ process.cwd()),
+          env: { ...process.env, DATABASE_URL: connectionUrl },
         });
 
         let stderrBuf = "";

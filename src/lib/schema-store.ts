@@ -2484,7 +2484,7 @@ async function runPrismaSchemaTestStep(
 
   try {
     const { stdout, stderr } = await execFileAsync("pnpm", args, {
-      cwd: process.cwd(),
+      cwd: path.join(/*turbopackIgnore: true*/ process.cwd()),
       maxBuffer: 1024 * 1024,
     });
 

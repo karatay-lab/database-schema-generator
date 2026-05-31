@@ -1,14 +1,13 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { useTRPC } from "@/trpc/client";
+import { useProjectsQuery } from "@/queries/projects";
 import { useDashboard, useActiveProject } from "./dashboard-context";
 import {
-  classNames,
   fieldRows,
   tableSummaries,
   workflowSummaries,
 } from "./dashboard-data";
+import { classNames } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 
 type WorkflowPageProps = {
@@ -16,8 +15,7 @@ type WorkflowPageProps = {
 };
 
 export function WorkflowPage({ label }: WorkflowPageProps) {
-  const trpc = useTRPC();
-  const { data: projects = [] } = useQuery(trpc.projects.list.queryOptions());
+  const { data: projects = [] } = useProjectsQuery();
   const activeProject = useActiveProject();
   const { activeProjectId, setActiveProjectId } = useDashboard();
   const router = useRouter();

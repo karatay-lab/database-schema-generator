@@ -1,6 +1,6 @@
 import { readProjects } from "@/lib/projects-store";
 import { redirect } from "next/navigation";
-import CreateFirstProject from "./_components/create-first-project";
+import CreateFirstProject from "@/components/projects/create-first-project";
 
 export const dynamic = "force-dynamic";
 

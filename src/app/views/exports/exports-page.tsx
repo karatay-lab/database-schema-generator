@@ -1,98 +1,29 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { IconCopy, IconCheck, IconX, IconDownload, IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
-import { useTRPC } from "@/trpc/client";
-import { classNames } from "../shared/dashboard-data";
+import { IconCopy, IconCheck, IconX, IconDownload } from "@tabler/icons-react";
+import { InlineError, Pagination } from "@/components/built";
+import { useExportHistoryQuery, useExportMutations } from "@/queries/exports";
+import { classNames } from "@/lib/utils";
 import { useProjectInfo } from "../shared/project-info-context";
-import { highlightCode } from "./highlight-code";
 import { EXPORT_OPTIONS, type ExportType } from "@/constants/exports";
+import type { ExportResponse, ExportDialogState } from "@/types/exports";
+import { ExportedCodeDialog } from "@/components/exports/exported-code-dialog";
+import { PickleConfirmDialog } from "@/components/exports/pickle-confirm-dialog";
 
-// ─── types ────────────────────────────────────────────────────────────────────
-
-type ExportResponse = {
-  code?: string;
-  fileName?: string;
-  tableCount?: number;
-  enumCount?: number;
-  error?: string;
-};
-
-type DialogState = {
-  exportId: string;
-  code: string;
-  fileName: string;
-  lang: "ts" | "prisma";
-  tableCount: number;
-  enumCount: number;
-};
-
-// ─── component ────────────────────────────────────────────────────────────────
 
 export function ExportsPageContent() {
   const { projectName, version, hasProject } = useProjectInfo();
-  const trpc = useTRPC();
-  const queryClient = useQueryClient();
-
   const [exportError, setExportError] = useState("");
-  const [dialog, setDialog] = useState<DialogState | null>(null);
+  const [dialog, setDialog] = useState<ExportDialogState | null>(null);
   const [copied, setCopied] = useState(false);
   const [activeExportType, setActiveExportType] = useState<ExportType | null>(null);
   const [pendingPickle, setPendingPickle] = useState<ExportType | null>(null);
   const [resetConfirm, setResetConfirm] = useState(false);
 
-  const historyQuery = useQuery(
-    trpc.exports.list.queryOptions(
-      { projectName: projectName ?? "" },
-      { enabled: !!projectName },
-    ),
-  );
-
-  const exportMutation = useMutation({
-    ...trpc.exports.generate.mutationOptions(),
-    onSuccess: (data, vars) => {
-      const type = vars.type;
-
-      if (type === "pickle-version" || type === "pickle-project") {
-        const blob = new Blob([(data as { code?: string } | undefined)?.code ?? ""], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = (data as { fileName?: string } | undefined)?.fileName ?? "export.pickle.json";
-        a.click();
-        URL.revokeObjectURL(url);
-        setActiveExportType(null);
-        return;
-      }
-
-      setDialog({
-        exportId: (data as { id?: string } | undefined)?.id ?? "",
-        code: (data as { code?: string } | undefined)?.code ?? "",
-        fileName: (data as { fileName?: string } | undefined)?.fileName ?? (type === "prisma" ? `${version}.prisma` : "schema.ts"),
-        lang: type === "prisma" ? "prisma" : "ts",
-        tableCount: (data as { tableCount?: number } | undefined)?.tableCount ?? 0,
-        enumCount: (data as { enumCount?: number } | undefined)?.enumCount ?? 0,
-      });
-      setActiveExportType(null);
-    },
-    onError: (err) => { setExportError(err.message); setActiveExportType(null); },
-  });
-
-  const resetMutation = useMutation({
-    ...trpc.exports.reset.mutationOptions(),
-    onSuccess: () => {
-      setResetConfirm(false);
-      queryClient.invalidateQueries({ queryKey: trpc.exports.list.queryOptions({ projectName: projectName ?? "" }).queryKey });
-    },
-  });
-
-  const markDownloadedMutation = useMutation({
-    ...trpc.exports.markDownloaded.mutationOptions(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: trpc.exports.list.queryOptions({ projectName: projectName ?? "" }).queryKey });
-    },
-  });
+  const historyQuery = useExportHistoryQuery(projectName ?? "");
+  const { invalidate: invalidateExports, generate: exportMutation, reset: resetMutation, markDownloaded: markDownloadedMutation } =
+    useExportMutations(projectName ?? "");
 
   const handleExport = (type: ExportType) => {
     if (!projectName || !version) return;
@@ -102,7 +33,27 @@ export function ExportsPageContent() {
     }
     setActiveExportType(type);
     setExportError("");
-    exportMutation.mutate({ projectName, version, type });
+    exportMutation.mutate({ projectName, version, type }, {
+      onSuccess: (data, vars) => {
+        const t = vars.type;
+        if (t === "pickle-version" || t === "pickle-project") {
+          const blob = new Blob([(data as { code?: string } | undefined)?.code ?? ""], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a"); a.href = url;
+          a.download = (data as { fileName?: string } | undefined)?.fileName ?? "export.pickle.json";
+          a.click(); URL.revokeObjectURL(url);
+          setActiveExportType(null); return;
+        }
+        setDialog({ exportId: (data as { id?: string } | undefined)?.id ?? "", code: (data as { code?: string } | undefined)?.code ?? "",
+          fileName: (data as { fileName?: string } | undefined)?.fileName ?? (t === "prisma" ? `${version}.prisma` : "schema.ts"),
+          lang: t === "prisma" ? "prisma" : "ts",
+          tableCount: (data as { tableCount?: number } | undefined)?.tableCount ?? 0,
+          enumCount: (data as { enumCount?: number } | undefined)?.enumCount ?? 0,
+        });
+        setActiveExportType(null);
+      },
+      onError: (err) => { setExportError(err.message); setActiveExportType(null); },
+    });
   };
 
   const confirmPickle = () => {
@@ -111,7 +62,27 @@ export function ExportsPageContent() {
     setPendingPickle(null);
     setActiveExportType(type);
     setExportError("");
-    exportMutation.mutate({ projectName, version, type });
+    exportMutation.mutate({ projectName, version, type }, {
+      onSuccess: (data, vars) => {
+        const t = vars.type;
+        if (t === "pickle-version" || t === "pickle-project") {
+          const blob = new Blob([(data as { code?: string } | undefined)?.code ?? ""], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a"); a.href = url;
+          a.download = (data as { fileName?: string } | undefined)?.fileName ?? "export.pickle.json";
+          a.click(); URL.revokeObjectURL(url);
+          setActiveExportType(null); return;
+        }
+        setDialog({ exportId: (data as { id?: string } | undefined)?.id ?? "", code: (data as { code?: string } | undefined)?.code ?? "",
+          fileName: (data as { fileName?: string } | undefined)?.fileName ?? (t === "prisma" ? `${version}.prisma` : "schema.ts"),
+          lang: t === "prisma" ? "prisma" : "ts",
+          tableCount: (data as { tableCount?: number } | undefined)?.tableCount ?? 0,
+          enumCount: (data as { enumCount?: number } | undefined)?.enumCount ?? 0,
+        });
+        setActiveExportType(null);
+      },
+      onError: (err) => { setExportError(err.message); setActiveExportType(null); },
+    });
   };
 
   const handleCopy = async () => {
@@ -146,7 +117,7 @@ export function ExportsPageContent() {
     a.click();
     URL.revokeObjectURL(url);
     if (dialog.exportId) {
-      markDownloadedMutation.mutate({ id: dialog.exportId });
+      markDownloadedMutation.mutate({ id: dialog.exportId }, { onSuccess: () => void invalidateExports() });
     }
   };
 
@@ -200,7 +171,7 @@ export function ExportsPageContent() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => resetMutation.mutate({ projectName: projectName ?? "" })}
+                      onClick={() => resetMutation.mutate({ projectName: projectName ?? "" }, { onSuccess: () => { setResetConfirm(false); void invalidateExports(); } })}
                       disabled={resetMutation.isPending}
                       className="h-8 rounded-md bg-rose-600 px-3 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:opacity-60"
                     >
@@ -278,27 +249,11 @@ export function ExportsPageContent() {
                 <p className="text-xs text-slate-500">
                   {exportHistory.length} {exportHistory.length === 1 ? "export" : "exports"} total
                 </p>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setHistoryPage((p) => Math.max(0, p - 1))}
-                    disabled={safePage === 0}
-                    className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 text-slate-500 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    <IconChevronLeft size={14} />
-                  </button>
-                  <span className="min-w-[3rem] text-center text-xs font-semibold text-slate-700">
-                    {safePage + 1} / {totalPages}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setHistoryPage((p) => Math.min(totalPages - 1, p + 1))}
-                    disabled={safePage === totalPages - 1}
-                    className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 text-slate-500 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    <IconChevronRight size={14} />
-                  </button>
-                </div>
+                <Pagination
+                  page={safePage + 1}
+                  pageCount={totalPages}
+                  onPageChange={(p) => setHistoryPage(p - 1)}
+                />
               </div>
             ) : null}
           </div>
@@ -385,142 +340,25 @@ export function ExportsPageContent() {
             })}
           </div>
 
-          {exportError ? (
-            <p className="mt-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
-              {exportError}
-            </p>
-          ) : null}
+          <InlineError message={exportError} className="mt-4" />
         </div>
       </section>
 
-      {/* Dialog */}
-      {dialog ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-3">
-          <div className="max-h-[92vh] w-[96vw] max-w-[1400px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl flex flex-col">
-            {/* Dialog header */}
-            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 shrink-0">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  Exported Code
-                </p>
-                <h3 className="mt-1 text-lg font-semibold text-slate-950">
-                  {dialog.fileName}
-                </h3>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  {dialog.lang === "ts" ? (
-                    <>
-                      <span className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">
-                        {dialog.tableCount} {dialog.tableCount === 1 ? "table" : "tables"}
-                      </span>
-                      {dialog.enumCount > 0 ? (
-                        <span className="rounded-md bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700">
-                          {dialog.enumCount} {dialog.enumCount === 1 ? "enum" : "enums"}
-                        </span>
-                      ) : null}
-                    </>
-                  ) : (
-                    <span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">
-                      Prisma Schema
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => void handleCopy()}
-                  title={copied ? "Copied!" : "Copy to clipboard"}
-                  className={classNames(
-                    "flex h-9 w-9 items-center justify-center rounded-md border transition",
-                    copied
-                      ? "border-emerald-300 bg-emerald-50 text-emerald-600"
-                      : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
-                  )}
-                >
-                  {copied ? <IconCheck size={16} /> : <IconCopy size={16} />}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDownload}
-                  title="Download file"
-                  className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50"
-                >
-                  <IconDownload size={16} />
-                </button>
-                <button
-                  type="button"
-                  onClick={closeDialog}
-                  title="Close"
-                  className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50"
-                >
-                  <IconX size={16} />
-                </button>
-              </div>
-            </div>
+      <ExportedCodeDialog
+        dialog={dialog}
+        copied={copied}
+        onCopy={() => void handleCopy()}
+        onDownload={handleDownload}
+        onClose={closeDialog}
+      />
 
-            {/* Code body */}
-            <div className="flex-1 overflow-y-auto p-5">
-              <div className="min-w-max rounded-md border border-slate-200 bg-white px-4 py-4 font-mono text-xs">
-                {highlightCode(dialog.code, dialog.lang)}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {/* Pickle confirmation dialog */}
-      {pendingPickle ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-3">
-          <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white shadow-2xl">
-            <div className="border-b border-slate-200 px-5 py-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                Confirm Export
-              </p>
-              <h3 className="mt-1 text-base font-semibold text-slate-950">
-                {pendingPickle === "pickle-version" ? "Version Pickle" : "Project Pickle"}
-              </h3>
-            </div>
-            <div className="px-5 py-4">
-              <p className="text-sm leading-6 text-slate-600">
-                {pendingPickle === "pickle-version" ? (
-                  <>
-                    You are about to pickle out{" "}
-                    <span className="font-semibold text-slate-950">{version}</span>.
-                    Are you sure?
-                  </>
-                ) : (
-                  <>
-                    You are about to pickle out all versions in{" "}
-                    <span className="font-semibold text-slate-950">{projectName}</span>.
-                    Are you sure?
-                  </>
-                )}
-              </p>
-            </div>
-            <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
-              <button
-                type="button"
-                onClick={() => setPendingPickle(null)}
-                className="h-9 rounded-md border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={confirmPickle}
-                className={classNames(
-                  "h-9 rounded-md px-4 text-xs font-semibold text-white shadow-sm transition",
-                  pendingPickle === "pickle-version"
-                    ? "bg-amber-500 hover:bg-amber-600"
-                    : "bg-orange-500 hover:bg-orange-600",
-                )}
-              >
-                Yes, download
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <PickleConfirmDialog
+        pendingPickle={pendingPickle}
+        version={version ?? ""}
+        projectName={projectName ?? ""}
+        onConfirm={confirmPickle}
+        onCancel={() => setPendingPickle(null)}
+      />
     </div>
   );
 }

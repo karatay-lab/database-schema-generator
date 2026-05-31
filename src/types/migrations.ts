@@ -188,3 +188,39 @@ export type CheckSyncResponse = {
   columnIssues?: ColumnIssue[];
   error?: string;
 };
+
+export type MigrationPlan = "new" | "version";
+
+export type PreflightItem = {
+  id: string;
+  field: string;
+  change: string;
+  resolution: string;
+  actionLabel: string;
+  hasValue: boolean;
+};
+
+export type MigrationOrderItem = { modelName: string; parentCount?: number };
+
+export type MigrateProgressEvent = {
+  name: string;
+  created: number;
+  updated: number;
+  errors: number;
+};
+
+export type MigrationSession = {
+  id: string;
+  projectId: string;
+  projectName: string;
+  connectionId: string;
+  fromVersion: string;
+  toVersion: string;
+  collectTimestamp: string | null;
+  collectTableCount: number | null;
+  collectRowCount: number | null;
+  collectTables: { name: string; count: number }[] | null;
+  runStatus: string | null;
+  runLogPath: string | null;
+  updatedAt: string;
+};

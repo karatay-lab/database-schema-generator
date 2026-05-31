@@ -1,21 +1,17 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useTRPC } from "@/trpc/client";
+import { usePendingCountsQuery } from "@/queries/tracking";
 import { useProjectInfo } from "../shared/project-info-context";
-import { useSchemaWarnings } from "../shared/use-schema-warnings";
+import { useSchemaWarnings } from "@/hooks/use-schema-warnings";
 import { Tabs, TabsList, TabsContent } from "@/components/ui/tabs";
-import { TabTrigger } from "./tab-trigger";
-import { AllChangesTab } from "./all-changes-tab";
-import { WarningsPanel } from "./warnings-panel";
-
-const VALID_TABS = ["all", "tables", "enums", "schema", "relations", "restrictions"] as const;
-type TrackingTab = typeof VALID_TABS[number];
+import { TabTrigger } from "@/components/tracking/tab-trigger";
+import { AllChangesTab } from "@/components/tracking/all-changes-tab";
+import { WarningsPanel } from "@/components/tracking/warnings-panel";
+import { VALID_TABS, type TrackingTab } from "@/constants/tracking";
 
 export function TrackingPageContent() {
   const { projectId, projectName, versions, version, hasProject } = useProjectInfo();
-  const trpc    = useTRPC();
   const router  = useRouter();
   const searchParams = useSearchParams();
 
@@ -36,12 +32,7 @@ export function TrackingPageContent() {
   const toVersion   = version;
   const hasPair     = versionIdx > 0;
 
-  const { data: countsData } = useQuery(
-    trpc.tracking.pendingCounts.queryOptions(
-      { projectId, fromVersion, toVersion },
-      { enabled: Boolean(projectId && hasPair) },
-    ),
-  );
+  const { data: countsData } = usePendingCountsQuery(hasPair ? projectId : "", fromVersion, toVersion);
   const pending = countsData ?? { table: 0, field: 0, enum: 0, relation: 0, total: 0 };
   const { warnings, defaultsRequiredCount } = useSchemaWarnings(projectId, fromVersion, toVersion);
 

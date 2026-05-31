@@ -1,9 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { useTRPC } from "@/trpc/client";
-import { classNames } from "../shared/dashboard-data";
+import { useHierarchyQuery } from "@/queries/hierarchy";
+import { classNames } from "@/lib/utils";
 import { useProjectInfo } from "../shared/project-info-context";
 
 type HierarchyResponse = {
@@ -35,14 +34,7 @@ function EmptyState({ message }: { message: string }) {
 
 export function HierarchyPageContent() {
   const { projectName, version, hasProject } = useProjectInfo();
-  const trpc = useTRPC();
-
-  const hierarchyQuery = useQuery(
-    trpc.hierarchy.get.queryOptions(
-      { projectName, version },
-      { enabled: !!projectName && !!version },
-    ),
-  );
+  const hierarchyQuery = useHierarchyQuery(projectName, version);
 
   const data = hierarchyQuery.data as HierarchyResponse | undefined;
   const maxParentCount = useMemo(

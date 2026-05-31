@@ -2,36 +2,23 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useTRPC } from "@/trpc/client";
-import { classNames } from "../shared/dashboard-data";
+import { useTablesQuery } from "@/queries/tables";
+import { useFieldsQuery } from "@/queries/fields";
+import { useZodSchemasQuery, useZodFileQuery, useZodMutations } from "@/queries/schema";
+import { classNames } from "@/lib/utils";
 import { fieldTypeBadgeClass } from "@/lib/badge-utils";
 import { useProjectInfo } from "../shared/project-info-context";
 import { IconCheck, IconCopy, IconEye, IconPencil, IconSettings2, IconTrash, IconX } from "@tabler/icons-react";
 import type { PrismaField, PrismaModel } from "@/lib/schema-store";
 import type { GenerateResponse } from "@/types/validation";
-import { highlightCode } from "./highlight-code";
-
-
-
-function displayType(field: PrismaField, enumTypes: string[]) {
-  if (enumTypes.includes(field.type)) {
-    return field.type;
-  }
-  if (field.nativeAttribute?.name === "Uuid") {
-    return "Uuid";
-  }
-  if (field.nativeAttribute?.name === "Timestamptz") {
-    return "Timestamptz";
-  }
-  return field.type;
-}
+import { displayType } from "@/lib/display-utils";
+import { GeneratedCodeDialog } from "@/components/validation/generated-code-dialog";
+import { TableSelectorModal } from "@/features/table-selector";
+import { EmptyState, InlineError, LoadingCard } from "@/components/built";
 
 export function ValidationPageContent() {
   const { projectName, version: selectedVersion, hasProject } = useProjectInfo();
   const version = selectedVersion;
-  const trpc = useTRPC();
-  const queryClient = useQueryClient();
   const router = useRouter();
   const searchParams = useSearchParams();
   const generatorRef = useRef<HTMLElement>(null);
@@ -45,12 +32,7 @@ export function ValidationPageContent() {
   const [tablePage, setTablePage] = useState(1);
   const TABLE_PAGE_SIZE = 9;
 
-  const tablesQuery = useQuery(
-    trpc.tables.list.queryOptions(
-      { projectName, version },
-      { enabled: !!projectName && !!version },
-    ),
-  );
+  const tablesQuery = useTablesQuery(projectName, version);
   const models: PrismaModel[] = (tablesQuery.data ?? []) as PrismaModel[];
 
   const [selectedFieldKeys, setSelectedFieldKeys] = useState<Set<string>>(new Set());
@@ -65,12 +47,7 @@ export function ValidationPageContent() {
   );
   const selectedModelKey = selectedModel?.key ?? "";
 
-  const fieldsQuery = useQuery(
-    trpc.fields.list.queryOptions(
-      { projectName, version, modelName: selectedModelName, modelKey: selectedModelKey },
-      { enabled: !!selectedModelName },
-    ),
-  );
+  const fieldsQuery = useFieldsQuery(projectName, version, selectedModelName, selectedModelKey);
   const fields: PrismaField[] = fieldsQuery.data?.fields ?? [];
   const enumTypes: string[] = fieldsQuery.data?.enumTypes ?? [];
 
@@ -100,12 +77,7 @@ export function ValidationPageContent() {
     typeof window !== "undefined" ? (localStorage.getItem("zod-default-path") ?? "") : ""
   );
 
-  const listZodQuery = useQuery(
-    trpc.schema.listZodFiles.queryOptions(
-      { projectName, version },
-      { enabled: !!projectName && !!version },
-    ),
-  );
+  const listZodQuery = useZodSchemasQuery(projectName, version);
   const zodSchemas = listZodQuery.data ?? [];
 
   // Respects dismiss — used for banner + row blink
@@ -130,27 +102,7 @@ export function ValidationPageContent() {
     [selectionHash, zodSchemas, selectedModelName, editingSchemaId],
   );
 
-  const readFileQuery = useQuery(
-    trpc.schema.readZodFile.queryOptions(
-      { id: viewingSchemaId ?? 0 },
-      { enabled: viewingSchemaId !== null },
-    ),
-  );
-
-  const filteredModels = useMemo(
-    () =>
-      models.filter((model) =>
-        model.name.toLowerCase().includes(tableSearch.toLowerCase()),
-      ),
-    [models, tableSearch],
-  );
-
-  const paginatedModels = useMemo(() => {
-    const start = (tablePage - 1) * TABLE_PAGE_SIZE;
-    return filteredModels.slice(start, start + TABLE_PAGE_SIZE);
-  }, [filteredModels, tablePage]);
-
-  const totalTablePages = Math.ceil(filteredModels.length / TABLE_PAGE_SIZE);
+  const readFileQuery = useZodFileQuery(viewingSchemaId);
 
   useEffect(() => {
     setTablePage(1);
@@ -313,70 +265,35 @@ export function ValidationPageContent() {
     setGenerateError("");
   };
 
-  const setPathMutation = useMutation({
-    ...trpc.schema.setZodFilePath.mutationOptions(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: trpc.schema.listZodFiles.queryKey({ projectName, version }) });
-    },
-  });
+  const {
+    invalidate: invalidateZodSchemas,
+    setPath: setPathMutation,
+    rename: renameMutation,
+    delete: deleteMutation,
+    clear: clearMutation,
+    generate: generateMutation,
+  } = useZodMutations(projectName, version);
 
-  const renameMutation = useMutation({
-    ...trpc.schema.renameZodSchema.mutationOptions(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: trpc.schema.listZodFiles.queryKey({ projectName, version }) });
-    },
-  });
-
-  const deleteMutation = useMutation({
-    ...trpc.schema.deleteZodFile.mutationOptions(),
-    onSuccess: (_, vars) => {
-      queryClient.invalidateQueries({ queryKey: trpc.schema.listZodFiles.queryKey({ projectName, version }) });
-      if (editingSchemaId === vars.id) setEditingSchemaId(null);
-      if (viewingSchemaId === vars.id) setViewingSchemaId(null);
-    },
-  });
-
-  const clearMutation = useMutation({
-    ...trpc.schema.clearZodFiles.mutationOptions(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: trpc.schema.listZodFiles.queryKey({ projectName, version }) });
-      setClearConfirmOpen(false);
-      setClearConfirmInput("");
-    },
-  });
-
-  const generateMutation = useMutation({
-    ...trpc.schema.generateZod.mutationOptions(),
-    onSuccess: (data) => {
-      const d = data as GenerateResponse | undefined;
-      const existingSchema = editingSchemaId ? zodSchemas.find((s) => s.id === editingSchemaId) : null;
-      setDialogCode(d?.code ?? "");
-      setDialogFilePath("");
-      setDialogSchemaCount(d?.schemaCount ?? 0);
-      setDialogEnumCount(d?.enumCount ?? 0);
-      setDialogWarnings(d?.warnings ?? []);
-      setDialogSchemaName(existingSchema?.schemaName ?? selectedModelName);
-      setDialogModelName(selectedModelName);
-      setDialogDate(new Date().toISOString().slice(0, 10));
-      setViewingSchemaId(null);
-      setEditingSchemaId(null);
-      setDialogOpen(true);
-      queryClient.invalidateQueries({ queryKey: trpc.schema.listZodFiles.queryKey({ projectName, version }) });
-    },
-    onError: (err) => setGenerateError(err.message),
-  });
 
   const handleConvert = () => {
     if (selectedFieldKeys.size === 0) { setGenerateError("Select at least one field."); return; }
     setGenerateError("");
-    generateMutation.mutate({
-      projectName, version,
-      modelName: selectedModelName,
-      modelKey: selectedModelKey,
-      selectedFieldKeys: Array.from(selectedFieldKeys),
-      schemaId: editingSchemaId ?? undefined,
-      defaultPath: editingSchemaId ? undefined : (defaultPath.trim() || undefined),
-    });
+    generateMutation.mutate(
+      { projectName, version, modelName: selectedModelName, modelKey: selectedModelKey, selectedFieldKeys: Array.from(selectedFieldKeys), schemaId: editingSchemaId ?? undefined, defaultPath: editingSchemaId ? undefined : (defaultPath.trim() || undefined) },
+      {
+        onSuccess: (data) => {
+          const d = data as GenerateResponse | undefined;
+          const existingSchema = editingSchemaId ? zodSchemas.find((s) => s.id === editingSchemaId) : null;
+          setDialogCode(d?.code ?? ""); setDialogFilePath(""); setDialogSchemaCount(d?.schemaCount ?? 0);
+          setDialogEnumCount(d?.enumCount ?? 0); setDialogWarnings(d?.warnings ?? []);
+          setDialogSchemaName(existingSchema?.schemaName ?? selectedModelName);
+          setDialogModelName(selectedModelName); setDialogDate(new Date().toISOString().slice(0, 10));
+          setViewingSchemaId(null); setEditingSchemaId(null); setDialogOpen(true);
+          void invalidateZodSchemas();
+        },
+        onError: (err) => setGenerateError(err.message),
+      },
+    );
   };
 
   const handleCopy = async () => {
@@ -457,15 +374,9 @@ export function ValidationPageContent() {
 
         <div className="p-5 space-y-3">
           {listZodQuery.isLoading ? (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-6 text-center text-sm font-medium text-slate-500">
-              Loading...
-            </div>
+            <LoadingCard className="p-6" />
           ) : zodSchemas.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
-              <p className="text-sm font-medium text-slate-500">
-                No schemas generated yet for this version.
-              </p>
-            </div>
+            <EmptyState message="No schemas generated yet for this version." />
           ) : (
             <div className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
               {zodSchemas.filter((s) => !selectedModelName || s.modelName === selectedModelName).map((schema) => {
@@ -568,7 +479,7 @@ export function ValidationPageContent() {
                         <button
                           type="button"
                           title="Delete this schema"
-                          onClick={() => deleteMutation.mutate({ id: schema.id })}
+                          onClick={() => deleteMutation.mutate({ id: schema.id }, { onSuccess: (_, vars) => { void invalidateZodSchemas(); if (editingSchemaId === vars.id) setEditingSchemaId(null); if (viewingSchemaId === vars.id) setViewingSchemaId(null); } })}
                           disabled={deleteMutation.isPending}
                           className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 bg-white text-slate-400 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 disabled:cursor-wait"
                         >
@@ -626,8 +537,8 @@ export function ValidationPageContent() {
                             onClick={() => {
                               const name = editingName.trim() || schema.modelName;
                               const targetPath = editingPath.trim() || null;
-                              if (name !== schema.schemaName) renameMutation.mutate({ id: schema.id, schemaName: name });
-                              if (targetPath !== schema.targetPath) setPathMutation.mutate({ id: schema.id, targetPath });
+                              if (name !== schema.schemaName) renameMutation.mutate({ id: schema.id, schemaName: name }, { onSuccess: () => void invalidateZodSchemas() });
+                              if (targetPath !== schema.targetPath) setPathMutation.mutate({ id: schema.id, targetPath }, { onSuccess: () => void invalidateZodSchemas() });
                               setEditingId(null);
                             }}
                             disabled={setPathMutation.isPending || renameMutation.isPending}
@@ -671,7 +582,7 @@ export function ValidationPageContent() {
                 onChange={(e) => setClearConfirmInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && clearConfirmInput === projectName) {
-                    clearMutation.mutate({ projectName, version });
+                    clearMutation.mutate({ projectName, version }, { onSuccess: () => { void invalidateZodSchemas(); setClearConfirmOpen(false); setClearConfirmInput(""); } });
                   }
                 }}
                 placeholder={projectName}
@@ -730,22 +641,12 @@ export function ValidationPageContent() {
 
         <div className="p-5">
           {!selectedModelName ? (
-            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
-              <p className="text-sm font-medium text-slate-500">
-                Select a table to generate a Zod schema.
-              </p>
-              <button
-                type="button"
-                onClick={() => setIsTableSelectorOpen(true)}
-                className="mt-4 h-10 min-w-44 rounded-md bg-amber-600 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700"
-              >
-                Select Table
-              </button>
-            </div>
+            <EmptyState
+              message="Select a table to generate a Zod schema."
+              action={{ label: "Select Table", onClick: () => setIsTableSelectorOpen(true), tone: "slate" }}
+            />
           ) : fieldsQuery.isLoading ? (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-8 text-center text-sm font-medium text-slate-500">
-              Loading fields...
-            </div>
+            <LoadingCard message="Loading fields…" />
           ) : (
             <div className="space-y-4">
               <div className="flex items-center gap-3">
@@ -877,11 +778,7 @@ export function ValidationPageContent() {
                 </div>
               )}
 
-              {generateError ? (
-                <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
-                  {generateError}
-                </p>
-              ) : null}
+              <InlineError message={generateError} />
 
               {duplicateSchema && (
                 <div className="flex items-start justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
@@ -922,192 +819,36 @@ export function ValidationPageContent() {
         </div>
       </section>
 
-      {isTableSelectorOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-3">
-          <div className="max-h-[94vh] w-[96vw] max-w-[1500px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl">
-            <div className="border-b border-slate-200 px-5 py-4">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    Table Selector
-                  </p>
-                  <h3 className="mt-1 text-xl font-semibold text-slate-950">
-                    Tables
-                  </h3>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <span className="rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700">
-                    {models.length} tables
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setIsTableSelectorOpen(false)}
-                    className="h-9 rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-            </div>
+      <TableSelectorModal
+        isOpen={isTableSelectorOpen}
+        models={models}
+        selectedModelName={selectedModelName}
+        search={tableSearch}
+        isLoading={tablesQuery.isLoading}
+        tone="amber"
+        page={tablePage}
+        pageSize={TABLE_PAGE_SIZE}
+        onSearch={setTableSearch}
+        onSelect={selectModel}
+        onClose={() => setIsTableSelectorOpen(false)}
+        onPageChange={setTablePage}
+        typeBadgeClass={fieldTypeBadgeClass}
+      />
 
-            <div className="p-5">
-              <div className="mb-4">
-                <input
-                  type="text"
-                  value={tableSearch}
-                  onChange={(event) => setTableSearch(event.target.value)}
-                  placeholder="Search tables..."
-                  className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-amber-600"
-                />
-              </div>
-
-              <div className="max-h-[70vh] overflow-y-auto pr-1">
-                {tablesQuery.isLoading ? (
-                  <div className="py-8 text-center text-sm font-medium text-slate-500">
-                    Loading...
-                  </div>
-                ) : filteredModels.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm font-medium text-slate-500">
-                    No tables found.
-                  </div>
-                ) : (
-                  <>
-                    <div className="grid grid-cols-3 gap-4">
-                      {paginatedModels.map((model) => {
-                        const isSelected = model.name === selectedModelName;
-
-                        return (
-                          <button
-                            key={model.key}
-                            type="button"
-                            onClick={() => selectModel(model.name)}
-                            className={classNames(
-                              "flex min-h-16 items-center justify-between rounded-lg border p-4 text-left transition",
-                              isSelected
-                                ? "border-amber-400 bg-amber-50 shadow-sm"
-                                : "border-slate-200 bg-white hover:border-amber-300",
-                            )}
-                          >
-                            <span className="min-w-0 truncate font-semibold text-slate-950">
-                              {model.name}
-                            </span>
-                            <span
-                              className={classNames(
-                                "ml-3 inline-flex shrink-0 items-center rounded-md px-2 py-1 text-xs font-medium",
-                                fieldTypeBadgeClass(model.pkType),
-                              )}
-                            >
-                              {model.pkType || "String"}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {totalTablePages > 1 && (
-                      <div className="mt-4 flex items-center justify-center gap-4">
-                        <button
-                          type="button"
-                          onClick={() => setTablePage((p) => Math.max(1, p - 1))}
-                          disabled={tablePage === 1}
-                          className="h-9 rounded-md border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100"
-                        >
-                          Previous
-                        </button>
-                        <span className="text-sm font-medium text-slate-600">
-                          Page {tablePage} of {totalTablePages}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setTablePage((p) => Math.min(totalTablePages, p + 1))}
-                          disabled={tablePage === totalTablePages}
-                          className="h-9 rounded-md border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100"
-                        >
-                          Next
-                        </button>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {dialogOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-3">
-          <div className="max-h-[92vh] w-[96vw] max-w-[1400px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl">
-            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
-              <div className="min-w-0">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  Generated Code
-                </p>
-                <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                  <span className="text-lg font-semibold text-slate-950">
-                    {dialogSchemaName}
-                  </span>
-                  {dialogModelName && dialogSchemaName !== dialogModelName && (
-                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-500">
-                      {dialogModelName}
-                    </span>
-                  )}
-                  {dialogDate && (
-                    <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
-                      v{dialogDate}
-                    </span>
-                  )}
-                  {dialogSchemaCount > 0 && (
-                    <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">
-                      {dialogSchemaCount} schema{dialogSchemaCount !== 1 ? "s" : ""}
-                      {dialogEnumCount > 0 ? ` · ${dialogEnumCount} enum${dialogEnumCount !== 1 ? "s" : ""}` : ""}
-                    </span>
-                  )}
-                  {dialogFilePath && (
-                    <span className="truncate text-xs font-medium text-slate-500" title={dialogFilePath}>
-                      {dialogFilePath}
-                    </span>
-                  )}
-                </div>
-                {dialogWarnings.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    {dialogWarnings.map((warning, i) => (
-                      <p key={i} className="text-xs font-medium text-amber-600">{warning}</p>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <button
-                  type="button"
-                  onClick={handleCopy}
-                  title={copied ? "Copied!" : "Copy code"}
-                  className={classNames(
-                    "flex h-8 w-8 items-center justify-center rounded border transition",
-                    copied
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-600"
-                      : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700",
-                  )}
-                >
-                  {copied ? <IconCheck size={15} stroke={2.5} /> : <IconCopy size={15} stroke={2} />}
-                </button>
-                <button
-                  type="button"
-                  onClick={closeDialog}
-                  title="Close"
-                  className="flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
-                >
-                  <IconX size={15} stroke={2} />
-                </button>
-              </div>
-            </div>
-            <div className="custom-scrollbar overflow-y-auto p-5 pb-12" style={{ maxHeight: "calc(92vh - 140px)" }}>
-              <div className="min-w-max rounded-md border border-slate-200 bg-white px-4 py-4 text-xs font-mono">
-                {highlightCode(dialogCode)}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <GeneratedCodeDialog
+        isOpen={dialogOpen}
+        code={dialogCode}
+        filePath={dialogFilePath}
+        schemaName={dialogSchemaName}
+        modelName={dialogModelName}
+        date={dialogDate}
+        schemaCount={dialogSchemaCount}
+        enumCount={dialogEnumCount}
+        warnings={dialogWarnings}
+        copied={copied}
+        onCopy={handleCopy}
+        onClose={closeDialog}
+      />
     </div>
   );
 }

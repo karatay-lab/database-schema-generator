@@ -1,3 +1,26 @@
+import type { SchemaOptions } from "@/types/projects";
+
+export const providers = ["Postgres", "MySQL", "SQLite"];
+export const prismaClients = ["prisma-client-js", "prisma-client"];
+export const graphqlOptions = [
+  "None",
+  "Apollo Server (SDL-first)",
+  "GraphQL Yoga",
+  "Pothos Prisma plugin",
+  "TypeGraphQL Prisma generator",
+  "Nexus",
+  "GraphQL Tools (SDL-first)",
+  "GraphQL.js",
+  "NestJS Apollo",
+  "Express GraphQL",
+  "Fastify GQL",
+];
+
+export const defaultSchemaOptions: SchemaOptions = {
+  client: prismaClients[0],
+  graphql: graphqlOptions[0],
+};
+
 export const providerConfig: Record<string, { border: string; badge: string; dot: string }> = {
   Postgres: {
     border: "border-l-blue-500",

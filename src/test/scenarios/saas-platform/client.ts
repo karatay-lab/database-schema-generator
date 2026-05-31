@@ -33,7 +33,7 @@ async function call<T>(procedure: string, type: "query" | "mutation", input?: un
 
 // ─── typed helpers ────────────────────────────────────────────────────────────
 
-import type { Project } from "@/app/views/shared/dashboard-data";
+import type { Project } from "@/types/projects";
 
 type SchemaOptions = { client: string; graphql: string };
 type Provider = "Postgres" | "MySQL" | "SQLite";

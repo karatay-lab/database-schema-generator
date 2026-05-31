@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useMemo, useState, type ReactNode } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { useTRPC } from "@/trpc/client";
+import { useSchemaStatsQuery, useSchemaTestMutation } from "@/queries/schema";
 import { useDashboard, useActiveProject } from "./dashboard-context";
 import { ProjectInfoProvider } from "./project-info-context";
 import { Button } from "@/components/ui/button";
@@ -25,59 +24,12 @@ import {
 } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 import {
-  classNames,
   computeMenuItems,
   menuItemsBase,
 } from "./dashboard-data";
+import { classNames } from "@/lib/utils";
+import { renderAnsiOutput } from "@/lib/ansi-renderer";
 import type { PrismaSchemaTestResult } from "@/lib/schema-store";
-
-// ─── ANSI rendering ───────────────────────────────────────────────────────────
-
-type AnsiState = { bold: boolean; color: string; underline: boolean };
-
-function ansiClassName(state: AnsiState) {
-  return classNames(
-    state.bold ? "font-bold" : "",
-    state.underline ? "underline underline-offset-2" : "",
-    state.color,
-  );
-}
-
-function applyAnsiCode(state: AnsiState, code: number): AnsiState {
-  if (code === 0) return { bold: false, color: "", underline: false };
-  if (code === 1) return { ...state, bold: true };
-  if (code === 22) return { ...state, bold: false };
-  if (code === 4) return { ...state, underline: true };
-  if (code === 24) return { ...state, underline: false };
-  if (code === 39) return { ...state, color: "" };
-  const colorMap: Record<number, string> = {
-    30: "text-slate-950", 31: "text-red-400", 32: "text-emerald-400",
-    33: "text-amber-300", 34: "text-blue-400", 35: "text-fuchsia-400",
-    36: "text-cyan-300", 37: "text-slate-100", 90: "text-slate-500",
-    91: "text-red-300", 92: "text-emerald-300", 93: "text-amber-200",
-    94: "text-blue-300", 95: "text-fuchsia-300", 96: "text-cyan-200",
-    97: "text-white",
-  };
-  return colorMap[code] ? { ...state, color: colorMap[code] } : state;
-}
-
-function renderAnsiOutput(output: string) {
-  const text = output || "No output.";
-  const chunks = text.split(/(\x1b\[[0-9;]*m)/g);
-  let state: AnsiState = { bold: false, color: "", underline: false };
-  let index = 0;
-  return chunks.flatMap((chunk) => {
-    const match = chunk.match(/^\x1b\[([0-9;]*)m$/);
-    if (match) {
-      const codes = match[1] ? match[1].split(";").map((c) => Number(c || 0)) : [0];
-      for (const code of codes) state = applyAnsiCode(state, code);
-      return [];
-    }
-    if (!chunk) return [];
-    index += 1;
-    return <span key={index} className={ansiClassName(state)}>{chunk}</span>;
-  });
-}
 
 // ─── Shell ────────────────────────────────────────────────────────────────────
 
@@ -86,17 +38,10 @@ export function DashboardShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [isSchemaTestOpen, setIsSchemaTestOpen] = useState(false);
 
-  const trpc = useTRPC();
   const { selectedVersion } = useDashboard();
   const activeProject = useActiveProject();
 
-  const { data: statsData } = useQuery(
-    trpc.schema.stats.queryOptions(
-      { projectName: activeProject?.name ?? "", version: selectedVersion },
-      { enabled: !!activeProject && !!selectedVersion },
-    ),
-  );
-
+  const { data: statsData } = useSchemaStatsQuery(activeProject?.name ?? "", selectedVersion);
   const schemaStats = {
     tableCount: statsData?.tableCount ?? 0,
     fieldCount: statsData?.fieldCount ?? 0,
@@ -106,7 +51,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
     enumCount: statsData?.enumCount ?? 0,
   };
 
-  const schemaTestMutation = useMutation(trpc.schema.test.mutationOptions());
+  const schemaTestMutation = useSchemaTestMutation();
 
   const testSchema = () => {
     if (!activeProject || !selectedVersion) return;

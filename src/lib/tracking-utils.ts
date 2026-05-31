@@ -1,3 +1,6 @@
+import type { Severity, StrategyName } from "@/constants/tracking";
+import type { SchemaWarning } from "@/lib/schema-warnings-store";
+
 export type TrackingEntryKind = "field_default" | "enum" | "enum_value";
 
 export type TrackingChangeKind =
@@ -45,6 +48,43 @@ export function formatDefault(kind: string, value: string): string {
   if (kind === "dbgenerated") return value ? `dbgenerated("${value}")` : "dbgenerated()";
   if (kind === "sequence") return "sequence()";
   return value || kind;
+}
+
+// ─── Warning panel helpers ────────────────────────────────────────────────────
+
+export function resolutionSeverity(w: SchemaWarning): Severity {
+  if (w.approvedAt) {
+    if (w.resolution === "backfill_required" && w.targetNullable === false && !w.replacementValue) return "warning";
+    return "approved";
+  }
+  if (w.resolution === "data_deleted") return "breaking";
+  if (w.resolution === "lossy_convert" || w.resolution === "precision_loss" || w.resolution === "backfill_required") return "warning";
+  return "info";
+}
+
+export function warningNavHref(w: SchemaWarning): string {
+  if (w.entityKind === "field")    return `/schema?table=${w.entityName.split(".")[0] ?? ""}`;
+  if (w.entityKind === "enum")     return "/enums";
+  if (w.entityKind === "relation") return "/relations";
+  return "/tables";
+}
+
+export function resolveStrategy(w: SchemaWarning): StrategyName {
+  if (!w.approvedAt) return "Pending";
+  if (w.entityKind === "restriction") return "Acknowledged";
+  if (w.entityKind === "enum" && w.changeKind === "value_removed") {
+    return w.replacementValue ? "Remapped" : "Set NULL";
+  }
+  if (w.entityKind === "field") {
+    const isUniquePrefix = w.targetUnique === true &&
+      !["Int","BigInt","Float","Decimal","Boolean","DateTime","Json","Bytes"].includes(w.toValue ?? "");
+    if (w.resolution === "data_deleted" && w.changeKind !== "type_changed" && w.changeKind !== "multiple") return "Data Dropped";
+    if ((w.changeKind === "type_changed" || w.changeKind === "multiple") && !w.replacementValue) return "Type Cast";
+    if (w.replacementValue) return isUniquePrefix ? "Unique Prefix + UUID" : "Static Default";
+    if (w.targetNullable === true) return "Set NULL";
+    return "Acknowledged";
+  }
+  return "Acknowledged";
 }
 
 export function defaultChangeToEntry(c: DefaultChange): TrackingEntry {

@@ -4,8 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useTRPC } from "@/trpc/client";
+import { useProjectsQuery, useProjectMutations } from "@/queries/projects";
 import { useDashboard, useActiveProject } from "../shared/dashboard-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,16 +34,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useRouter } from "next/navigation";
 import {
-  classNames,
   defaultSchemaOptions,
   graphqlOptions,
   prismaClients,
+  providerConfig,
   providers,
-  type Project,
-} from "../shared/dashboard-data";
-import { useRouter } from "next/navigation";
-import { providerConfig } from "@/constants/projects";
+} from "@/constants/projects";
+import { DatabaseIcon } from "@/components/projects/project-icons";
+import { ProjectCard } from "@/components/projects/project-card";
+import { classNames } from "@/lib/utils";
+import type { Project } from "@/types/projects";
+import { InlineError } from "@/components/built";
+import { useProjectReset } from "@/hooks/use-project-reset";
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -70,9 +73,7 @@ function incrementVersion(version: string): string {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function ProjectsPageContent() {
-  const trpc = useTRPC();
-  const queryClient = useQueryClient();
-  const { data: projects = [] } = useQuery(trpc.projects.list.queryOptions());
+  const { data: projects = [] } = useProjectsQuery();
   const activeProject = useActiveProject();
   const { activeProjectId, selectedVersion, setActiveProjectId, setSelectedVersion } = useDashboard();
   const activeVersions = activeProject?.versions.map((v) => v.name) ?? [];
@@ -99,34 +100,8 @@ export function ProjectsPageContent() {
 
   // ── Mutations ──────────────────────────────────────────────────────────────
 
-  const invalidateProjects = () =>
-    queryClient.invalidateQueries({ queryKey: trpc.projects.list.queryOptions().queryKey });
-
-  const createMutation = useMutation({
-    ...trpc.projects.create.mutationOptions(),
-    onSuccess: (project) => {
-      void invalidateProjects();
-      if (project) setActiveProjectId(project.id);
-    },
-  });
-
-  const updateMutation = useMutation({
-    ...trpc.projects.update.mutationOptions(),
-    onSuccess: () => { void invalidateProjects(); },
-  });
-
-  const deleteMutation = useMutation({
-    ...trpc.projects.delete.mutationOptions(),
-    onSuccess: () => { void invalidateProjects(); },
-  });
-
-  const forkMutation = useMutation({
-    ...trpc.projects.forkVersion.mutationOptions(),
-    onSuccess: (result) => {
-      void invalidateProjects();
-      if (result) setSelectedVersion(result.newVersion);
-    },
-  });
+  const { invalidate: invalidateProjects, create: createMutation, update: updateMutation, delete: deleteMutation, fork: forkMutation } =
+    useProjectMutations();
 
   // ── State ──────────────────────────────────────────────────────────────────
 
@@ -139,10 +114,7 @@ export function ProjectsPageContent() {
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [savingProjectId, setSavingProjectId] = useState<string | null>(null);
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [resetConfirmation, setResetConfirmation] = useState("");
-  const [isResetting, setIsResetting] = useState(false);
-  const [resetError, setResetError] = useState("");
+  const reset = useProjectReset();
   const [versionScroll, setVersionScroll] = useState({ canScrollDown: false, canScrollUp: false });
   const versionListRef = useRef<HTMLDivElement>(null);
 
@@ -162,7 +134,7 @@ export function ProjectsPageContent() {
         schemaOptions: { client: data.client, graphql: data.graphql },
       },
       {
-        onSuccess: () => createForm.reset(),
+        onSuccess: (project) => { void invalidateProjects(); if (project) setActiveProjectId(project.id); createForm.reset(); },
         onError: (err) => createForm.setError("root", { message: err.message }),
       },
     );
@@ -196,7 +168,7 @@ export function ProjectsPageContent() {
         schemaOptions: { client: data.client, graphql: data.graphql },
       },
       {
-        onSuccess: () => { setSavingProjectId(null); cancelProjectEdit(); },
+        onSuccess: () => { void invalidateProjects(); setSavingProjectId(null); cancelProjectEdit(); },
         onError: (err) => { setSavingProjectId(null); editForm.setError("root", { message: err.message }); },
       },
     );
@@ -213,6 +185,7 @@ export function ProjectsPageContent() {
       { id: deleteTarget.id },
       {
         onSuccess: (remaining) => {
+          void invalidateProjects();
           closeDeleteDialog();
           if (wasActive) router.push(remaining && remaining.length > 0 ? "/projects" : "/");
         },
@@ -220,23 +193,6 @@ export function ProjectsPageContent() {
     );
   };
 
-  const confirmReset = async () => {
-    if (resetConfirmation !== "RESET") return;
-    setIsResetting(true);
-    setResetError("");
-    try {
-      const res = await fetch("/api/reset", { method: "POST" });
-      const data = await res.json() as { success: boolean; error?: string };
-      if (!data.success) throw new Error(data.error ?? "Reset failed.");
-      setShowResetConfirm(false);
-      setResetConfirmation("");
-      router.push("/");
-    } catch (err) {
-      setResetError(err instanceof Error ? err.message : "Reset failed.");
-    } finally {
-      setIsResetting(false);
-    }
-  };
 
   // ── Scroll helpers ─────────────────────────────────────────────────────────
 
@@ -430,138 +386,23 @@ export function ProjectsPageContent() {
             </div>
           ) : (
             <div className="space-y-3">
-              {projects.map((project) => {
-                const isActive = project.id === activeProjectId;
-                const isEditing = editingProjectId === project.id;
-                const isSaving = savingProjectId === project.id;
-                const cfg = pCfg(project.provider);
-
-                return (
-                  <div
-                    key={project.id}
-                    onClick={!isEditing ? () => setActiveProjectId(project.id) : undefined}
-                    className={classNames(
-                      "overflow-hidden rounded-xl border border-l-4 shadow-sm transition-all",
-                      !isEditing && "cursor-pointer",
-                      isEditing
-                        ? "border-l-amber-400 bg-white"
-                        : isActive
-                          ? "border-emerald-200 bg-emerald-50 ring-1 ring-emerald-200 hover:bg-emerald-100/60"
-                          : `${cfg.border} border-slate-200 bg-white hover:bg-slate-50 hover:shadow-md`,
-                    )}
-                  >
-                    {isEditing ? (
-                      <div className="p-4 space-y-3">
-                        <p className="text-xs font-semibold uppercase tracking-widest text-amber-600">Editing</p>
-                        <div className="flex gap-3">
-                          <Input
-                            {...editForm.register("name")}
-                            className="h-9 flex-1 font-semibold"
-                            placeholder="Project name"
-                          />
-                          <Controller
-                            control={editForm.control}
-                            name="provider"
-                            render={({ field }) => (
-                              <Select value={field.value} onValueChange={field.onChange}>
-                                <SelectTrigger className="h-9 w-32"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  {providers.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-                                </SelectContent>
-                              </Select>
-                            )}
-                          />
-                          <Controller
-                            control={editForm.control}
-                            name="client"
-                            render={({ field }) => (
-                              <Select value={field.value} onValueChange={field.onChange}>
-                                <SelectTrigger className="h-9 w-40"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  {prismaClients.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                                </SelectContent>
-                              </Select>
-                            )}
-                          />
-                          <Controller
-                            control={editForm.control}
-                            name="graphql"
-                            render={({ field }) => (
-                              <Select value={field.value} onValueChange={field.onChange}>
-                                <SelectTrigger className="h-9 flex-1"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  {graphqlOptions.map((g) => <SelectItem key={g} value={g}>{g}</SelectItem>)}
-                                </SelectContent>
-                              </Select>
-                            )}
-                          />
-                        </div>
-                        {editForm.formState.errors.root && (
-                          <p className="text-xs font-semibold text-rose-600">{editForm.formState.errors.root.message}</p>
-                        )}
-                        <div className="flex justify-end gap-2">
-                          <Button variant="outline" size="sm" onClick={cancelProjectEdit} disabled={isSaving}>Cancel</Button>
-                          <Button size="sm" onClick={saveProjectEdit} disabled={isSaving}>
-                            {isSaving ? "Saving…" : "Save changes"}
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-4 px-4 py-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2.5">
-                            <span className={classNames("inline-block h-2 w-2 shrink-0 rounded-full", cfg.dot)} />
-                            <button
-                              type="button"
-                              onClick={() => { setActiveProjectId(project.id); router.push("/tables"); }}
-                              className="truncate text-sm font-semibold text-slate-900 hover:text-emerald-700 transition-colors"
-                            >
-                              {project.name.trim() || "Untitled"}
-                            </button>
-                            <span className="hidden font-mono text-[11px] text-slate-400 sm:inline">{project.id}</span>
-                          </div>
-                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-4">
-                            <Badge variant="outline" className={classNames("text-[11px]", cfg.badge)}>{project.provider}</Badge>
-                            <Badge variant="outline" className="border-slate-200 bg-slate-50 text-[11px] text-slate-500">{project.schemaOptions.client}</Badge>
-                            {project.schemaOptions.graphql !== "None" && (
-                              <Badge variant="outline" className="border-violet-200 bg-violet-50 text-[11px] text-violet-700">{project.schemaOptions.graphql}</Badge>
-                            )}
-                          </div>
-                        </div>
-                        <div className="hidden shrink-0 items-center gap-5 sm:flex">
-                          <Stat label="tables" value={project.tables} />
-                          <Stat label="fields" value={project.fields} />
-                          <Stat label="relations" value={project.relations} />
-                          <Stat label={project.versions.length === 1 ? "version" : "versions"} value={project.versions.length} />
-                        </div>
-                        <div className="flex shrink-0 items-center gap-2">
-                          {isActive && (
-                            <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">Active</Badge>
-                          )}
-                          <Button
-                            variant="ghost" size="sm"
-                            className="hidden text-slate-500 hover:text-emerald-700 md:inline-flex"
-                            onClick={() => { setActiveProjectId(project.id); router.push("/tables"); }}
-                          >
-                            Open →
-                          </Button>
-                          <Button
-                            variant="outline" size="icon-sm"
-                            onClick={(e) => { e.stopPropagation(); startProjectEdit(project); }}
-                            className="hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
-                            aria-label="Edit"
-                          >
-                            <PencilIcon />
-                          </Button>
-                          <Button variant="destructive" size="sm" className="h-7" onClick={(e) => { e.stopPropagation(); setDeleteTarget(project); }}>
-                            Delete
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              {projects.map((project) => (
+                <ProjectCard
+                  key={project.id}
+                  project={project}
+                  isActive={project.id === activeProjectId}
+                  isEditing={editingProjectId === project.id}
+                  isSaving={savingProjectId === project.id}
+                  editForm={editForm}
+                  cfg={pCfg(project.provider)}
+                  onSetActive={() => setActiveProjectId(project.id)}
+                  onNavigate={() => { setActiveProjectId(project.id); router.push("/tables"); }}
+                  onStartEdit={() => startProjectEdit(project)}
+                  onCancelEdit={cancelProjectEdit}
+                  onSaveEdit={saveProjectEdit}
+                  onDelete={() => setDeleteTarget(project)}
+                />
+              ))}
             </div>
           )}
         </TabsContent>
@@ -619,9 +460,7 @@ export function ProjectsPageContent() {
                   )}
                 </div>
                 <Separator className="my-4" />
-                {forkError && (
-                  <p className="mb-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{forkError}</p>
-                )}
+                <InlineError message={forkError} className="mb-3 text-xs" />
                 <Button
                   disabled={forkingVersion || activeVersions.length === 0}
                   onClick={() => { setForkError(""); setShowForkConfirm(true); }}
@@ -641,7 +480,7 @@ export function ProjectsPageContent() {
           <p className="text-sm font-semibold text-rose-700">Danger Zone</p>
           <p className="mt-0.5 text-xs text-slate-500">Permanently deletes all projects, schemas, and generated artifacts.</p>
         </div>
-        <Button variant="destructive" onClick={() => { setShowResetConfirm(true); setResetConfirmation(""); setResetError(""); }} className="shrink-0">
+        <Button variant="destructive" onClick={reset.openReset} className="shrink-0">
           Reset All Data
         </Button>
       </div>
@@ -669,7 +508,7 @@ export function ProjectsPageContent() {
             <Button variant="outline" onClick={() => setShowForkConfirm(false)}>Cancel</Button>
             <Button disabled={forkingVersion} onClick={() => {
               setForkError(""); setShowForkConfirm(false);
-              forkMutation.mutate({ projectId: activeProjectId }, { onError: (err) => setForkError(err.message ?? "Could not create version.") });
+              forkMutation.mutate({ projectId: activeProjectId }, { onSuccess: (result) => { void invalidateProjects(); if (result) setSelectedVersion(result.newVersion); }, onError: (err) => setForkError(err.message ?? "Could not create version.") });
             }}>
               {forkingVersion ? "Creating…" : "Confirm"}
             </Button>
@@ -677,18 +516,18 @@ export function ProjectsPageContent() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showResetConfirm} onOpenChange={(open) => { if (!open) { setShowResetConfirm(false); setResetConfirmation(""); } }}>
+      <Dialog open={reset.showResetConfirm} onOpenChange={(open) => { if (!open) reset.closeReset(); }}>
         <DialogContent showCloseButton={false}>
           <DialogHeader>
             <DialogTitle>Reset all data</DialogTitle>
             <DialogDescription>Irreversible. Type <span className="font-mono font-semibold text-destructive">RESET</span> to confirm.</DialogDescription>
           </DialogHeader>
-          <Input value={resetConfirmation} onChange={(e) => setResetConfirmation(e.target.value)} placeholder="RESET" className="h-11" />
-          {resetError && <p className="text-sm text-destructive">{resetError}</p>}
+          <Input value={reset.resetConfirmation} onChange={(e) => reset.setResetConfirmation(e.target.value)} placeholder="RESET" className="h-11" />
+          {reset.resetError && <p className="text-sm text-destructive">{reset.resetError}</p>}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowResetConfirm(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={confirmReset} disabled={resetConfirmation !== "RESET" || isResetting}>
-              {isResetting ? "Resetting…" : "Reset Everything"}
+            <Button variant="outline" onClick={reset.closeReset}>Cancel</Button>
+            <Button variant="destructive" onClick={reset.confirmReset} disabled={reset.resetConfirmation !== "RESET" || reset.isResetting}>
+              {reset.isResetting ? "Resetting…" : "Reset Everything"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -714,34 +553,5 @@ export function ProjectsPageContent() {
         </DialogContent>
       </Dialog>
     </div>
-  );
-}
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="flex items-baseline gap-1">
-      <span className="text-sm font-bold text-slate-800">{value}</span>
-      <span className="text-xs text-slate-400">{label}</span>
-    </div>
-  );
-}
-
-function DatabaseIcon({ className }: { className?: string }) {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" className={classNames("h-4 w-4 text-white", className ?? "")} fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2">
-      <ellipse cx="12" cy="5" rx="9" ry="3" />
-      <path d="M3 5v14a9 3 0 0 0 18 0V5" />
-      <path d="M3 12a9 3 0 0 0 18 0" />
-    </svg>
-  );
-}
-
-function PencilIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2">
-      <path d="M12 20h9" /><path d="m16.5 3.5 4 4L7 21H3v-4L16.5 3.5z" />
-    </svg>
   );
 }

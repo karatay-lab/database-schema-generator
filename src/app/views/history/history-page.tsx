@@ -1,49 +1,17 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { useTRPC } from "@/trpc/client";
-import { classNames } from "../shared/dashboard-data";
+import { useHistoryQuery } from "@/queries/history";
+import { classNames } from "@/lib/utils";
 import { useDashboard } from "../shared/dashboard-context";
 import { useProjectInfo } from "../shared/project-info-context";
-
-type VersionHistory = {
-  name: string;
-  createdAt: string;
-  tables: number;
-  fields: number;
-  relations: number;
-  restrictions: number;
-};
-
-function formatDate(iso: string) {
-  if (!iso) return "—";
-  try {
-    return new Intl.DateTimeFormat("en-GB", {
-      day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
-    }).format(new Date(iso));
-  } catch { return "—"; }
-}
-
-function StatBadge({ label, value }: { label: string; value: number }) {
-  return (
-    <span className="inline-flex flex-col items-center rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-center">
-      <span className="text-base font-bold text-slate-950">{value}</span>
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</span>
-    </span>
-  );
-}
+import type { VersionHistory } from "@/types/history";
+import { formatDate } from "@/constants/history";
+import { StatBadge } from "@/components/history/stat-badge";
 
 export function HistoryPageContent() {
   const { setSelectedVersion } = useDashboard();
   const { projectId: activeProjectId, projectName, version: selectedVersion, hasProject } = useProjectInfo();
-  const trpc = useTRPC();
-
-  const historyQuery = useQuery(
-    trpc.history.list.queryOptions(
-      { projectId: activeProjectId },
-      { enabled: !!activeProjectId },
-    ),
-  );
+  const historyQuery = useHistoryQuery(activeProjectId);
   const versions: VersionHistory[] = (historyQuery.data?.versions ?? []) as VersionHistory[];
 
   if (!hasProject) {
@@ -57,7 +25,6 @@ export function HistoryPageContent() {
   return (
     <div className="space-y-5">
       <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
-        {/* Header */}
         <div className="border-b border-slate-200 px-5 py-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -103,7 +70,6 @@ export function HistoryPageContent() {
                     )}
                   >
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                      {/* Left: version name + date */}
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <span
@@ -127,7 +93,6 @@ export function HistoryPageContent() {
                         </p>
                       </div>
 
-                      {/* Center: stat badges */}
                       <div className="flex flex-wrap gap-2">
                         <StatBadge label="Tables" value={v.tables} />
                         <StatBadge label="Fields" value={v.fields} />
@@ -135,7 +100,6 @@ export function HistoryPageContent() {
                         <StatBadge label="Restrictions" value={v.restrictions} />
                       </div>
 
-                      {/* Right: use button */}
                       <button
                         type="button"
                         disabled={isActive}
